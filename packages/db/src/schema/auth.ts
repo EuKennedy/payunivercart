@@ -25,7 +25,9 @@ export const sessions = pgTable(
   'sessions',
   {
     id: id(),
-    userId: id().notNull().references(() => users.id, { onDelete: 'cascade' }),
+    userId: id()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     token: text().notNull(),
     expiresAt: createdAt(),
     ipAddress: text(),
@@ -43,7 +45,9 @@ export const accounts = pgTable(
   'accounts',
   {
     id: id(),
-    userId: id().notNull().references(() => users.id, { onDelete: 'cascade' }),
+    userId: id()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     accountId: text().notNull(),
     providerId: text().notNull(),
     accessToken: text(),
@@ -72,9 +76,7 @@ export const verifications = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [
-    index('verifications_identifier_idx').on(table.identifier),
-  ],
+  (table) => [index('verifications_identifier_idx').on(table.identifier)],
 );
 
 /** Two-factor TOTP secrets per user. */
@@ -82,7 +84,9 @@ export const twoFactor = pgTable(
   'two_factor',
   {
     id: id(),
-    userId: id().notNull().references(() => users.id, { onDelete: 'cascade' }),
+    userId: id()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     secret: text().notNull(),
     backupCodes: text().notNull(),
     createdAt: createdAt(),

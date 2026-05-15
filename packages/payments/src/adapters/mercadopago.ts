@@ -35,15 +35,24 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
     throw notImplemented('validateCredentials');
   }
 
-  async createPix(_credentials: MercadoPagoCredentials, _input: CreatePixInput): Promise<PaymentResult> {
+  async createPix(
+    _credentials: MercadoPagoCredentials,
+    _input: CreatePixInput,
+  ): Promise<PaymentResult> {
     throw notImplemented('createPix');
   }
 
-  async createCard(_credentials: MercadoPagoCredentials, _input: CreateCardInput): Promise<PaymentResult> {
+  async createCard(
+    _credentials: MercadoPagoCredentials,
+    _input: CreateCardInput,
+  ): Promise<PaymentResult> {
     throw notImplemented('createCard');
   }
 
-  async createBoleto(_credentials: MercadoPagoCredentials, _input: CreateBoletoInput): Promise<PaymentResult> {
+  async createBoleto(
+    _credentials: MercadoPagoCredentials,
+    _input: CreateBoletoInput,
+  ): Promise<PaymentResult> {
     throw notImplemented('createBoleto');
   }
 

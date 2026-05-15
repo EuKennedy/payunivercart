@@ -59,9 +59,10 @@ describe('normalizePhone — international numbers', () => {
   });
 
   it('does not strip leading 9 outside Brazil', () => {
-    const result = normalizePhone('+44 7911 123456');
+    // Hutchison 3G UK mobile range (074xx)
+    const result = normalizePhone('+44 7400 123456');
     expect(result.country).toBe('GB');
-    expect(result.guessedWahaChatId).toBe('447911123456@c.us');
+    expect(result.guessedWahaChatId).toBe('447400123456@c.us');
   });
 });
 

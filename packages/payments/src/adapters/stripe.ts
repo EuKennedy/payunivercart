@@ -20,9 +20,7 @@ import {
  * BR Pix and BR boleto require a Stripe account incorporated in Brazil and
  * are surfaced as gated features in the dashboard.
  */
-export class StripeAdapter
-  implements PaymentGateway<StripeCredentials>
-{
+export class StripeAdapter implements PaymentGateway<StripeCredentials> {
   readonly id: GatewayId = 'stripe';
 
   parseCredentials(input: unknown): StripeCredentials {
@@ -114,7 +112,10 @@ export class StripeAdapter
     }
   }
 
-  async createBoleto(credentials: StripeCredentials, input: CreateBoletoInput): Promise<PaymentResult> {
+  async createBoleto(
+    credentials: StripeCredentials,
+    input: CreateBoletoInput,
+  ): Promise<PaymentResult> {
     if (input.amount.currency !== 'BRL') {
       throw new PaymentError('Stripe Boleto only supports BRL', {
         gatewayId: this.id,
@@ -136,7 +137,9 @@ export class StripeAdapter
               name: input.customer.name,
               address: {
                 line1: `${input.billingAddress.street}, ${input.billingAddress.number}`,
-                line2: input.billingAddress.complement,
+                ...(input.billingAddress.complement !== undefined && {
+                  line2: input.billingAddress.complement,
+                }),
                 city: input.billingAddress.city,
                 state: input.billingAddress.state,
                 postal_code: input.billingAddress.zipCode.replace(/\D/g, ''),
@@ -163,11 +166,12 @@ export class StripeAdapter
   async refund(credentials: StripeCredentials, input: RefundInput): Promise<RefundResult> {
     const stripe = this.client(credentials);
     try {
+      const refundReason = mapRefundReason(input.reason);
       const refund = await stripe.refunds.create(
         {
           payment_intent: input.gatewayChargeId,
-          amount: input.amount ? Number(input.amount.amount) : undefined,
-          reason: mapRefundReason(input.reason),
+          ...(input.amount && { amount: Number(input.amount.amount) }),
+          ...(refundReason && { reason: refundReason }),
         },
         { idempotencyKey: input.idempotencyKey },
       );
@@ -215,10 +219,14 @@ export class StripeAdapter
     try {
       event = stripe.webhooks.constructEvent(request.rawBody, signature, credentials.webhookSecret);
     } catch (cause) {
-      throw new PaymentError('Stripe webhook signature verification failed', {
-        gatewayId: this.id,
-        declineCode: 'AUTH_FAILED',
-      }, cause);
+      throw new PaymentError(
+        'Stripe webhook signature verification failed',
+        {
+          gatewayId: this.id,
+          declineCode: 'AUTH_FAILED',
+        },
+        cause,
+      );
     }
 
     return {
@@ -243,9 +251,14 @@ export class StripeAdapter
 
 function toPaymentResult(intent: Stripe.PaymentIntent): PaymentResult {
   const nextAction = intent.next_action;
-  const pixDisplay = nextAction?.type === 'pix_display_qr_code' ? nextAction.pix_display_qr_code : undefined;
-  const boletoDisplay = nextAction?.type === 'boleto_display_details' ? nextAction.boleto_display_details : undefined;
-  const charge = intent.latest_charge && typeof intent.latest_charge === 'object' ? intent.latest_charge : undefined;
+  const pixDisplay =
+    nextAction?.type === 'pix_display_qr_code' ? nextAction.pix_display_qr_code : undefined;
+  const boletoDisplay =
+    nextAction?.type === 'boleto_display_details' ? nextAction.boleto_display_details : undefined;
+  const charge =
+    intent.latest_charge && typeof intent.latest_charge === 'object'
+      ? intent.latest_charge
+      : undefined;
   const card = charge?.payment_method_details?.card;
 
   return {
@@ -264,11 +277,15 @@ function toPaymentResult(intent: Stripe.PaymentIntent): PaymentResult {
     pixExpiresAt: pixDisplay?.expires_at ? new Date(pixDisplay.expires_at * 1000) : undefined,
     boletoUrl: boletoDisplay?.hosted_voucher_url ?? undefined,
     boletoBarcode: boletoDisplay?.number ?? undefined,
-    boletoDueDate: boletoDisplay?.expires_at ? new Date(boletoDisplay.expires_at * 1000) : undefined,
-    cardBrand: card?.brand,
-    cardLast4: card?.last4,
+    boletoDueDate: boletoDisplay?.expires_at
+      ? new Date(boletoDisplay.expires_at * 1000)
+      : undefined,
+    cardBrand: card?.brand ?? undefined,
+    cardLast4: card?.last4 ?? undefined,
     cardThreeDsRedirectUrl:
-      nextAction?.type === 'redirect_to_url' ? nextAction.redirect_to_url?.url ?? undefined : undefined,
+      nextAction?.type === 'redirect_to_url'
+        ? (nextAction.redirect_to_url?.url ?? undefined)
+        : undefined,
     raw: intent,
   };
 }
@@ -305,7 +322,9 @@ function mapRefundReason(reason: string | undefined): Stripe.RefundCreateParams.
   return 'requested_by_customer';
 }
 
-function flattenMetadata(meta: Record<string, string | number | boolean> | undefined): Record<string, string> {
+function flattenMetadata(
+  meta: Record<string, string | number | boolean> | undefined,
+): Record<string, string> {
   if (!meta) return {};
   return Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, String(v)]));
 }
@@ -313,18 +332,26 @@ function flattenMetadata(meta: Record<string, string | number | boolean> | undef
 function mapStripeError(cause: unknown): PaymentError {
   if (cause instanceof Stripe.errors.StripeError) {
     const declineCode = mapStripeDeclineCode(cause.code);
-    return new PaymentError(cause.message, {
-      gatewayId: 'stripe',
-      declineCode,
-      rawCode: cause.code,
-      rawMessage: cause.message,
-      retryable: cause.type === 'StripeConnectionError' || cause.type === 'StripeAPIError',
-    }, cause);
+    return new PaymentError(
+      cause.message,
+      {
+        gatewayId: 'stripe',
+        declineCode,
+        ...(cause.code !== undefined && { rawCode: cause.code }),
+        rawMessage: cause.message,
+        retryable: cause.type === 'StripeConnectionError' || cause.type === 'StripeAPIError',
+      },
+      cause,
+    );
   }
-  return new PaymentError('Unexpected Stripe error', {
-    gatewayId: 'stripe',
-    declineCode: 'UNKNOWN',
-  }, cause);
+  return new PaymentError(
+    'Unexpected Stripe error',
+    {
+      gatewayId: 'stripe',
+      declineCode: 'UNKNOWN',
+    },
+    cause,
+  );
 }
 
 function mapStripeDeclineCode(code: string | undefined): import('../errors.js').PaymentDeclineCode {

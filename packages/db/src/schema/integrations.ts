@@ -1,12 +1,4 @@
-import {
-  boolean,
-  index,
-  jsonb,
-  pgEnum,
-  pgTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
+import { boolean, index, jsonb, pgEnum, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { createdAt, fk, gatewayIdEnum, id, updatedAt } from './common.js';
 import { workspaces } from './workspaces.js';
 
@@ -33,7 +25,9 @@ export const integrations = pgTable(
   'integrations',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     kind: integrationKindEnum().notNull(),
     provider: text().notNull(),
     status: integrationStatusEnum().notNull().default('pending'),
@@ -61,7 +55,9 @@ export const gatewayCredentials = pgTable(
   'gateway_credentials',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     gatewayId: gatewayIdEnum().notNull(),
     label: text().notNull(),
     isDefault: boolean().notNull().default(false),
@@ -90,7 +86,9 @@ export const whatsappSessions = pgTable(
   'whatsapp_sessions',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     wahaSessionId: text().notNull(),
     phoneNumber: text(),
     status: text().notNull().default('STARTING'),
@@ -111,7 +109,9 @@ export const whatsappChatIds = pgTable(
   'whatsapp_chat_ids',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     e164: text().notNull(),
     chatId: text().notNull(),
     resolvedAt: createdAt(),

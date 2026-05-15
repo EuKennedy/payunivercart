@@ -37,7 +37,10 @@ export class WahaClient {
    * Resolve the actual WhatsApp chatId for a phone number.
    * Critical for BR pre-2012 accounts where the trailing "9" must be stripped.
    */
-  async checkExists(phoneDigits: string, session = this.defaultSession): Promise<WahaCheckExistsResponse> {
+  async checkExists(
+    phoneDigits: string,
+    session = this.defaultSession,
+  ): Promise<WahaCheckExistsResponse> {
     const url = `${this.baseUrl}/api/contacts/check-exists?phone=${encodeURIComponent(phoneDigits)}&session=${encodeURIComponent(session)}`;
     const response = await this.request(url, { method: 'GET' });
     const data = (await response.json()) as unknown;

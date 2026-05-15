@@ -39,7 +39,8 @@ export function map<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<
 
 export async function fromPromise<T, E = Error>(
   promise: Promise<T>,
-  mapError: (e: unknown) => E = (e) => (e instanceof Error ? (e as unknown as E) : (new Error(String(e)) as unknown as E)),
+  mapError: (e: unknown) => E = (e) =>
+    e instanceof Error ? (e as unknown as E) : (new Error(String(e)) as unknown as E),
 ): Promise<Result<T, E>> {
   try {
     return ok(await promise);

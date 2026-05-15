@@ -1,11 +1,4 @@
-import {
-  boolean,
-  index,
-  jsonb,
-  pgTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
+import { boolean, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { createdAt, deletedAt, fk, id, updatedAt } from './common.js';
 import { products } from './products.js';
 import { workspaces } from './workspaces.js';
@@ -19,7 +12,9 @@ export const checkouts = pgTable(
   'checkouts',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     slug: text().notNull(),
     name: text().notNull(),
     primaryProductId: fk().references(() => products.id, { onDelete: 'set null' }),

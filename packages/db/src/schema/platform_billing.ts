@@ -1,19 +1,5 @@
-import {
-  bigint,
-  index,
-  jsonb,
-  pgTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
-import {
-  createdAt,
-  currencyEnum,
-  fk,
-  id,
-  subscriptionStatusEnum,
-  updatedAt,
-} from './common.js';
+import { bigint, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { createdAt, currencyEnum, fk, id, subscriptionStatusEnum, updatedAt } from './common.js';
 import { organizations } from './organizations.js';
 import { workspaces } from './workspaces.js';
 
@@ -26,8 +12,12 @@ export const platformSubscriptions = pgTable(
   'platform_subscriptions',
   {
     id: id(),
-    organizationId: fk().notNull().references(() => organizations.id, { onDelete: 'cascade' }),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    organizationId: fk()
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     gatewaySubscriptionId: text(),
     status: subscriptionStatusEnum().notNull().default('trialing'),
     currentPeriodStart: createdAt(),
@@ -48,8 +38,12 @@ export const platformInvoices = pgTable(
   'platform_invoices',
   {
     id: id(),
-    organizationId: fk().notNull().references(() => organizations.id, { onDelete: 'cascade' }),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    organizationId: fk()
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     subscriptionId: fk().references(() => platformSubscriptions.id, { onDelete: 'set null' }),
     gatewayInvoiceId: text(),
     amountCents: bigint({ mode: 'bigint' }).notNull(),

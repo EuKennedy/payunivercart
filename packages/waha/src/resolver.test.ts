@@ -14,11 +14,12 @@ function buildClient(fetchImpl: typeof fetch): WahaClient {
 
 describe('ChatIdResolver', () => {
   it('resolves a BR pre-2012 chatId by calling check-exists (strips the 9)', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ numberExists: true, chatId: '553184956383@c.us' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ numberExists: true, chatId: '553184956383@c.us' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
     );
     const resolver = new ChatIdResolver({
       client: buildClient(fetchMock as unknown as typeof fetch),
@@ -30,11 +31,12 @@ describe('ChatIdResolver', () => {
   });
 
   it('hits the cache on the second call', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ numberExists: true, chatId: '5531984956383@c.us' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ numberExists: true, chatId: '5531984956383@c.us' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
     );
     const cache = new InMemoryChatIdCache();
     const resolver = new ChatIdResolver({
@@ -47,16 +49,19 @@ describe('ChatIdResolver', () => {
   });
 
   it('throws PHONE_INVALID when the number is not on WhatsApp', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ numberExists: false }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ numberExists: false }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
     );
     const resolver = new ChatIdResolver({
       client: buildClient(fetchMock as unknown as typeof fetch),
       cache: new InMemoryChatIdCache(),
     });
-    await expect(resolver.resolve('+5531984956383', 'tenant-1')).rejects.toThrowError(/PHONE_INVALID|not a registered/);
+    await expect(resolver.resolve('+5531984956383', 'tenant-1')).rejects.toThrowError(
+      /PHONE_INVALID|not a registered/,
+    );
   });
 });

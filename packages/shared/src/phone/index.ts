@@ -1,5 +1,6 @@
 import {
   type CountryCode,
+  type NumberType,
   getCountryCallingCode,
   isValidPhoneNumber,
   parsePhoneNumberFromString,
@@ -44,10 +45,7 @@ const BR_COUNTRY_CALLING_CODE = '55';
  * `check-exists` endpoint. Use `packages/waha`'s resolver for delivery; use
  * this function only for storage, validation, and UI formatting.
  */
-export function normalizePhone(
-  input: string,
-  options: NormalizeOptions = {},
-): NormalizedPhone {
+export function normalizePhone(input: string, options: NormalizeOptions = {}): NormalizedPhone {
   const defaultCountry: PhoneCountryCode = options.defaultCountry ?? 'BR';
   const raw = input.trim();
 
@@ -57,11 +55,7 @@ export function normalizePhone(
 
   const parsed = parsePhoneNumberFromString(raw, defaultCountry);
   if (!parsed) {
-    throw new PhoneNormalizationError(
-      `Could not parse phone number "${raw}"`,
-      'PARSE_FAILED',
-      raw,
-    );
+    throw new PhoneNormalizationError(`Could not parse phone number "${raw}"`, 'PARSE_FAILED', raw);
   }
 
   const country: PhoneCountryCode = parsed.country ?? defaultCountry;
@@ -107,7 +101,7 @@ function buildBrazilianWahaGuess(callingCode: string, national: string): string 
   return `${callingCode}${national}`;
 }
 
-function parseType(t: ReturnType<ReturnType<typeof parsePhoneNumberFromString>['getType']>) {
+function parseType(t: NumberType | undefined): NumberType | 'UNKNOWN' {
   return t ?? 'UNKNOWN';
 }
 

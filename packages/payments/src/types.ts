@@ -1,4 +1,4 @@
-import { type GatewayId, type Money, type PaymentMethod, type TransactionStatus } from '@payunivercart/shared';
+import type { GatewayId, Money, PaymentMethod, TransactionStatus } from '@payunivercart/shared';
 import { z } from 'zod';
 
 /* -------------------------------------------------------------------------- */

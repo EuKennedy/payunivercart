@@ -23,7 +23,9 @@ export const products = pgTable(
   'products',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     slug: text().notNull(),
     name: text().notNull(),
     description: text(),
@@ -45,7 +47,9 @@ export const productCategories = pgTable(
   'product_categories',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     slug: text().notNull(),
     name: text().notNull(),
     description: text(),
@@ -60,8 +64,12 @@ export const productCategories = pgTable(
 export const productCategoryMappings = pgTable(
   'product_category_mappings',
   {
-    productId: fk().notNull().references(() => products.id, { onDelete: 'cascade' }),
-    categoryId: fk().notNull().references(() => productCategories.id, { onDelete: 'cascade' }),
+    productId: fk()
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    categoryId: fk()
+      .notNull()
+      .references(() => productCategories.id, { onDelete: 'cascade' }),
   },
   (table) => [uniqueIndex('product_category_mappings_pk').on(table.productId, table.categoryId)],
 );
@@ -74,8 +82,12 @@ export const productOffers = pgTable(
   'product_offers',
   {
     id: id(),
-    productId: fk().notNull().references(() => products.id, { onDelete: 'cascade' }),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    productId: fk()
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     name: text().notNull(),
     amountCents: bigint({ mode: 'bigint' }).notNull(),
     currency: currencyEnum().notNull().default('BRL'),
@@ -96,7 +108,9 @@ export const productCoupons = pgTable(
   'product_coupons',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     code: text().notNull(),
     discountType: text().notNull(),
     discountValue: bigint({ mode: 'bigint' }).notNull(),
@@ -107,5 +121,7 @@ export const productCoupons = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [uniqueIndex('product_coupons_workspace_code_unique').on(table.workspaceId, table.code)],
+  (table) => [
+    uniqueIndex('product_coupons_workspace_code_unique').on(table.workspaceId, table.code),
+  ],
 );

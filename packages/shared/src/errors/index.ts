@@ -62,8 +62,6 @@ function defaultHttpStatus(code: ErrorCode): number {
       return 400;
     case 'GATEWAY_UNAVAILABLE':
       return 503;
-    case 'GATEWAY_ERROR':
-    case 'INTERNAL':
     default:
       return 500;
   }

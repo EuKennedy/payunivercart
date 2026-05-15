@@ -18,7 +18,9 @@ export const recoveryCampaigns = pgTable(
   'recovery_campaigns',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     name: text().notNull(),
     isActive: boolean().notNull().default(false),
     steps: jsonb().notNull().default([]),
@@ -36,9 +38,15 @@ export const recoveryAttempts = pgTable(
   'recovery_attempts',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
-    cartId: fk().notNull().references(() => carts.id, { onDelete: 'cascade' }),
-    campaignId: fk().notNull().references(() => recoveryCampaigns.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    cartId: fk()
+      .notNull()
+      .references(() => carts.id, { onDelete: 'cascade' }),
+    campaignId: fk()
+      .notNull()
+      .references(() => recoveryCampaigns.id, { onDelete: 'cascade' }),
     stepIndex: integer().notNull(),
     channel: recoveryChannelEnum().notNull(),
     targetIdentifier: text().notNull(),

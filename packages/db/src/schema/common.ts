@@ -12,17 +12,12 @@ export const id = () => uuid().primaryKey().defaultRandom();
 export const fk = () => uuid();
 
 export const createdAt = () =>
-  timestamp({ mode: 'date', withTimezone: true, precision: 3 })
-    .notNull()
-    .default(sql`now()`);
+  timestamp({ mode: 'date', withTimezone: true, precision: 3 }).notNull().default(sql`now()`);
 
 export const updatedAt = () =>
-  timestamp({ mode: 'date', withTimezone: true, precision: 3 })
-    .notNull()
-    .default(sql`now()`);
+  timestamp({ mode: 'date', withTimezone: true, precision: 3 }).notNull().default(sql`now()`);
 
-export const deletedAt = () =>
-  timestamp({ mode: 'date', withTimezone: true, precision: 3 });
+export const deletedAt = () => timestamp({ mode: 'date', withTimezone: true, precision: 3 });
 
 /** Currency ISO 4217. */
 export const currencyEnum = pgEnum('currency', ['BRL', 'USD', 'EUR']);

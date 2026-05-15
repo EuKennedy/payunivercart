@@ -1,12 +1,4 @@
-import {
-  index,
-  integer,
-  jsonb,
-  pgEnum,
-  pgTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
+import { index, integer, jsonb, pgEnum, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { createdAt, fk, gatewayIdEnum, id, updatedAt } from './common.js';
 import { workspaces } from './workspaces.js';
 
@@ -52,7 +44,9 @@ export const webhooksOutbox = pgTable(
   'webhooks_outbox',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     endpoint: text().notNull(),
     eventType: text().notNull(),
     payload: jsonb().notNull(),
@@ -81,7 +75,9 @@ export const webhookEndpoints = pgTable(
   'webhook_endpoints',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     url: text().notNull(),
     description: text(),
     eventTypes: jsonb().notNull().default([]),
@@ -94,11 +90,10 @@ export const webhookEndpoints = pgTable(
 );
 
 /** Reference to whichever gateway each inbound webhook came from. */
-export const webhooksInboundGateway = pgTable(
-  'webhooks_inbound_gateway',
-  {
-    id: id(),
-    inboundId: fk().notNull().references(() => webhooksInbound.id, { onDelete: 'cascade' }),
-    gatewayId: gatewayIdEnum().notNull(),
-  },
-);
+export const webhooksInboundGateway = pgTable('webhooks_inbound_gateway', {
+  id: id(),
+  inboundId: fk()
+    .notNull()
+    .references(() => webhooksInbound.id, { onDelete: 'cascade' }),
+  gatewayId: gatewayIdEnum().notNull(),
+});

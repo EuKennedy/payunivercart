@@ -1,11 +1,4 @@
-import {
-  boolean,
-  index,
-  jsonb,
-  pgTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
+import { boolean, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
 import { createdAt, deletedAt, fk, id, localeEnum, memberRoleEnum, updatedAt } from './common.js';
 import { organizations } from './organizations.js';
@@ -18,7 +11,9 @@ export const workspaces = pgTable(
   'workspaces',
   {
     id: id(),
-    organizationId: fk().notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+    organizationId: fk()
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
     slug: text().notNull(),
     name: text().notNull(),
     brandLogoUrl: text(),
@@ -42,8 +37,12 @@ export const memberships = pgTable(
   'memberships',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
-    userId: fk().notNull().references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    userId: fk()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     role: memberRoleEnum().notNull().default('viewer'),
     invitedById: fk().references(() => users.id, { onDelete: 'set null' }),
     acceptedAt: createdAt(),

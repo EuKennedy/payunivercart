@@ -12,7 +12,9 @@ export const organizations = pgTable(
     id: id(),
     slug: text().notNull(),
     name: text().notNull(),
-    ownerId: fk().notNull().references(() => users.id, { onDelete: 'restrict' }),
+    ownerId: fk()
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
     legalDocument: text(),
     websiteUrl: text(),
     onboardingCompleted: boolean().notNull().default(false),

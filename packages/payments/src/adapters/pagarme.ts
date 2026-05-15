@@ -35,15 +35,24 @@ export class PagarmeAdapter implements PaymentGateway<PagarmeCredentials> {
     throw notImplemented('validateCredentials');
   }
 
-  async createPix(_credentials: PagarmeCredentials, _input: CreatePixInput): Promise<PaymentResult> {
+  async createPix(
+    _credentials: PagarmeCredentials,
+    _input: CreatePixInput,
+  ): Promise<PaymentResult> {
     throw notImplemented('createPix');
   }
 
-  async createCard(_credentials: PagarmeCredentials, _input: CreateCardInput): Promise<PaymentResult> {
+  async createCard(
+    _credentials: PagarmeCredentials,
+    _input: CreateCardInput,
+  ): Promise<PaymentResult> {
     throw notImplemented('createCard');
   }
 
-  async createBoleto(_credentials: PagarmeCredentials, _input: CreateBoletoInput): Promise<PaymentResult> {
+  async createBoleto(
+    _credentials: PagarmeCredentials,
+    _input: CreateBoletoInput,
+  ): Promise<PaymentResult> {
     throw notImplemented('createBoleto');
   }
 

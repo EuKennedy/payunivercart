@@ -1,12 +1,4 @@
-import {
-  bigint,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
+import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import {
   createdAt,
   currencyEnum,
@@ -31,8 +23,12 @@ export const transactions = pgTable(
   'transactions',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
-    orderId: fk().notNull().references(() => orders.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    orderId: fk()
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
     gatewayId: gatewayIdEnum().notNull(),
     gatewayChargeId: text(),
     gatewayRequestId: text(),
@@ -74,7 +70,9 @@ export const refunds = pgTable(
   'refunds',
   {
     id: id(),
-    transactionId: fk().notNull().references(() => transactions.id, { onDelete: 'cascade' }),
+    transactionId: fk()
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
     gatewayRefundId: text(),
     amountCents: bigint({ mode: 'bigint' }).notNull(),
     reason: text(),

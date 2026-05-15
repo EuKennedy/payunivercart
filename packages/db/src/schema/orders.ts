@@ -1,21 +1,6 @@
-import {
-  bigint,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
+import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { checkouts } from './checkouts.js';
-import {
-  createdAt,
-  currencyEnum,
-  fk,
-  id,
-  orderStatusEnum,
-  updatedAt,
-} from './common.js';
+import { createdAt, currencyEnum, fk, id, orderStatusEnum, updatedAt } from './common.js';
 import { productOffers, products } from './products.js';
 import { workspaces } from './workspaces.js';
 
@@ -23,7 +8,9 @@ export const orders = pgTable(
   'orders',
   {
     id: id(),
-    workspaceId: fk().notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     checkoutId: fk().references(() => checkouts.id, { onDelete: 'set null' }),
     publicReference: text().notNull(),
     status: orderStatusEnum().notNull().default('draft'),
@@ -60,8 +47,12 @@ export const orderItems = pgTable(
   'order_items',
   {
     id: id(),
-    orderId: fk().notNull().references(() => orders.id, { onDelete: 'cascade' }),
-    productId: fk().notNull().references(() => products.id, { onDelete: 'restrict' }),
+    orderId: fk()
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    productId: fk()
+      .notNull()
+      .references(() => products.id, { onDelete: 'restrict' }),
     offerId: fk().references(() => productOffers.id, { onDelete: 'set null' }),
     name: text().notNull(),
     quantity: integer().notNull().default(1),
