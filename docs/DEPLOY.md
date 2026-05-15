@@ -2,44 +2,56 @@
 
 Target: `pay.univercart.com` running on a Coolify-managed VPS.
 
-## Local boot (verify before pushing)
+## Stack overview
+
+Eight services boot from `docker/docker-compose.yml`:
+
+| Service     | Port (internal) | Purpose |
+|-------------|-----------------|---------|
+| `postgres`  | 5432            | Primary database (Postgres 17). |
+| `redis`     | 6379            | BullMQ queues + caches. |
+| `migrate`   | one-shot        | Runs Drizzle migrations + RLS + audit lockdown then exits. |
+| `api`       | 4000            | Hono + tRPC backend, Better-Auth, webhook receivers. |
+| `dashboard` | 3000            | Next.js producer dashboard. |
+| `checkout`  | 3001            | Next.js public checkout. |
+| `admin`     | 3002            | Next.js super-admin (operator only — gate by IP allowlist). |
+| `workers`   | (no port)       | BullMQ processors (webhooks, recovery, audit verify). |
+| `nginx`     | 80              | Reverse proxy; routes hosts to the matching service. |
+| `waha`      | (profile only)  | Local WAHA, only when `--profile local-waha` is on. |
+
+## Local boot
 
 ```bash
 # 1. Create .env with real values
 cp .env.example .env
-# Replace every __REPLACE_ME__ marker — the api refuses to boot otherwise.
+# Replace every __REPLACE_ME__ marker — every service refuses to start
+# while the sentinel is present.
 
-# Generate the secrets:
-echo "AUTH_SECRET=$(openssl rand -hex 32)"            >> .env  # ≥64 hex chars
-echo "WAHA_WEBHOOK_SECRET=$(openssl rand -hex 32)"    >> .env
+# 2. Generate secrets (run on the VPS over SSH — keep secrets off
+#    development machines):
+openssl rand -hex 32       # AUTH_SECRET, WAHA_WEBHOOK_SECRET
+openssl rand -base64 32    # ENCRYPTION_KEYS value, AUDIT_KEYS value
 
-# 32-byte KEKs (one each, base64-encoded):
-ENC_KEY=$(openssl rand -base64 32)
-AUD_KEY=$(openssl rand -base64 32)
-echo "ENCRYPTION_KEYS=v1:${ENC_KEY}"                  >> .env
-echo "AUDIT_KEYS=v1:${AUD_KEY}"                       >> .env
-
-# 2. Bring up the full stack
+# 3. Bring up the stack
 pnpm docker:up
 
-# 3. Watch the boot
+# 4. Watch the boot
 pnpm docker:logs
 
-# 4. Smoke test
+# 5. Smoke
 curl -fsS http://localhost/health
 # => {"status":"ok","uptimeSeconds":...}
 
-# 5. tRPC health (envelope shape)
+# 6. tRPC envelope
 curl -fsS 'http://localhost/trpc/health.live'
 ```
 
 The `migrate` service runs once and exits — it applies:
+1. `packages/db/drizzle/0000_init.sql`
+2. `packages/db/sql/02_rls_policies.sql` (RLS)
+3. `packages/audit/sql/01_lockdown.sql` (append-only triggers)
 
-1. The Drizzle-generated SQL (`packages/db/drizzle/0000_init.sql`).
-2. `packages/db/sql/02_rls_policies.sql` (RLS).
-3. `packages/audit/sql/01_lockdown.sql` (append-only triggers).
-
-After it exits successfully, `api` starts.
+After it exits successfully, every other service starts.
 
 ## Coolify deploy
 
@@ -49,20 +61,24 @@ After it exits successfully, `api` starts.
 3. **Compose file:** `docker/docker-compose.yml`.
 4. **Secrets:** add every env var from `.env.example` in Coolify's
    secrets UI. None of them may contain `__REPLACE_ME__`.
-5. **Domain:** point `pay.univercart.com` at the Coolify host; Coolify
-   issues the Let's Encrypt cert automatically. The nginx service
-   inside the compose listens on port 80 — Coolify's outer proxy
-   terminates TLS.
-6. **Deploy.** Coolify pulls, builds, runs the migrate service, starts
-   api + waha + postgres + redis + nginx. `nginx` only publishes port
-   80 internally; Coolify's edge proxy is what is reachable from the
-   internet.
+5. **Domains** — point each subdomain at this VPS in DNS, then add
+   them in Coolify's project domains:
+   - `pay.univercart.com` → `dashboard` (port 3000)
+   - `checkout.univercart.com` → `checkout` (port 3001)
+   - `admin.univercart.com` → `admin` (port 3002, with an IP allowlist!)
+   Coolify issues a Let's Encrypt cert per domain. The internal nginx
+   handles the `/api/`, `/trpc/`, `/webhooks/` paths regardless of which
+   subdomain hits it.
+6. **Deploy.** Coolify pulls, builds, runs the migrate one-shot, starts
+   the long-lived services. The first boot takes ~5 min because all
+   four Next.js apps build from scratch; subsequent deploys hit the
+   build cache.
 7. **Smoke test:**
    ```bash
    curl -fsS https://pay.univercart.com/health
    ```
 
-## Provision the three Postgres roles (one-time, after first migrate)
+## Postgres roles (one-time, after first migrate)
 
 ```bash
 docker compose -f docker/docker-compose.yml exec postgres \
@@ -84,8 +100,9 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 SQL
 ```
 
-After roles exist, switch the api's `DATABASE_URL` to use
-`payunivercart_app` (no BYPASSRLS) and restart the service.
+After roles exist, switch `DATABASE_URL` (for `api`, `dashboard`,
+`checkout`, `admin`) to `payunivercart_app` (no BYPASSRLS) and
+`workers`' `DATABASE_URL` to `payunivercart_worker`, then redeploy.
 
 ## Rollback
 
@@ -100,10 +117,8 @@ touches existing tables.
 
 ## Pending pieces (will land in later blocks)
 
-- `apps/dashboard`, `apps/checkout`, `apps/admin`, `apps/workers` — not
-  yet in `docker-compose.yml`. Add the same `build` block + healthcheck
-  pattern when they ship.
-- Real Stripe / MP / Pagar.me / PagSeguro HTTP integration in the
-  payment adapters (MP / Pagar.me / PagSeguro currently throw 501).
-- Better-Auth wiring + OTP via WAHA.
+- Real cart-recovery handler logic in `apps/workers/src/processors.ts`.
+- Audit verifier Drizzle port + alert sink.
+- Producer-facing webhook outbox dispatcher (signs + retries).
+- Stripe-USD checkout path in `apps/checkout`.
 - Sentry + PostHog wiring.

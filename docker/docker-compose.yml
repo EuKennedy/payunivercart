@@ -152,6 +152,55 @@ services:
     networks: [internal, public]
 
   # -----------------------------------------------------------------------
+  # Dashboard — Next.js, producer-facing. Port 3000 internal.
+  # -----------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ..
+      dockerfile: apps/dashboard/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal]
+
+  # -----------------------------------------------------------------------
+  # Checkout — Next.js, public-facing. Port 3001 internal.
+  # -----------------------------------------------------------------------
+  checkout:
+    build:
+      context: ..
+      dockerfile: apps/checkout/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal]
+
+  # -----------------------------------------------------------------------
+  # Admin — Next.js, operator-only. Port 3002 internal. Nginx gates
+  # access via Coolify-side IP allowlist (set per deploy).
+  # -----------------------------------------------------------------------
+  admin:
+    build:
+      context: ..
+      dockerfile: apps/admin/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal]
+
+  # -----------------------------------------------------------------------
   # Workers — BullMQ processors. Stateless; sits inside `internal` only,
   # never exposed to the outside. Reads from Redis (queues) and Postgres
   # (audit chain, recovery_attempts, webhooks_inbound). Uses the `worker`
@@ -197,6 +246,12 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      dashboard:
+        condition: service_started
+      checkout:
+        condition: service_started
+      admin:
+        condition: service_started
     networks: [internal, public]
 
 volumes:
