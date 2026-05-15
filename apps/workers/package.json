@@ -1,0 +1,33 @@
+{
+  "name": "@payunivercart/workers",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node --enable-source-maps dist/index.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@payunivercart/audit": "workspace:*",
+    "@payunivercart/crypto": "workspace:*",
+    "@payunivercart/db": "workspace:*",
+    "@payunivercart/payments": "workspace:*",
+    "@payunivercart/shared": "workspace:*",
+    "@payunivercart/waha": "workspace:*",
+    "bullmq": "5.34.10",
+    "drizzle-orm": "0.45.2",
+    "ioredis": "5.4.2",
+    "zod": "3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "dotenv": "16.4.7",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  }
+}

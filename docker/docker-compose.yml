@@ -152,6 +152,37 @@ services:
     networks: [internal, public]
 
   # -----------------------------------------------------------------------
+  # Workers — BullMQ processors. Stateless; sits inside `internal` only,
+  # never exposed to the outside. Reads from Redis (queues) and Postgres
+  # (audit chain, recovery_attempts, webhooks_inbound). Uses the `worker`
+  # Postgres role with BYPASSRLS (see packages/db/sql/README.md).
+  # -----------------------------------------------------------------------
+  workers:
+    build:
+      context: ..
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgres://${POSTGRES_USER:-payunivercart}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-payunivercart}
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+      WAHA_BASE_URL: ${WAHA_BASE_URL:-http://waha:3000}
+      WAHA_API_KEY: ${WAHA_API_KEY:?WAHA_API_KEY required}
+      ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?ENCRYPTION_KEYS required}
+      ENCRYPTION_ACTIVE_KEY_ID: ${ENCRYPTION_ACTIVE_KEY_ID:-v1}
+      AUDIT_KEYS: ${AUDIT_KEYS:?AUDIT_KEYS required}
+      AUDIT_ACTIVE_KEY_ID: ${AUDIT_ACTIVE_KEY_ID:-v1}
+      WORKERS_CONCURRENCY: ${WORKERS_CONCURRENCY:-5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [internal]
+
+  # -----------------------------------------------------------------------
   # Nginx — terminates TLS (Coolify provides the cert via Let's Encrypt)
   # and reverse-proxies to the api and (later) the dashboard/checkout/admin.
   # On local dev we serve plain HTTP and skip TLS.
