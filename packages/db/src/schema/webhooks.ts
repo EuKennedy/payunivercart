@@ -1,5 +1,14 @@
-import { index, integer, jsonb, pgEnum, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { createdAt, fk, gatewayIdEnum, id, updatedAt } from './common.js';
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
+import { createdAt, fk, gatewayIdEnum, id, timestampTzNullable, updatedAt } from './common.js';
 import { workspaces } from './workspaces.js';
 
 export const webhookDirectionEnum = pgEnum('webhook_direction', ['inbound', 'outbound']);
@@ -10,6 +19,22 @@ export const webhookStatusEnum = pgEnum('webhook_status', [
   'delivered',
   'failed',
   'dead_letter',
+]);
+
+/**
+ * Tri-state for inbound webhook signature verification:
+ *   `valid`   — HMAC verified by the relevant gateway adapter.
+ *   `invalid` — signature present but did not verify.
+ *   `unknown` — no signature header, or verifier not yet available
+ *               (e.g. payload landed before the adapter was deployed).
+ *
+ * Stored as a Postgres enum so `WHERE signature_valid = 'valid'` filters
+ * work as expected, and so the column cannot drift into free-form strings.
+ */
+export const webhookSignatureStateEnum = pgEnum('webhook_signature_state', [
+  'unknown',
+  'valid',
+  'invalid',
 ]);
 
 /**
@@ -26,14 +51,16 @@ export const webhooksInbound = pgTable(
     eventType: text().notNull(),
     rawHeaders: jsonb().notNull(),
     rawBody: text().notNull(),
-    signatureValid: text().notNull().default('unknown'),
-    processedAt: createdAt(),
+    signatureValid: webhookSignatureStateEnum().notNull().default('unknown'),
+    /** Set when the worker finishes processing this event; null = still pending. */
+    processedAt: timestampTzNullable(),
     error: text(),
     createdAt: createdAt(),
   },
   (table) => [
     uniqueIndex('webhooks_inbound_source_event_unique').on(table.source, table.eventId),
     index('webhooks_inbound_workspace_idx').on(table.workspaceId),
+    index('webhooks_inbound_processed_idx').on(table.processedAt),
   ],
 );
 
@@ -53,11 +80,13 @@ export const webhooksOutbox = pgTable(
     signature: text().notNull(),
     status: webhookStatusEnum().notNull().default('pending'),
     attempts: integer().notNull().default(0),
-    lastAttemptAt: createdAt(),
-    nextAttemptAt: createdAt(),
+    /** Null until the first attempt completes. */
+    lastAttemptAt: timestampTzNullable(),
+    /** App computes (e.g. now() + backoff) at insert; null until scheduled. */
+    nextAttemptAt: timestampTzNullable(),
     lastResponseStatus: integer(),
     lastResponseBody: text(),
-    deliveredAt: createdAt(),
+    deliveredAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -82,11 +111,14 @@ export const webhookEndpoints = pgTable(
     description: text(),
     eventTypes: jsonb().notNull().default([]),
     secret: text().notNull(),
-    isActive: text().notNull().default('true'),
+    isActive: boolean().notNull().default(true),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [index('webhook_endpoints_workspace_idx').on(table.workspaceId)],
+  (table) => [
+    index('webhook_endpoints_workspace_idx').on(table.workspaceId),
+    index('webhook_endpoints_active_idx').on(table.workspaceId, table.isActive),
+  ],
 );
 
 /** Reference to whichever gateway each inbound webhook came from. */

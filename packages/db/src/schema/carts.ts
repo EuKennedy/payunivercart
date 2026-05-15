@@ -1,6 +1,7 @@
+import { sql } from 'drizzle-orm';
 import { bigint, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { checkouts } from './checkouts.js';
-import { createdAt, currencyEnum, fk, id, updatedAt } from './common.js';
+import { createdAt, currencyEnum, fk, id, timestampTzNullable, updatedAt } from './common.js';
 import { workspaces } from './workspaces.js';
 
 /**
@@ -23,18 +24,22 @@ export const carts = pgTable(
     itemsSnapshot: jsonb().notNull().default([]),
     totalCents: bigint({ mode: 'bigint' }).notNull().default(0n),
     currency: currencyEnum().notNull().default('BRL'),
-    abandonedAt: createdAt(),
-    recoveredAt: createdAt(),
+    /** Set when the cart is detected as abandoned by the worker. */
+    abandonedAt: timestampTzNullable(),
+    /** Set when the cart converts via a recovery flow. */
+    recoveredAt: timestampTzNullable(),
     metadata: jsonb().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     index('carts_workspace_idx').on(table.workspaceId),
-    uniqueIndex('carts_workspace_email_unique').on(
-      table.workspaceId,
-      table.customerEmail,
-      table.checkoutId,
-    ),
+    // Partial unique: only enforce dedupe when we know the customer's email.
+    // Nullable columns in a regular UNIQUE do not block duplicates — multiple
+    // anonymous carts would all share `(workspace, NULL, checkout)`.
+    uniqueIndex('carts_workspace_email_unique')
+      .on(table.workspaceId, table.customerEmail, table.checkoutId)
+      .where(sql`customer_email IS NOT NULL`),
+    index('carts_workspace_abandoned_idx').on(table.workspaceId, table.abandonedAt),
   ],
 );

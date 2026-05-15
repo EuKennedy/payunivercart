@@ -1,6 +1,14 @@
 import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { checkouts } from './checkouts.js';
-import { createdAt, currencyEnum, fk, id, orderStatusEnum, updatedAt } from './common.js';
+import {
+  createdAt,
+  currencyEnum,
+  fk,
+  id,
+  orderStatusEnum,
+  timestampTzNullable,
+  updatedAt,
+} from './common.js';
 import { productOffers, products } from './products.js';
 import { workspaces } from './workspaces.js';
 
@@ -29,9 +37,10 @@ export const orders = pgTable(
     ipAddress: text(),
     userAgent: text(),
     metadata: jsonb().notNull().default({}),
-    paidAt: createdAt(),
-    cancelledAt: createdAt(),
-    expiresAt: createdAt(),
+    paidAt: timestampTzNullable(),
+    cancelledAt: timestampTzNullable(),
+    /** Order-level expiry, distinct from per-transaction Pix/Boleto expiry. */
+    expiresAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -40,6 +49,7 @@ export const orders = pgTable(
     index('orders_workspace_idx').on(table.workspaceId),
     index('orders_status_idx').on(table.workspaceId, table.status),
     index('orders_email_idx').on(table.workspaceId, table.customerEmail),
+    index('orders_workspace_expires_idx').on(table.workspaceId, table.expiresAt),
   ],
 );
 

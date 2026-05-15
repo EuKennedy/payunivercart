@@ -1,5 +1,14 @@
-import { bigint, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { createdAt, currencyEnum, fk, id, subscriptionStatusEnum, updatedAt } from './common.js';
+import { bigint, boolean, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  createdAt,
+  currencyEnum,
+  fk,
+  id,
+  subscriptionStatusEnum,
+  timestampTz,
+  timestampTzNullable,
+  updatedAt,
+} from './common.js';
 import { organizations } from './organizations.js';
 import { workspaces } from './workspaces.js';
 
@@ -20,10 +29,12 @@ export const platformSubscriptions = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     gatewaySubscriptionId: text(),
     status: subscriptionStatusEnum().notNull().default('trialing'),
-    currentPeriodStart: createdAt(),
-    currentPeriodEnd: createdAt(),
-    cancelAtPeriodEnd: text().notNull().default('false'),
-    cancelledAt: createdAt(),
+    /** Both period bounds come from the gateway and are required after the
+     *  first paid invoice. Required because billing math depends on them. */
+    currentPeriodStart: timestampTz(),
+    currentPeriodEnd: timestampTz(),
+    cancelAtPeriodEnd: boolean().notNull().default(false),
+    cancelledAt: timestampTzNullable(),
     metadata: jsonb().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -31,6 +42,7 @@ export const platformSubscriptions = pgTable(
   (table) => [
     uniqueIndex('platform_subscriptions_workspace_unique').on(table.workspaceId),
     index('platform_subscriptions_org_idx').on(table.organizationId),
+    index('platform_subscriptions_status_idx').on(table.status, table.currentPeriodEnd),
   ],
 );
 
@@ -49,14 +61,15 @@ export const platformInvoices = pgTable(
     amountCents: bigint({ mode: 'bigint' }).notNull(),
     currency: currencyEnum().notNull().default('BRL'),
     status: text().notNull().default('pending'),
-    periodStart: createdAt(),
-    periodEnd: createdAt(),
-    paidAt: createdAt(),
+    periodStart: timestampTz(),
+    periodEnd: timestampTz(),
+    paidAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     index('platform_invoices_workspace_idx').on(table.workspaceId),
     uniqueIndex('platform_invoices_gateway_invoice_unique').on(table.gatewayInvoiceId),
+    index('platform_invoices_period_idx').on(table.workspaceId, table.periodStart),
   ],
 );

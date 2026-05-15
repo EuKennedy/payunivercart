@@ -1,4 +1,5 @@
-import { boolean, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, check, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { createdAt, id, timestampTz, timestampTzNullable, updatedAt } from './common.js';
 
 /**
@@ -66,6 +67,14 @@ export const accounts = pgTable(
   (table) => [
     uniqueIndex('accounts_provider_account_unique').on(table.providerId, table.accountId),
     index('accounts_user_idx').on(table.userId),
+    // Defense-in-depth: any non-null password MUST be an argon2id hash, the
+    // format Better-Auth emits. A bug that wrote plaintext (or bcrypt, or
+    // any other format) is rejected at the DB level rather than silently
+    // accepted and only discovered when login starts failing.
+    check(
+      'accounts_password_argon2id_format',
+      sql`password IS NULL OR password LIKE '$argon2id$%'`,
+    ),
   ],
 );
 

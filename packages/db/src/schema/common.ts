@@ -14,8 +14,17 @@ export const fk = () => uuid();
 export const createdAt = () =>
   timestamp({ mode: 'date', withTimezone: true, precision: 3 }).notNull().default(sql`now()`);
 
+/**
+ * `updatedAt` defaults to `now()` on insert AND auto-refreshes on every
+ * Drizzle-driven UPDATE via `$onUpdate`. Direct SQL `UPDATE` statements need
+ * a Postgres trigger; rely on the ORM for the common path and a trigger for
+ * any future direct DML.
+ */
 export const updatedAt = () =>
-  timestamp({ mode: 'date', withTimezone: true, precision: 3 }).notNull().default(sql`now()`);
+  timestamp({ mode: 'date', withTimezone: true, precision: 3 })
+    .notNull()
+    .default(sql`now()`)
+    .$onUpdate(() => new Date());
 
 export const deletedAt = () => timestamp({ mode: 'date', withTimezone: true, precision: 3 });
 
@@ -28,7 +37,12 @@ export const deletedAt = () => timestamp({ mode: 'date', withTimezone: true, pre
 export const timestampTz = () =>
   timestamp({ mode: 'date', withTimezone: true, precision: 3 }).notNull();
 
-/** Optional timestamptz column with no default. Same as `deletedAt()` semantically. */
+/**
+ * Optional timestamptz column with no default. Use for event-occurrence
+ * timestamps that are NULL until the event happens (e.g. `paid_at`,
+ * `cancelled_at`, `sent_at`, `processed_at`). Never use `createdAt()` for
+ * these — it sets `now()` and the row reads as if the event already fired.
+ */
 export const timestampTzNullable = () =>
   timestamp({ mode: 'date', withTimezone: true, precision: 3 });
 

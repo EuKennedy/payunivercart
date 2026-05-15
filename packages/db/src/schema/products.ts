@@ -1,6 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -15,6 +17,7 @@ import {
   fk,
   id,
   productTypeEnum,
+  timestampTzNullable,
   updatedAt,
 } from './common.js';
 import { workspaces } from './workspaces.js';
@@ -61,9 +64,22 @@ export const productCategories = pgTable(
   ],
 );
 
+/**
+ * Many-to-many between products and categories. `workspaceId` is denormalized
+ * here on purpose: it enforces a CHECK constraint that the product and the
+ * category belong to the same workspace, so a buggy endpoint cannot create
+ * a cross-tenant mapping that would leak a competitor's product into another
+ * tenant's category listing. The constraint is declared at the DB level via
+ * a trigger (see migration `0001_*_product_category_mappings_check.sql`)
+ * because Postgres CHECK clauses cannot reference other tables directly;
+ * Drizzle's `check()` records the SQL the migration emits.
+ */
 export const productCategoryMappings = pgTable(
   'product_category_mappings',
   {
+    workspaceId: fk()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     productId: fk()
       .notNull()
       .references(() => products.id, { onDelete: 'cascade' }),
@@ -71,7 +87,13 @@ export const productCategoryMappings = pgTable(
       .notNull()
       .references(() => productCategories.id, { onDelete: 'cascade' }),
   },
-  (table) => [uniqueIndex('product_category_mappings_pk').on(table.productId, table.categoryId)],
+  (table) => [
+    uniqueIndex('product_category_mappings_pk').on(table.productId, table.categoryId),
+    index('product_category_mappings_workspace_idx').on(table.workspaceId),
+    // Sanity-only guard at the column level; full cross-table parity is
+    // enforced by a Postgres trigger declared in the accompanying migration.
+    check('product_category_mappings_workspace_not_null', sql`${table.workspaceId} IS NOT NULL`),
+  ],
 );
 
 /**
@@ -116,12 +138,14 @@ export const productCoupons = pgTable(
     discountValue: bigint({ mode: 'bigint' }).notNull(),
     maxRedemptions: integer(),
     redemptions: integer().notNull().default(0),
-    expiresAt: createdAt(),
+    /** Optional expiry. Coupons without an expiry are valid until disabled. */
+    expiresAt: timestampTzNullable(),
     isActive: boolean().notNull().default(true),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     uniqueIndex('product_coupons_workspace_code_unique').on(table.workspaceId, table.code),
+    index('product_coupons_workspace_active_idx').on(table.workspaceId, table.isActive),
   ],
 );

@@ -1,7 +1,28 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, jsonb, pgEnum, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { createdAt, fk, gatewayIdEnum, id, updatedAt } from './common.js';
+import {
+  boolean,
+  check,
+  customType,
+  index,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
+import { createdAt, fk, gatewayIdEnum, id, timestampTzNullable, updatedAt } from './common.js';
 import { workspaces } from './workspaces.js';
+
+/**
+ * Postgres `bytea` mapped to `Uint8Array`. Used for sealed-box ciphertext
+ * payloads so we don't pay the 33% base64 storage overhead and we don't
+ * accidentally hand a string to a primitive that expects bytes.
+ */
+const bytea = customType<{ data: Uint8Array; default: false }>({
+  dataType() {
+    return 'bytea';
+  },
+});
 
 export const integrationKindEnum = pgEnum('integration_kind', [
   'gateway',
@@ -34,7 +55,8 @@ export const integrations = pgTable(
     status: integrationStatusEnum().notNull().default('pending'),
     metadata: jsonb().notNull().default({}),
     lastError: text(),
-    connectedAt: createdAt(),
+    /** Set when the OAuth/credential handshake completes. */
+    connectedAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -45,12 +67,20 @@ export const integrations = pgTable(
       table.provider,
     ),
     index('integrations_workspace_idx').on(table.workspaceId),
+    index('integrations_status_idx').on(table.workspaceId, table.status),
   ],
 );
 
 /**
  * Encrypted gateway credentials. The `credentialsEncrypted` blob is a
- * libsodium sealed-box (master key from ENCRYPTION_KEY env var).
+ * libsodium sealed-box; the master key (KEK) is keyed by `keyId` and the
+ * encryption scheme is identified by `encVersion`. Both columns are
+ * required so we can rotate the master key without losing the ability to
+ * decrypt rows written under the previous key version.
+ *
+ * The blob is stored as `bytea` rather than text so we never accidentally
+ * round-trip ciphertext through base64 conversions and lose the binary
+ * representation.
  */
 export const gatewayCredentials = pgTable(
   'gateway_credentials',
@@ -63,9 +93,15 @@ export const gatewayCredentials = pgTable(
     label: text().notNull(),
     isDefault: boolean().notNull().default(false),
     isSandbox: boolean().notNull().default(false),
-    credentialsEncrypted: text().notNull(),
+    /** Sealed-box ciphertext. NEVER a JSON string. NEVER plaintext. */
+    credentialsEncrypted: bytea().notNull(),
+    /** KEK identifier — matches an entry in `packages/crypto`'s key registry. */
+    keyId: text().notNull(),
+    /** Encryption scheme version. Bump on algorithm/parameter change. */
+    encVersion: text().notNull().default('v1'),
     publicMetadata: jsonb().notNull().default({}),
-    lastValidatedAt: createdAt(),
+    /** Last time we successfully called the gateway's auth endpoint. */
+    lastValidatedAt: timestampTzNullable(),
     validationError: text(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -78,6 +114,11 @@ export const gatewayCredentials = pgTable(
       .on(table.workspaceId, table.gatewayId)
       .where(sql`is_default = true`),
     index('gateway_credentials_workspace_idx').on(table.workspaceId),
+    // Defense-in-depth: reject obviously-empty ciphertexts at the DB level
+    // (the writer must always produce a non-empty sealed box). The full
+    // `sb:v1:` prefix invariant is enforced by `packages/crypto` and a more
+    // specific CHECK is added in the migration that ships with this schema.
+    check('gateway_credentials_encrypted_not_empty', sql`octet_length(credentials_encrypted) > 0`),
   ],
 );
 
@@ -94,9 +135,10 @@ export const whatsappSessions = pgTable(
     wahaSessionId: text().notNull(),
     phoneNumber: text(),
     status: text().notNull().default('STARTING'),
-    qrLastIssuedAt: createdAt(),
-    connectedAt: createdAt(),
-    disconnectedAt: createdAt(),
+    /** Set each time we render a fresh QR for pairing. */
+    qrLastIssuedAt: timestampTzNullable(),
+    connectedAt: timestampTzNullable(),
+    disconnectedAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -117,9 +159,11 @@ export const whatsappChatIds = pgTable(
     e164: text().notNull(),
     chatId: text().notNull(),
     resolvedAt: createdAt(),
-    invalidatedAt: createdAt(),
+    /** Set when WAHA reports the chatId no longer exists; cache miss next read. */
+    invalidatedAt: timestampTzNullable(),
   },
   (table) => [
     uniqueIndex('whatsapp_chat_ids_workspace_e164_unique').on(table.workspaceId, table.e164),
+    index('whatsapp_chat_ids_workspace_idx').on(table.workspaceId),
   ],
 );

@@ -1,6 +1,15 @@
 import { boolean, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
-import { createdAt, deletedAt, fk, id, localeEnum, memberRoleEnum, updatedAt } from './common.js';
+import {
+  createdAt,
+  deletedAt,
+  fk,
+  id,
+  localeEnum,
+  memberRoleEnum,
+  timestampTzNullable,
+  updatedAt,
+} from './common.js';
 import { organizations } from './organizations.js';
 
 /**
@@ -45,7 +54,8 @@ export const memberships = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     role: memberRoleEnum().notNull().default('viewer'),
     invitedById: fk().references(() => users.id, { onDelete: 'set null' }),
-    acceptedAt: createdAt(),
+    /** NULL while the invite is outstanding; set when the user accepts. */
+    acceptedAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

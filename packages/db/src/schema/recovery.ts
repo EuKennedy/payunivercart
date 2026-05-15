@@ -9,7 +9,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { carts } from './carts.js';
-import { createdAt, fk, id, updatedAt } from './common.js';
+import { createdAt, fk, id, timestampTz, timestampTzNullable, updatedAt } from './common.js';
 import { workspaces } from './workspaces.js';
 
 export const recoveryChannelEnum = pgEnum('recovery_channel', ['whatsapp', 'email']);
@@ -52,15 +52,17 @@ export const recoveryAttempts = pgTable(
     targetIdentifier: text().notNull(),
     status: text().notNull().default('queued'),
     failureReason: text(),
-    scheduledFor: createdAt(),
-    sentAt: createdAt(),
-    openedAt: createdAt(),
-    clickedAt: createdAt(),
+    /** Required: every attempt is scheduled for a specific moment in the future. */
+    scheduledFor: timestampTz(),
+    sentAt: timestampTzNullable(),
+    openedAt: timestampTzNullable(),
+    clickedAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     index('recovery_attempts_cart_idx').on(table.cartId),
     index('recovery_attempts_workspace_status_idx').on(table.workspaceId, table.status),
+    index('recovery_attempts_scheduled_idx').on(table.status, table.scheduledFor),
   ],
 );

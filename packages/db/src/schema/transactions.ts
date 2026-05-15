@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import {
   createdAt,
@@ -6,6 +7,7 @@ import {
   gatewayIdEnum,
   id,
   paymentMethodEnum,
+  timestampTzNullable,
   transactionStatusEnum,
   updatedAt,
 } from './common.js';
@@ -50,19 +52,28 @@ export const transactions = pgTable(
     failureCode: text(),
     failureMessage: text(),
     rawResponse: jsonb(),
-    authorizedAt: createdAt(),
-    paidAt: createdAt(),
-    refundedAt: createdAt(),
-    chargedbackAt: createdAt(),
-    expiresAt: createdAt(),
+    /** Event-occurrence timestamps. NULL until the gateway reports the event. */
+    authorizedAt: timestampTzNullable(),
+    paidAt: timestampTzNullable(),
+    refundedAt: timestampTzNullable(),
+    chargedbackAt: timestampTzNullable(),
+    /** Gateway-issued expiry (Pix QR / Boleto due date). NULL until set. */
+    expiresAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     uniqueIndex('transactions_idempotency_unique').on(table.workspaceId, table.idempotencyKey),
-    uniqueIndex('transactions_gateway_charge_unique').on(table.gatewayId, table.gatewayChargeId),
+    // Scoped to workspace so a (hypothetical) shared gatewayChargeId across
+    // tenants cannot collide and corrupt the other side's row. Also includes
+    // `WHERE gateway_charge_id IS NOT NULL` so charges that have not yet
+    // returned an id from the gateway don't trigger spurious conflicts.
+    uniqueIndex('transactions_gateway_charge_unique')
+      .on(table.workspaceId, table.gatewayId, table.gatewayChargeId)
+      .where(sql`gateway_charge_id IS NOT NULL`),
     index('transactions_order_idx').on(table.orderId),
     index('transactions_workspace_status_idx').on(table.workspaceId, table.status),
+    index('transactions_workspace_expires_idx').on(table.workspaceId, table.expiresAt),
   ],
 );
 
@@ -79,9 +90,13 @@ export const refunds = pgTable(
     status: transactionStatusEnum().notNull().default('pending'),
     rawResponse: jsonb(),
     requestedAt: createdAt(),
-    completedAt: createdAt(),
+    /** Set when the gateway confirms the refund settled. */
+    completedAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [index('refunds_transaction_idx').on(table.transactionId)],
+  (table) => [
+    index('refunds_transaction_idx').on(table.transactionId),
+    index('refunds_status_idx').on(table.status),
+  ],
 );
