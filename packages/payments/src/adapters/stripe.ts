@@ -1,6 +1,6 @@
-import type { GatewayId } from '@payunivercart/shared';
+import type { GatewayId, Money } from '@payunivercart/shared';
 import Stripe from 'stripe';
-import { PaymentError } from '../errors.js';
+import { type PaymentDeclineCode, PaymentError } from '../errors.js';
 import {
   type CreateBoletoInput,
   type CreateCardInput,
@@ -14,6 +14,15 @@ import {
   type WebhookRequest,
   stripeCredentialsSchema,
 } from '../types.js';
+
+/**
+ * Stripe webhook clock-skew tolerance. Match Stripe's documented default
+ * (300s) explicitly so an upstream SDK default change doesn't silently widen
+ * our replay window.
+ */
+const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
+
+const SUPPORTED_CURRENCIES: readonly Money['currency'][] = ['BRL', 'USD', 'EUR'];
 
 /**
  * Stripe adapter — primary path for USD card payments.
@@ -181,7 +190,7 @@ export class StripeAdapter implements PaymentGateway<StripeCredentials> {
         status: refund.status === 'succeeded' ? 'refunded' : 'processing',
         amount: {
           amount: refund.amount,
-          currency: refund.currency.toUpperCase() as 'BRL' | 'USD' | 'EUR',
+          currency: parseStripeCurrency(refund.currency),
         },
         raw: refund,
       };
@@ -208,7 +217,10 @@ export class StripeAdapter implements PaymentGateway<StripeCredentials> {
       });
     }
     const stripe = this.client(credentials);
-    const signature = request.headers['stripe-signature'] ?? request.headers['Stripe-Signature'];
+    // Header lookup is case-insensitive: Node, Hono, and Cloudflare Workers
+    // normalize headers to lowercase, but other shims (e.g. AWS Lambda v1)
+    // pass through the casing the client sent. We accept any casing.
+    const signature = findHeaderValue(request.headers, 'stripe-signature');
     if (!signature) {
       throw new PaymentError('Missing Stripe-Signature header', {
         gatewayId: this.id,
@@ -217,7 +229,12 @@ export class StripeAdapter implements PaymentGateway<StripeCredentials> {
     }
     let event: Stripe.Event;
     try {
-      event = stripe.webhooks.constructEvent(request.rawBody, signature, credentials.webhookSecret);
+      event = stripe.webhooks.constructEvent(
+        request.rawBody,
+        signature,
+        credentials.webhookSecret,
+        STRIPE_WEBHOOK_TOLERANCE_SECONDS,
+      );
     } catch (cause) {
       throw new PaymentError(
         'Stripe webhook signature verification failed',
@@ -269,7 +286,7 @@ function toPaymentResult(intent: Stripe.PaymentIntent): PaymentResult {
     method: derivePaymentMethod(intent),
     amount: {
       amount: intent.amount,
-      currency: intent.currency.toUpperCase() as 'BRL' | 'USD' | 'EUR',
+      currency: parseStripeCurrency(intent.currency),
     },
     pixQrCode: pixDisplay?.data,
     pixQrCodeImage: pixDisplay?.image_url_png ?? pixDisplay?.image_url_svg,
@@ -345,53 +362,168 @@ function flattenMetadata(
   return Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, String(v)]));
 }
 
-function mapStripeError(cause: unknown): PaymentError {
-  if (cause instanceof Stripe.errors.StripeError) {
-    const declineCode = mapStripeDeclineCode(cause.code);
+/**
+ * Convert any Stripe-thrown error (or anything else) into a structured
+ * `PaymentError`. The `retryable` flag is explicit per code — the gateway-
+ * layer worker reads this and a `true` value triggers exponential backoff;
+ * a `false` is terminal. Getting this wrong creates either silent dropped
+ * payments or infinite retry loops.
+ */
+export function mapStripeError(cause: unknown): PaymentError {
+  if (!(cause instanceof Stripe.errors.StripeError)) {
     return new PaymentError(
-      cause.message,
-      {
-        gatewayId: 'stripe',
-        declineCode,
-        ...(cause.code !== undefined && { rawCode: cause.code }),
-        rawMessage: cause.message,
-        retryable: cause.type === 'StripeConnectionError' || cause.type === 'StripeAPIError',
-      },
+      'Unexpected Stripe error',
+      { gatewayId: 'stripe', declineCode: 'UNKNOWN' },
       cause,
     );
   }
+  const declineCode = mapStripeDeclineCode(cause.code);
+  const retryable = isRetryableStripeError(cause, declineCode);
   return new PaymentError(
-    'Unexpected Stripe error',
+    cause.message,
     {
       gatewayId: 'stripe',
-      declineCode: 'UNKNOWN',
+      declineCode,
+      ...(cause.code !== undefined && { rawCode: cause.code }),
+      rawMessage: cause.message,
+      retryable,
     },
     cause,
   );
 }
 
-function mapStripeDeclineCode(code: string | undefined): import('../errors.js').PaymentDeclineCode {
+/**
+ * Decide whether retrying is safe. Stripe error TYPES tell us about network
+ * conditions; CODES tell us about logical state. Both inform the answer.
+ *
+ *   - StripeConnectionError / StripeAPIError -> network or upstream blip,
+ *     safe to retry with the same idempotency key.
+ *   - `idempotency_key_in_use` -> Stripe is still processing the previous
+ *     attempt with this key. Retrying immediately re-fires the same code
+ *     path; we must NOT spin on it. Returning `false` is the only way to
+ *     stop the worker; the caller bumps `attempt` to mint a new key.
+ *   - `rate_limit` -> safe to retry after backoff.
+ *   - Everything else from a typed Stripe error -> caller bug, terminal.
+ */
+function isRetryableStripeError(
+  error: Stripe.errors.StripeError,
+  declineCode: PaymentDeclineCode,
+): boolean {
+  if (error.type === 'StripeConnectionError' || error.type === 'StripeAPIError') return true;
+  // Special-case: do NOT retry an idempotency-key collision; same key + same
+  // payload would just keep colliding. The caller's retry strategy must bump
+  // `attempt` to mint a new key (Bloco 4 builder).
+  if (error.code === 'idempotency_key_in_use') return false;
+  if (declineCode === 'RATE_LIMITED') return true;
+  return false;
+}
+
+/** Exported for unit tests. */
+export function mapStripeDeclineCode(code: string | undefined): PaymentDeclineCode {
   switch (code) {
+    // Card / issuer responses
     case 'card_declined':
+    case 'do_not_honor':
+    case 'pickup_card':
+    case 'restricted_card':
+    case 'service_not_allowed':
+    case 'security_violation':
+    case 'transaction_not_allowed':
+    case 'card_velocity_exceeded':
+    case 'withdrawal_count_limit_exceeded':
       return 'ISSUER_DECLINED';
+
     case 'insufficient_funds':
       return 'INSUFFICIENT_FUNDS';
+
     case 'incorrect_cvc':
     case 'invalid_cvc':
       return 'INVALID_CVC';
+
     case 'expired_card':
+    case 'invalid_expiry_month':
+    case 'invalid_expiry_year':
       return 'EXPIRED_CARD';
+
+    // Fraud signals
     case 'fraudulent':
+    case 'stolen_card':
+    case 'lost_card':
       return 'FRAUD_SUSPECTED';
+
+    // 3DS / SCA
     case 'authentication_required':
       return 'THREE_DS_REQUIRED';
+
+    // Card shape / network compat
+    case 'invalid_number':
+    case 'invalid_account':
+    case 'card_not_supported':
+      return 'CARD_NOT_SUPPORTED';
+
+    // Currency
+    case 'currency_not_supported':
+      return 'UNSUPPORTED_CURRENCY';
+
+    // Transient — retry candidates
     case 'rate_limit':
       return 'RATE_LIMITED';
-    case 'idempotency_key_in_use':
+    case 'try_again_later':
+    case 'processing_error':
       return 'PROCESSING_ERROR';
+
+    // Caller bugs — never retryable
+    case 'idempotency_key_in_use':
     case 'invalid_request_error':
+    case 'parameter_invalid_empty':
+    case 'parameter_invalid_integer':
+    case 'parameter_invalid_string_blank':
+    case 'parameter_missing':
+    case 'parameter_unknown':
       return 'INVALID_REQUEST';
+
+    // Auth
+    case 'api_key_expired':
+    case 'invalid_api_key':
+      return 'AUTH_FAILED';
+
     default:
       return code ? 'UNKNOWN' : 'PROCESSING_ERROR';
   }
+}
+
+/**
+ * Validate that a Stripe currency string is one we accept and surface it as
+ * the strongly-typed `Money['currency']`. Anything else throws as
+ * `UNSUPPORTED_CURRENCY` — better than a silent `as` cast lying to the
+ * type system while writing wrong currency labels into the DB.
+ */
+function parseStripeCurrency(currency: string): Money['currency'] {
+  const upper = currency.toUpperCase() as Money['currency'];
+  if (!SUPPORTED_CURRENCIES.includes(upper)) {
+    throw new PaymentError(`Stripe returned unsupported currency "${currency}"`, {
+      gatewayId: 'stripe',
+      declineCode: 'UNSUPPORTED_CURRENCY',
+      rawCode: currency,
+      retryable: false,
+    });
+  }
+  return upper;
+}
+
+/**
+ * Case-insensitive header lookup. Hono/Express-style header maps may be
+ * lowercased, but other deployments preserve the casing the upstream sent.
+ * We iterate once instead of taking a `?:` fallback that only catches two
+ * variants.
+ */
+function findHeaderValue(
+  headers: Record<string, string | undefined>,
+  name: string,
+): string | undefined {
+  const want = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === want && typeof value === 'string') return value;
+  }
+  return undefined;
 }
