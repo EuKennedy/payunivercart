@@ -59,6 +59,11 @@ if (env.NODE_ENV !== 'production') {
  */
 app.get('/health', (c) => c.json({ status: 'ok', uptimeSeconds: process.uptime() }));
 
+// Better-Auth handler. Mounted under `/api/auth/*` so the Better-Auth
+// browser client's default `baseURL` resolves without remapping. All
+// sign-in, sign-up, OTP, and session endpoints live here.
+app.all('/api/auth/*', (c) => services.auth.handler(c.req.raw));
+
 mountWahaWebhook(app, services);
 
 app.use(
@@ -68,15 +73,21 @@ app.use(
     // The Hono adapter types `createContext` as `Record<string, unknown>`;
     // we shape the actual `TrpcContext` and cast at the boundary. The
     // procedure-level `ctx` typing is enforced by `initTRPC.context<>()`.
-    createContext: (_opts, c) =>
-      ({
+    createContext: async (_opts, c) => {
+      // Resolve the current Better-Auth session from cookies. The auth
+      // handler reads the same cookie the dashboard set; null when
+      // unauthenticated. tRPC procedures decide whether to enforce
+      // (see `authedProcedure` / `workspaceProcedure` in `trpc.ts`).
+      const session = await services.auth.api.getSession({
+        headers: c.req.raw.headers,
+      });
+      return {
         services,
         honoCtx: c,
-        // TODO: wire Better-Auth session resolution + workspace header parsing
-        // when the auth package lands. Both stay null until then.
         workspaceId: c.req.header('x-workspace-id') ?? null,
-        userId: null,
-      }) satisfies TrpcContext as unknown as Record<string, unknown>,
+        userId: session?.user?.id ?? null,
+      } satisfies TrpcContext as unknown as Record<string, unknown>;
+    },
   }),
 );
 

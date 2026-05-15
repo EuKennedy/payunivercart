@@ -1,5 +1,9 @@
-import { createAuthClient } from 'better-auth/client';
+// `better-auth/react` exposes a React-bound `createAuthClient` whose
+// `useSession()` is an actual hook (returns `{ data, isPending, ... }`)
+// rather than the framework-agnostic `Atom` shape from
+// `better-auth/client`.
 import { emailOTPClient } from 'better-auth/client/plugins';
+import { createAuthClient } from 'better-auth/react';
 
 /**
  * Browser-side Better-Auth client. Imported by `apps/dashboard` (and any

@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "main": "./src/server.ts",
+  "exports": {
+    ".": "./src/server.ts",
+    "./routers": "./src/routers/index.ts",
+    "./trpc": "./src/trpc.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node --enable-source-maps dist/server.js",
@@ -15,12 +20,13 @@
     "@hono/node-server": "2.0.2",
     "@hono/trpc-server": "0.4.2",
     "@payunivercart/audit": "workspace:*",
+    "@payunivercart/auth": "workspace:*",
     "@payunivercart/crypto": "workspace:*",
     "@payunivercart/db": "workspace:*",
     "@payunivercart/payments": "workspace:*",
     "@payunivercart/shared": "workspace:*",
     "@payunivercart/waha": "workspace:*",
-    "@trpc/server": "11.0.0-rc.802",
+    "@trpc/server": "11.17.0",
     "drizzle-orm": "0.45.2",
     "hono": "4.12.18",
     "zod": "3.24.1"

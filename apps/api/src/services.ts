@@ -1,4 +1,5 @@
 import type { AuditService } from '@payunivercart/audit';
+import { type Auth, createAuth } from '@payunivercart/auth';
 import { CryptoService, loadKeyRegistryFromEnv } from '@payunivercart/crypto';
 import { createDatabaseClient } from '@payunivercart/db';
 import { WahaClient } from '@payunivercart/waha';
@@ -19,6 +20,7 @@ export interface AppServices {
   db: ReturnType<typeof createDatabaseClient>;
   crypto: CryptoService;
   waha: WahaClient;
+  auth: Auth;
   /**
    * AuditService is created lazily once the production Drizzle port is
    * wired. Calling `services.audit()` before that throws so misuse is
@@ -46,11 +48,38 @@ export function buildServices(env: AppEnv): AppServices {
     defaultSession: env.WAHA_DEFAULT_SESSION,
   });
 
+  const auth = createAuth({
+    db: db.db,
+    secret: env.AUTH_SECRET,
+    trustedOrigins: env.AUTH_TRUSTED_ORIGINS,
+    // Better-Auth mounts itself under `/api/auth/*` on the api host.
+    // The dashboard talks to that base URL via the auth client.
+    baseURL: `${(env.AUTH_TRUSTED_ORIGINS[0] ?? 'http://localhost:4000').replace(/\/$/, '')}/api/auth`,
+    waha,
+    wahaSessionName: env.WAHA_DEFAULT_SESSION,
+    emailSender: {
+      async sendEmailOtp({ to, code }) {
+        // Real Resend integration lands with `packages/emails`. Until then
+        // we log a structured event the operator can pick up from stdout
+        // so local dev still works end-to-end.
+        process.stdout.write(
+          `${JSON.stringify({
+            level: 'info',
+            event: 'auth.emailOtp.pending',
+            to,
+            code,
+          })}\n`,
+        );
+      },
+    },
+  });
+
   return {
     env,
     db,
     crypto,
     waha,
+    auth,
     audit: () => {
       throw new Error(
         'AuditService not yet wired to the Drizzle port; will land with the first DB-writing endpoint.',
