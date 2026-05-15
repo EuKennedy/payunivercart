@@ -1,0 +1,54 @@
+# Dependabot configuration
+#
+# - `npm` ecosystem (pnpm uses the same registry) — weekly version PRs,
+#   immediate security PRs (Dependabot opens those out-of-schedule by default).
+# - `github-actions` — pin updates for our CI actions so a tag rotation is
+#   surfaced and reviewed instead of silently following `@v4`.
+#
+# pnpm note: Dependabot supports pnpm lockfiles natively since v2.
+# Workspace packages are picked up automatically because their package.json
+# files are under the configured directory.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: chore(deps)
+      include: scope
+    groups:
+      # Bundle dev tooling together so a Biome bump doesn't open three PRs.
+      tooling:
+        patterns:
+          - "@biomejs/biome"
+          - "turbo"
+          - "typescript"
+          - "tsx"
+          - "vitest"
+          - "drizzle-kit"
+      # Group Drizzle bumps together — schema + kit must move in lockstep.
+      drizzle:
+        patterns:
+          - "drizzle-orm"
+          - "drizzle-kit"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: chore(ci)
+      include: scope

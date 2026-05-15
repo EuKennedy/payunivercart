@@ -10,6 +10,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege at the workflow level. Individual jobs may grant more if
+# they truly need it (e.g. publishing artifacts) but none currently do.
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: 22.11.0
   PNPM_VERSION: 9.12.3
@@ -60,3 +65,49 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
+  # Three orthogonal scans, one job. Failing any of them fails the workflow.
+  # - pnpm audit       — npm registry advisories on our dependency tree
+  # - osv-scanner      — Google's OSV advisories on the lockfile (broader than
+  #                       pnpm audit, catches GHSA + PyPI + others if relevant)
+  # - gitleaks         — secret scanning over the full git history (commits +
+  #                       diff). Fails the build on any high-confidence finding.
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # `gitleaks` and `osv-scanner` write a SARIF file we may upload later;
+      # we already only need read on this run.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `gitleaks` needs full history to inspect every commit, not just
+          # the merge commit. Skipping this hid past-leaked secrets.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: pnpm audit (high+)
+        # `--audit-level=high` is the lowest severity that fails the build.
+        # Moderate/low advisories are visible in the log but do not block.
+        run: pnpm audit --audit-level=high --prod
+
+      - name: OSV-Scanner (lockfile)
+        uses: google/osv-scanner-action/osv-scanner-action@v1.9.0
+        with:
+          scan-args: |-
+            --lockfile=pnpm-lock.yaml
+            --skip-git
+            --recursive
+            ./
+
+      - name: Gitleaks (secret scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
