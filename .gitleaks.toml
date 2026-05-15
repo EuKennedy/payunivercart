@@ -1,0 +1,42 @@
+# Gitleaks configuration.
+#
+# We extend the default ruleset rather than redefine it, so newly-added
+# detectors in upstream gitleaks still fire here. The allowlist below
+# whitelists known false-positives — documented example payloads (MP /
+# Pagar.me / Stripe / PagSeguro / WAHA responses we cite in research
+# notes) and the per-package `.env.example` placeholders.
+#
+# When adding an entry: prefer narrow `regexes`/`paths` patterns over
+# blanket directory excludes so a real leak in the same file is still
+# caught.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented example responses and env placeholders"
+
+# Research docs cite tokenized API responses verbatim from MP / Pagar.me
+# / Stripe / PagSeguro / WAHA. These are public example values from the
+# vendors' own documentation, not real secrets — but gitleaks' generic
+# `generic-api-key` rule reasonably flags any high-entropy `"token":
+# "..."` pattern.
+paths = [
+  '''docs/research/.*\.md$''',
+  '''.env.example$''',
+]
+
+# `replace_me_...`, `__REPLACE_ME__`, `generate_with_openssl_rand_hex_32`
+# — placeholder values in `.env.example`. These look like secrets to the
+# generic detectors but are intentionally non-secret sentinels.
+regexes = [
+  '''replace_me_[a-z_]+''',
+  '''__REPLACE_ME__[A-Z0-9_]*''',
+  '''generate_with_openssl_rand_hex_32''',
+  '''REPLACE_ME_BASE64_32_BYTE_KEY''',
+]
+
+# Commits authored by Dependabot bring upstream lockfile and dep changes
+# that occasionally contain example tokens in package metadata. Trust
+# the bot, scrutinize the diff in review.
+commits = []
