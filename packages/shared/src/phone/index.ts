@@ -37,6 +37,15 @@ export interface NormalizeOptions {
 const BR_COUNTRY_CALLING_CODE = '55';
 
 /**
+ * Maximum accepted length of the raw input. ITU-T E.164 caps phone numbers
+ * at 15 digits; with country prefix, formatting punctuation, and a couple
+ * of leading characters we generously allow 32 — enough for every real
+ * phone number on Earth, low enough that an attacker who controls the
+ * input cannot feed multi-MB strings into libphonenumber-js.
+ */
+const MAX_PHONE_INPUT_LENGTH = 32;
+
+/**
  * Parse and canonicalize a phone number for the platform.
  *
  * IMPORTANT: This function does NOT decide the final WAHA chatId. The chatId
@@ -51,6 +60,16 @@ export function normalizePhone(input: string, options: NormalizeOptions = {}): N
 
   if (raw.length === 0) {
     throw new PhoneNormalizationError('Phone input is empty', 'EMPTY_INPUT', raw);
+  }
+  // Length cap BEFORE handing the string to libphonenumber-js — defends
+  // against an attacker feeding multi-MB inputs into the parser.
+  if (raw.length > MAX_PHONE_INPUT_LENGTH) {
+    throw new PhoneNormalizationError(
+      `Phone input exceeds ${MAX_PHONE_INPUT_LENGTH} characters`,
+      'TOO_LONG',
+      // Truncate the echoed value so we don't log the entire blob.
+      `${raw.slice(0, 16)}…(${raw.length} chars)`,
+    );
   }
 
   const parsed = parsePhoneNumberFromString(raw, defaultCountry);
@@ -116,7 +135,7 @@ export function digitsToChatId(digits: string): string {
 }
 
 export class PhoneNormalizationError extends Error {
-  readonly code: 'EMPTY_INPUT' | 'PARSE_FAILED';
+  readonly code: 'EMPTY_INPUT' | 'PARSE_FAILED' | 'TOO_LONG';
   readonly input: string;
 
   constructor(message: string, code: PhoneNormalizationError['code'], input: string) {

@@ -12,7 +12,8 @@
     "./schemas": "./src/schemas/index.ts",
     "./constants": "./src/constants/index.ts",
     "./result": "./src/result/index.ts",
-    "./idempotency": "./src/idempotency/index.ts"
+    "./idempotency": "./src/idempotency/index.ts",
+    "./br-document": "./src/br-document/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

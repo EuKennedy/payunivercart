@@ -74,6 +74,33 @@ describe('normalizePhone — error handling', () => {
   it('throws PhoneNormalizationError on unparseable input', () => {
     expect(() => normalizePhone('abc')).toThrow(PhoneNormalizationError);
   });
+
+  it('rejects inputs longer than 32 chars before libphonenumber sees them', () => {
+    const huge = '+55'.padEnd(2_000, '1');
+    try {
+      normalizePhone(huge);
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PhoneNormalizationError);
+      expect((err as PhoneNormalizationError).code).toBe('TOO_LONG');
+      // The echoed input is truncated so we don't log megabytes.
+      expect((err as PhoneNormalizationError).input.length).toBeLessThan(80);
+    }
+  });
+
+  it('accepts inputs exactly at the 32-char limit', () => {
+    // 32 chars including the + and country code is generously beyond any
+    // real number, but small enough not to trip the cap.
+    const just = '+555533'.padEnd(32, '1');
+    expect(just).toHaveLength(32);
+    // Some such strings won't parse, but the cap MUST NOT fire — they
+    // should reach libphonenumber.
+    try {
+      normalizePhone(just);
+    } catch (err) {
+      expect((err as PhoneNormalizationError).code).not.toBe('TOO_LONG');
+    }
+  });
 });
 
 describe('digitsToChatId', () => {
