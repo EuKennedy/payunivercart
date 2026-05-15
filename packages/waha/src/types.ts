@@ -151,14 +151,3 @@ export const wahaWebhookPayloadSchema = z.union([
   wahaUnknownPayloadSchema,
 ]);
 export type WahaWebhookPayload = z.infer<typeof wahaWebhookPayloadSchema>;
-
-/**
- * @deprecated kept as an alias for callers that still import the older
- *   name; will be removed once apps/api lands. New code should import
- *   `wahaWebhookPayloadSchema` and `WahaWebhookPayload`.
- */
-export const wahaWebhookMessagePayloadSchema = wahaWebhookPayloadSchema;
-export type WahaWebhookMessagePayload = WahaWebhookPayload;
-
-/** @deprecated use `WAHA_EVENT` (singular). */
-export const WAHA_EVENTS = WAHA_EVENT;

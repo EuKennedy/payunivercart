@@ -37,14 +37,35 @@ export function map<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<
   return result.ok ? ok(fn(result.value)) : result;
 }
 
-export async function fromPromise<T, E = Error>(
+/**
+ * Wrap a promise into a `Result`. `mapError` is REQUIRED — the previous
+ * default fell back to a double-cast (`e as unknown as E`) that lied to
+ * the type system and silently lost the original error's structure. The
+ * caller now declares exactly how a thrown value becomes its domain
+ * error, which keeps `Result<T, E>` honest at every call site.
+ *
+ * For the common "just give me an Error" use case, pass `toError` (below)
+ * explicitly:
+ *
+ *   const r = await fromPromise(saveOrder(), toError);
+ */
+export async function fromPromise<T, E>(
   promise: Promise<T>,
-  mapError: (e: unknown) => E = (e) =>
-    e instanceof Error ? (e as unknown as E) : (new Error(String(e)) as unknown as E),
+  mapError: (cause: unknown) => E,
 ): Promise<Result<T, E>> {
   try {
     return ok(await promise);
-  } catch (e) {
-    return err(mapError(e));
+  } catch (cause) {
+    return err(mapError(cause));
   }
+}
+
+/**
+ * Helper for the common case where the caller wants to keep the
+ * caught value as an `Error` instance, wrapping non-Error throws.
+ *
+ *   const r = await fromPromise(saveOrder(), toError);
+ */
+export function toError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
 }
