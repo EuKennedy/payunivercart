@@ -108,7 +108,25 @@ jobs:
             --recursive
             ./
 
-      - name: Gitleaks (secret scan)
-        uses: gitleaks/gitleaks-action@v2
+      # We install the gitleaks binary directly rather than use
+      # `gitleaks/gitleaks-action@v2`. The action calls the GitHub REST
+      # API to post PR comments and read PR diffs, which 403s on every
+      # Dependabot PR (the bot's GITHUB_TOKEN has read-only scopes that
+      # we cannot widen for a third-party action). The binary itself is
+      # MIT-licensed and does the entire scan locally.
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Gitleaks (secret scan)
+        # `--redact` censors any leaked secret from the log so we don't
+        # rebroadcast it. `--exit-code 1` is the documented "fail the
+        # build on any finding" mode. Full git history is required —
+        # see `fetch-depth: 0` on checkout above.
+        run: gitleaks detect --redact --verbose --exit-code 1
