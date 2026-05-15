@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { createdAt, id, timestampTz, timestampTzNullable, updatedAt } from './common.js';
+import { createdAt, fk, id, timestampTz, timestampTzNullable, updatedAt } from './common.js';
 
 /**
  * Better-Auth managed tables. Names and columns match the Better-Auth
@@ -26,7 +26,7 @@ export const sessions = pgTable(
   'sessions',
   {
     id: id(),
-    userId: id()
+    userId: fk()
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     token: text().notNull(),
@@ -48,7 +48,7 @@ export const accounts = pgTable(
   'accounts',
   {
     id: id(),
-    userId: id()
+    userId: fk()
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     accountId: text().notNull(),
@@ -100,7 +100,7 @@ export const twoFactor = pgTable(
   'two_factor',
   {
     id: id(),
-    userId: id()
+    userId: fk()
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     secret: text().notNull(),

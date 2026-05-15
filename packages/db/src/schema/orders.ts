@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { checkouts } from './checkouts.js';
 import {
@@ -29,9 +30,9 @@ export const orders = pgTable(
     customerPhoneE164: text().notNull(),
     customerWahaChatId: text(),
     shippingAddress: jsonb(),
-    subtotalCents: bigint({ mode: 'bigint' }).notNull().default(0n),
-    discountCents: bigint({ mode: 'bigint' }).notNull().default(0n),
-    shippingCents: bigint({ mode: 'bigint' }).notNull().default(0n),
+    subtotalCents: bigint({ mode: 'bigint' }).notNull().default(sql`0`),
+    discountCents: bigint({ mode: 'bigint' }).notNull().default(sql`0`),
+    shippingCents: bigint({ mode: 'bigint' }).notNull().default(sql`0`),
     totalCents: bigint({ mode: 'bigint' }).notNull(),
     currency: currencyEnum().notNull().default('BRL'),
     ipAddress: text(),

@@ -1,0 +1,170 @@
+# =========================================================================
+# Local dev + Coolify deploy compose for payunivercart.
+#
+# Bring up everything with: `pnpm docker:up`
+# Stop everything: `pnpm docker:down`
+#
+# Coolify reads the same file when deploying to pay.univercart.com.
+# Coolify-specific env (DOMAIN, traefik labels) are layered on top via the
+# Coolify dashboard.
+# =========================================================================
+
+name: payunivercart
+
+services:
+  # -----------------------------------------------------------------------
+  # PostgreSQL — primary database. Pinned to 17 to match what Coolify ships.
+  # The `events_audit` lockdown trigger + RLS policies are applied as a
+  # post-migration step via the `migrate` service below.
+  # -----------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-payunivercart}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-payunivercart}
+      # `--data-checksums` is irreversible; opting in from day one.
+      POSTGRES_INITDB_ARGS: "--data-checksums --auth-host=scram-sha-256"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-payunivercart} -d ${POSTGRES_DB:-payunivercart}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [internal]
+
+  # -----------------------------------------------------------------------
+  # Redis — BullMQ queues + caches (chatId resolver, rate-limit counters).
+  # -----------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [internal]
+
+  # -----------------------------------------------------------------------
+  # WAHA — WhatsApp HTTP API (web.js engine). Self-hosted; never exposed
+  # to the public network. Only the api service talks to it.
+  # -----------------------------------------------------------------------
+  waha:
+    image: devlikeapro/waha-plus:latest
+    restart: unless-stopped
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: WEBJS
+      WAHA_API_KEY: ${WAHA_API_KEY:?WAHA_API_KEY required}
+      WAHA_WEBHOOK_HMAC_SECRET: ${WAHA_WEBHOOK_SECRET:?WAHA_WEBHOOK_SECRET required}
+      # Same secret the api uses to verify inbound webhooks.
+      WAHA_LOG_LEVEL: info
+    volumes:
+      - waha-sessions:/app/.sessions
+    networks: [internal]
+
+  # -----------------------------------------------------------------------
+  # Drizzle migration runner. One-shot service that runs the SQL files +
+  # the RLS policies + audit lockdown then exits. The api depends on it
+  # via `service_completed_successfully` so we never start serving before
+  # the schema is up to date.
+  # -----------------------------------------------------------------------
+  migrate:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+      target: builder
+    command: >
+      sh -c "
+        pnpm --filter @payunivercart/db migrate &&
+        psql \"$$DATABASE_URL\" -f packages/db/sql/02_rls_policies.sql &&
+        psql \"$$DATABASE_URL\" -f packages/audit/sql/01_lockdown.sql
+      "
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-payunivercart}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-payunivercart}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+    restart: "no"
+
+  # -----------------------------------------------------------------------
+  # API — Hono + tRPC backend. Stateless; horizontally scalable.
+  # -----------------------------------------------------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-payunivercart}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-payunivercart}
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET required}
+      AUTH_TRUSTED_ORIGINS: ${AUTH_TRUSTED_ORIGINS:-http://localhost:3000}
+      WAHA_BASE_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_DEFAULT_SESSION: ${WAHA_DEFAULT_SESSION:-default}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
+      ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?ENCRYPTION_KEYS required}
+      ENCRYPTION_ACTIVE_KEY_ID: ${ENCRYPTION_ACTIVE_KEY_ID:-v1}
+      AUDIT_KEYS: ${AUDIT_KEYS:?AUDIT_KEYS required}
+      AUDIT_ACTIVE_KEY_ID: ${AUDIT_ACTIVE_KEY_ID:-v1}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      waha:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    networks: [internal, public]
+
+  # -----------------------------------------------------------------------
+  # Nginx — terminates TLS (Coolify provides the cert via Let's Encrypt)
+  # and reverse-proxies to the api and (later) the dashboard/checkout/admin.
+  # On local dev we serve plain HTTP and skip TLS.
+  # -----------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal, public]
+
+volumes:
+  postgres-data:
+  redis-data:
+  waha-sessions:
+
+networks:
+  # Containers talk to each other on `internal`; only nginx is exposed.
+  internal:
+    internal: true
+  public: {}

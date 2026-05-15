@@ -22,7 +22,7 @@ export const carts = pgTable(
     customerWahaChatId: text(),
     customerName: text(),
     itemsSnapshot: jsonb().notNull().default([]),
-    totalCents: bigint({ mode: 'bigint' }).notNull().default(0n),
+    totalCents: bigint({ mode: 'bigint' }).notNull().default(sql`0`),
     currency: currencyEnum().notNull().default('BRL'),
     /** Set when the cart is detected as abandoned by the worker. */
     abandonedAt: timestampTzNullable(),

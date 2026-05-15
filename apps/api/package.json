@@ -1,0 +1,35 @@
+{
+  "name": "@payunivercart/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/server.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node --enable-source-maps dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "1.13.7",
+    "@hono/trpc-server": "0.3.4",
+    "@payunivercart/audit": "workspace:*",
+    "@payunivercart/crypto": "workspace:*",
+    "@payunivercart/db": "workspace:*",
+    "@payunivercart/payments": "workspace:*",
+    "@payunivercart/shared": "workspace:*",
+    "@payunivercart/waha": "workspace:*",
+    "@trpc/server": "11.0.0-rc.802",
+    "drizzle-orm": "0.45.2",
+    "hono": "4.6.14",
+    "zod": "3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "dotenv": "16.4.7",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  }
+}
