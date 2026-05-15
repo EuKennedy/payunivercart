@@ -11,7 +11,8 @@
     "./errors": "./src/errors/index.ts",
     "./schemas": "./src/schemas/index.ts",
     "./constants": "./src/constants/index.ts",
-    "./result": "./src/result/index.ts"
+    "./result": "./src/result/index.ts",
+    "./idempotency": "./src/idempotency/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
