@@ -101,9 +101,10 @@ jobs:
       - name: OSV-Scanner (lockfile)
         uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
+          # `--skip-git` was removed in osv-scanner v2; the scanner no
+          # longer walks .git by default, so the flag is now an error.
           scan-args: |-
             --lockfile=pnpm-lock.yaml
-            --skip-git
             --recursive
             ./
 
