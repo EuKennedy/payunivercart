@@ -1,4 +1,4 @@
-import { getTableConfig } from 'drizzle-orm/pg-core';
+import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import { sessions, verifications } from './auth.js';
 import { gatewayCredentials } from './integrations.js';
@@ -56,5 +56,22 @@ describe('schema regression — Bloco 1 críticos', () => {
     expect(whereSql, 'index must carry a WHERE clause for partial uniqueness').not.toBe('');
     expect(whereSql).toContain('is_default');
     expect(whereSql).toMatch(/=\s*true/);
+  });
+
+  it('gateway_credentials partial unique renders the exact SQL Postgres will see', () => {
+    // Render the index's WHERE clause through the real Drizzle PgDialect so
+    // we are testing what actually gets emitted into the migration, not
+    // just the in-memory description.
+    const config = getTableConfig(gatewayCredentials);
+    const index = config.indexes.find(
+      (i) => i.config.name === 'gateway_credentials_default_unique',
+    );
+    expect(index?.config.where).toBeDefined();
+    if (!index?.config.where) return;
+
+    const dialect = new PgDialect({ casing: 'snake_case' });
+    const rendered = dialect.sqlToQuery(index.config.where);
+    expect(rendered.sql).toBe('is_default = true');
+    expect(rendered.params).toEqual([]);
   });
 });
