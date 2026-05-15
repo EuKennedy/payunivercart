@@ -9,6 +9,7 @@ import { loadEnv } from './env.js';
 import { appRouter } from './routers/index.js';
 import { buildServices } from './services.js';
 import type { TrpcContext } from './trpc.js';
+import { mountWahaWebhook } from './webhooks/waha.js';
 
 /**
  * Hono entry point. Boot order:
@@ -57,6 +58,8 @@ if (env.NODE_ENV !== 'production') {
  * Accept/Authorization headers; we avoid the tRPC envelope.
  */
 app.get('/health', (c) => c.json({ status: 'ok', uptimeSeconds: process.uptime() }));
+
+mountWahaWebhook(app, services);
 
 app.use(
   '/trpc/*',
