@@ -290,7 +290,8 @@ function toPaymentResult(intent: Stripe.PaymentIntent): PaymentResult {
   };
 }
 
-function mapStripeStatus(status: Stripe.PaymentIntent.Status): PaymentResult['status'] {
+/** Exported for unit tests. Not part of the public API. */
+export function mapStripeStatus(status: Stripe.PaymentIntent.Status): PaymentResult['status'] {
   switch (status) {
     case 'requires_payment_method':
     case 'requires_confirmation':
@@ -304,6 +305,21 @@ function mapStripeStatus(status: Stripe.PaymentIntent.Status): PaymentResult['st
       return 'paid';
     case 'canceled':
       return 'cancelled';
+    default: {
+      // Stripe occasionally introduces new PaymentIntent statuses (last seen:
+      // none breaking, but `requires_source` / `requires_source_action` existed
+      // historically). Fall back to `pending` and surface a structured warning
+      // so the operator hears about it before billing is affected.
+      // eslint-disable-next-line no-console
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'stripe.unknown_payment_intent_status',
+          status,
+        }),
+      );
+      return 'pending';
+    }
   }
 }
 

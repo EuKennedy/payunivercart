@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { boolean, index, jsonb, pgEnum, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { createdAt, fk, gatewayIdEnum, id, updatedAt } from './common.js';
 import { workspaces } from './workspaces.js';
@@ -70,11 +71,12 @@ export const gatewayCredentials = pgTable(
     updatedAt: updatedAt(),
   },
   (table) => [
-    uniqueIndex('gateway_credentials_default_unique').on(
-      table.workspaceId,
-      table.gatewayId,
-      table.isDefault,
-    ),
+    // Partial unique index: at most ONE row with is_default=true per
+    // (workspace_id, gateway_id). A regular composite unique on isDefault
+    // would not work — multiple `false` rows would all share the same key.
+    uniqueIndex('gateway_credentials_default_unique')
+      .on(table.workspaceId, table.gatewayId)
+      .where(sql`is_default = true`),
     index('gateway_credentials_workspace_idx').on(table.workspaceId),
   ],
 );

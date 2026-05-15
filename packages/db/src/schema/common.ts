@@ -19,6 +19,19 @@ export const updatedAt = () =>
 
 export const deletedAt = () => timestamp({ mode: 'date', withTimezone: true, precision: 3 });
 
+/**
+ * Required timestamptz column with NO default. Use this for fields like
+ * `expiresAt`, `accessTokenExpiresAt`, `dueDate`, etc. — values the app must
+ * compute explicitly. Using `createdAt()` for these creates rows that are
+ * born already expired.
+ */
+export const timestampTz = () =>
+  timestamp({ mode: 'date', withTimezone: true, precision: 3 }).notNull();
+
+/** Optional timestamptz column with no default. Same as `deletedAt()` semantically. */
+export const timestampTzNullable = () =>
+  timestamp({ mode: 'date', withTimezone: true, precision: 3 });
+
 /** Currency ISO 4217. */
 export const currencyEnum = pgEnum('currency', ['BRL', 'USD', 'EUR']);
 

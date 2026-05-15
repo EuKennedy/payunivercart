@@ -1,5 +1,5 @@
 import { boolean, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { createdAt, id, updatedAt } from './common.js';
+import { createdAt, id, timestampTz, timestampTzNullable, updatedAt } from './common.js';
 
 /**
  * Better-Auth managed tables. Names and columns match the Better-Auth
@@ -29,7 +29,8 @@ export const sessions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     token: text().notNull(),
-    expiresAt: createdAt(),
+    /** Absolute expiry instant. App must compute explicitly — no default. */
+    expiresAt: timestampTz(),
     ipAddress: text(),
     userAgent: text(),
     createdAt: createdAt(),
@@ -38,6 +39,7 @@ export const sessions = pgTable(
   (table) => [
     uniqueIndex('sessions_token_unique').on(table.token),
     index('sessions_user_idx').on(table.userId),
+    index('sessions_expires_idx').on(table.expiresAt),
   ],
 );
 
@@ -53,8 +55,9 @@ export const accounts = pgTable(
     accessToken: text(),
     refreshToken: text(),
     idToken: text(),
-    accessTokenExpiresAt: createdAt(),
-    refreshTokenExpiresAt: createdAt(),
+    /** OAuth access token expiry — nullable for providers that don't issue one. */
+    accessTokenExpiresAt: timestampTzNullable(),
+    refreshTokenExpiresAt: timestampTzNullable(),
     scope: text(),
     password: text(),
     createdAt: createdAt(),
@@ -72,11 +75,15 @@ export const verifications = pgTable(
     id: id(),
     identifier: text().notNull(),
     value: text().notNull(),
-    expiresAt: createdAt(),
+    /** OTP / magic-link expiry. App computes (e.g. now + 10min). */
+    expiresAt: timestampTz(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [index('verifications_identifier_idx').on(table.identifier)],
+  (table) => [
+    index('verifications_identifier_idx').on(table.identifier),
+    index('verifications_expires_idx').on(table.expiresAt),
+  ],
 );
 
 /** Two-factor TOTP secrets per user. */
