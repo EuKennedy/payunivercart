@@ -58,17 +58,18 @@ services:
     networks: [internal]
 
   # -----------------------------------------------------------------------
-  # WAHA — WhatsApp HTTP API (web.js engine). Self-hosted; never exposed
-  # to the public network. Only the api service talks to it.
+  # WAHA — local fallback only. Enable with `--profile local-waha`.
+  # In production we point WAHA_BASE_URL at an external instance
+  # (e.g. whatsapp.univerzap.cloud) so this container stays off.
   # -----------------------------------------------------------------------
   waha:
     image: devlikeapro/waha-plus:latest
     restart: unless-stopped
+    profiles: [local-waha]
     environment:
       WHATSAPP_DEFAULT_ENGINE: WEBJS
       WAHA_API_KEY: ${WAHA_API_KEY:?WAHA_API_KEY required}
       WAHA_WEBHOOK_HMAC_SECRET: ${WAHA_WEBHOOK_SECRET:?WAHA_WEBHOOK_SECRET required}
-      # Same secret the api uses to verify inbound webhooks.
       WAHA_LOG_LEVEL: info
     volumes:
       - waha-sessions:/app/.sessions
@@ -114,10 +115,13 @@ services:
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET required}
       AUTH_TRUSTED_ORIGINS: ${AUTH_TRUSTED_ORIGINS:-http://localhost:3000}
-      WAHA_BASE_URL: http://waha:3000
-      WAHA_API_KEY: ${WAHA_API_KEY}
+      # WAHA_BASE_URL points at the external WAHA instance in production
+      # (e.g. https://whatsapp.univerzap.cloud) and falls back to the
+      # internal `waha` service only when the `local-waha` profile is up.
+      WAHA_BASE_URL: ${WAHA_BASE_URL:-http://waha:3000}
+      WAHA_API_KEY: ${WAHA_API_KEY:?WAHA_API_KEY required}
       WAHA_DEFAULT_SESSION: ${WAHA_DEFAULT_SESSION:-default}
-      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET:?WAHA_WEBHOOK_SECRET required}
       ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?ENCRYPTION_KEYS required}
       ENCRYPTION_ACTIVE_KEY_ID: ${ENCRYPTION_ACTIVE_KEY_ID:-v1}
       AUDIT_KEYS: ${AUDIT_KEYS:?AUDIT_KEYS required}
@@ -135,10 +139,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      waha:
-        condition: service_started
       migrate:
         condition: service_completed_successfully
+      # Local `waha` is opt-in via the `local-waha` profile. When the
+      # profile is OFF (production using an external WAHA) Docker
+      # Compose skips this dependency entirely. The `required: false`
+      # makes it a soft link when the profile IS on, so api still
+      # starts if waha is mid-boot.
+      waha:
+        condition: service_started
+        required: false
     networks: [internal, public]
 
   # -----------------------------------------------------------------------
