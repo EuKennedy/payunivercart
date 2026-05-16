@@ -5,6 +5,9 @@ ARG PNPM_VERSION=9.12.3
 
 FROM node:${NODE_VERSION}-bookworm-slim AS builder
 
+# Re-import the global ARG into this stage's scope.
+ARG PNPM_VERSION
+
 ENV PNPM_HOME=/pnpm \
     PATH="/pnpm:${PATH}" \
     COREPACK_DEFAULT_TO_LATEST=0
