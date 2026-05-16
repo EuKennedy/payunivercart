@@ -48,13 +48,21 @@ export function buildServices(env: AppEnv): AppServices {
     defaultSession: env.WAHA_DEFAULT_SESSION,
   });
 
+  // Better-Auth's `baseURL` is the absolute origin of THIS api service.
+  // Use `API_PUBLIC_URL` when set (production: `https://api.univercart.com`);
+  // fall back to the first trusted origin (single-host dev with the api
+  // behind the same nginx as the dashboard) and finally to localhost.
+  const apiBase = (
+    env.API_PUBLIC_URL ??
+    env.AUTH_TRUSTED_ORIGINS[0] ??
+    'http://localhost:4000'
+  ).replace(/\/$/, '');
+
   const auth = createAuth({
     db: db.db,
     secret: env.AUTH_SECRET,
     trustedOrigins: env.AUTH_TRUSTED_ORIGINS,
-    // Better-Auth mounts itself under `/api/auth/*` on the api host.
-    // The dashboard talks to that base URL via the auth client.
-    baseURL: `${(env.AUTH_TRUSTED_ORIGINS[0] ?? 'http://localhost:4000').replace(/\/$/, '')}/api/auth`,
+    baseURL: `${apiBase}/api/auth`,
     waha,
     wahaSessionName: env.WAHA_DEFAULT_SESSION,
     emailSender: {

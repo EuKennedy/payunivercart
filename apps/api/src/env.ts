@@ -53,6 +53,14 @@ const envSchema = z.object({
         .filter(Boolean),
     ),
 
+  /**
+   * Public URL this api is reachable at (the domain Coolify maps the
+   * `api` service to). Used by Better-Auth to construct absolute
+   * callback URLs (e.g. password-reset links). Fallback uses
+   * `AUTH_TRUSTED_ORIGINS[0]` for backward-compat with single-host dev.
+   */
+  API_PUBLIC_URL: z.string().url().optional(),
+
   /** WAHA. */
   WAHA_BASE_URL: z.string().url().transform(noPlaceholder('WAHA_BASE_URL')),
   WAHA_API_KEY: z.string().min(8).transform(noPlaceholder('WAHA_API_KEY')),
