@@ -2,16 +2,10 @@ import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   reactStrictMode: true,
-  transpilePackages: [
-    '@payunivercart/api',
-    '@payunivercart/audit',
-    '@payunivercart/auth',
-    '@payunivercart/crypto',
-    '@payunivercart/db',
-    '@payunivercart/payments',
-    '@payunivercart/shared',
-    '@payunivercart/waha',
-  ],
+  // Admin currently doesn't import from any workspace package directly,
+  // so we keep transpilePackages empty — narrower bundler graph, fewer
+  // moving parts. Re-add packages as real imports land.
+  transpilePackages: [],
   poweredByHeader: false,
   // See apps/dashboard/next.config.ts for rationale on the `.js` extension
   // alias — our workspace uses NodeNext-style imports and `next build`'s
