@@ -153,12 +153,17 @@ services:
 
   # -----------------------------------------------------------------------
   # Dashboard — Next.js, producer-facing. Port 3000 internal.
+  #
+  # Gated behind the `frontends` profile while we work through a Next 16
+  # prerender quirk (see docs/DEPLOY.md). Enable on the next deploy with
+  # `--profile frontends`.
   # -----------------------------------------------------------------------
   dashboard:
     build:
       context: .
       dockerfile: apps/dashboard/Dockerfile
     restart: unless-stopped
+    profiles: [frontends]
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api}
@@ -169,12 +174,14 @@ services:
 
   # -----------------------------------------------------------------------
   # Checkout — Next.js, public-facing. Port 3001 internal.
+  # See `dashboard` note above on the `frontends` profile.
   # -----------------------------------------------------------------------
   checkout:
     build:
       context: .
       dockerfile: apps/checkout/Dockerfile
     restart: unless-stopped
+    profiles: [frontends]
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api}
@@ -186,12 +193,14 @@ services:
   # -----------------------------------------------------------------------
   # Admin — Next.js, operator-only. Port 3002 internal. Nginx gates
   # access via Coolify-side IP allowlist (set per deploy).
+  # See `dashboard` note above on the `frontends` profile.
   # -----------------------------------------------------------------------
   admin:
     build:
       context: .
       dockerfile: apps/admin/Dockerfile
     restart: unless-stopped
+    profiles: [frontends]
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api}
@@ -246,12 +255,19 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      # The three Next.js frontends are profile-gated; nginx waits on them
+      # only when they're enabled via `--profile frontends`. Using the
+      # `required: false` form keeps the dependency soft so nginx can boot
+      # in backend-only mode.
       dashboard:
         condition: service_started
+        required: false
       checkout:
         condition: service_started
+        required: false
       admin:
         condition: service_started
+        required: false
     networks: [internal, public]
 
 volumes:
