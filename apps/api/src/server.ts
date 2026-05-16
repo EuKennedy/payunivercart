@@ -5,11 +5,11 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
-import { loadEnv } from './env.js';
-import { appRouter } from './routers/index.js';
-import { buildServices } from './services.js';
-import type { TrpcContext } from './trpc.js';
-import { mountWahaWebhook } from './webhooks/waha.js';
+import { loadEnv } from './env';
+import { appRouter } from './routers/index';
+import { buildServices } from './services';
+import type { TrpcContext } from './trpc';
+import { mountWahaWebhook } from './webhooks/waha';
 
 /**
  * Hono entry point. Boot order:

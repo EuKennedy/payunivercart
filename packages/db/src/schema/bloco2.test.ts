@@ -1,21 +1,21 @@
 import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
-import { eventsAudit } from './audit.js';
-import { accounts, sessions, verifications } from './auth.js';
-import { carts } from './carts.js';
-import { gatewayCredentials, integrations, whatsappChatIds } from './integrations.js';
-import { orders } from './orders.js';
-import { platformInvoices, platformSubscriptions } from './platform_billing.js';
-import { productCategoryMappings, productCoupons } from './products.js';
-import { recoveryAttempts } from './recovery.js';
-import { refunds, transactions } from './transactions.js';
+import { eventsAudit } from './audit';
+import { accounts, sessions, verifications } from './auth';
+import { carts } from './carts';
+import { gatewayCredentials, integrations, whatsappChatIds } from './integrations';
+import { orders } from './orders';
+import { platformInvoices, platformSubscriptions } from './platform_billing';
+import { productCategoryMappings, productCoupons } from './products';
+import { recoveryAttempts } from './recovery';
+import { refunds, transactions } from './transactions';
 import {
   webhookEndpoints,
   webhookSignatureStateEnum,
   webhooksInbound,
   webhooksOutbox,
-} from './webhooks.js';
-import { memberships } from './workspaces.js';
+} from './webhooks';
+import { memberships } from './workspaces';
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */

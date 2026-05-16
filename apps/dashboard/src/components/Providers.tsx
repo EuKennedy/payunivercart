@@ -3,8 +3,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { httpBatchLink } from '@trpc/client';
 import { useState } from 'react';
-import { TRPC_URL } from '../lib/env.js';
-import { trpc } from '../lib/trpc.js';
+import { TRPC_URL } from '../lib/env';
+import { trpc } from '../lib/trpc';
 
 /**
  * Client-side providers: React-Query + tRPC. The QueryClient is built

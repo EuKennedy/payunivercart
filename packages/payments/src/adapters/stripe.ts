@@ -1,6 +1,6 @@
 import type { GatewayId, Money } from '@payunivercart/shared';
 import Stripe from 'stripe';
-import { type PaymentDeclineCode, PaymentError } from '../errors.js';
+import { type PaymentDeclineCode, PaymentError } from '../errors';
 import {
   type CreateBoletoInput,
   type CreateCardInput,
@@ -13,7 +13,7 @@ import {
   type WebhookEvent,
   type WebhookRequest,
   stripeCredentialsSchema,
-} from '../types.js';
+} from '../types';
 
 /**
  * Stripe webhook clock-skew tolerance. Match Stripe's documented default

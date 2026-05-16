@@ -8,7 +8,7 @@ import {
   wahaSendTextInputSchema,
   wahaSendTextResponseSchema,
   wahaSessionStatusSchema,
-} from './types.js';
+} from './types';
 
 /**
  * WAHA HTTP client with hardening (Bloco 5):

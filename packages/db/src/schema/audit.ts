@@ -1,7 +1,7 @@
 import { index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { users } from './auth.js';
-import { createdAt, fk, id } from './common.js';
-import { workspaces } from './workspaces.js';
+import { users } from './auth';
+import { createdAt, fk, id } from './common';
+import { workspaces } from './workspaces';
 
 /**
  * Append-only audit log. `previousHash` makes the chain tamper-evident; the

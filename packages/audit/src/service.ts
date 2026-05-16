@@ -1,7 +1,7 @@
-import { canonicalize } from './canonical.js';
-import { AuditError } from './errors.js';
-import { computeChainHash, hashesEqual } from './hash.js';
-import type { AuditPort, AuditRow, AuditRowInsert } from './port.js';
+import { canonicalize } from './canonical';
+import { AuditError } from './errors';
+import { computeChainHash, hashesEqual } from './hash';
+import type { AuditPort, AuditRow, AuditRowInsert } from './port';
 
 /**
  * High-level audit log writer + verifier. Every change touching money or

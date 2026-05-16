@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { publicProcedure, router } from '../trpc.js';
+import { publicProcedure, router } from '../trpc';
 
 /**
  * Health endpoints. Two distinct probes:

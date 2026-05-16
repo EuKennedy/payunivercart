@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Button, GlassCard, Heading, Input } from '../../components/ui.js';
-import { signIn } from '../../lib/auth.js';
+import { Button, GlassCard, Heading, Input } from '../../components/ui';
+import { signIn } from '../../lib/auth';
 
 export default function LoginPage() {
   const router = useRouter();

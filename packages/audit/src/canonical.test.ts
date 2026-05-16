@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalize } from './canonical.js';
-import { AuditError } from './errors.js';
+import { canonicalize } from './canonical';
+import { AuditError } from './errors';
 
 describe('canonicalize — determinism', () => {
   it('sorts object keys lexicographically', () => {

@@ -1,4 +1,4 @@
-import { CryptoError } from './errors.js';
+import { CryptoError } from './errors';
 
 /**
  * KEK store. Each entry maps an opaque `keyId` (small ASCII string, e.g.

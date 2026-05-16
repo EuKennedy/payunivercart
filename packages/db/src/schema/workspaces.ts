@@ -1,5 +1,5 @@
 import { boolean, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { users } from './auth.js';
+import { users } from './auth';
 import {
   createdAt,
   deletedAt,
@@ -9,8 +9,8 @@ import {
   memberRoleEnum,
   timestampTzNullable,
   updatedAt,
-} from './common.js';
-import { organizations } from './organizations.js';
+} from './common';
+import { organizations } from './organizations';
 
 /**
  * Each workspace is an isolated tenant inside an organization.

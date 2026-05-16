@@ -19,8 +19,8 @@ import {
   productTypeEnum,
   timestampTzNullable,
   updatedAt,
-} from './common.js';
-import { workspaces } from './workspaces.js';
+} from './common';
+import { workspaces } from './workspaces';
 
 export const products = pgTable(
   'products',

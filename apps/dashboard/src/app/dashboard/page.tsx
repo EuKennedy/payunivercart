@@ -2,8 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { GlassCard, Heading } from '../../components/ui.js';
-import { useSession } from '../../lib/auth.js';
+import { GlassCard, Heading } from '../../components/ui';
+import { useSession } from '../../lib/auth';
 
 export default function DashboardHome() {
   const session = useSession();

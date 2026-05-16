@@ -8,9 +8,9 @@ import {
   timestampTz,
   timestampTzNullable,
   updatedAt,
-} from './common.js';
-import { organizations } from './organizations.js';
-import { workspaces } from './workspaces.js';
+} from './common';
+import { organizations } from './organizations';
+import { workspaces } from './workspaces';
 
 /**
  * Our SaaS subscription per workspace (R$ 99,90/mo). One row per workspace.

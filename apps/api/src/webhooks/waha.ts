@@ -2,7 +2,7 @@ import { schema } from '@payunivercart/db';
 import type { PayunivercartError } from '@payunivercart/shared';
 import { verifyWahaWebhook } from '@payunivercart/waha';
 import type { Hono } from 'hono';
-import type { AppServices } from '../services.js';
+import type { AppServices } from '../services';
 
 /**
  * WAHA webhook receiver. Mounted at `/webhooks/waha` on the Hono router

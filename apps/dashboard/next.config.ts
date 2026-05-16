@@ -19,17 +19,6 @@ const config: NextConfig = {
     '@payunivercart/waha',
   ],
   poweredByHeader: false,
-  // Our source uses NodeNext-style `.js` import suffixes that resolve to
-  // `.ts` files. Webpack needs to be told the suffix is fungible —
-  // otherwise `import './foo.js'` fails with "module not found" during
-  // `next build` because the file on disk is `foo.ts`.
-  webpack(config) {
-    config.resolve.extensionAlias = {
-      '.js': ['.ts', '.tsx', '.js', '.jsx'],
-      '.mjs': ['.mts', '.mjs'],
-    };
-    return config;
-  },
 };
 
 export default config;

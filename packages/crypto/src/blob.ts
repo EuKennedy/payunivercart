@@ -1,4 +1,4 @@
-import { CryptoError } from './errors.js';
+import { CryptoError } from './errors';
 
 /**
  * Binary layout of a sealed credential blob written to the

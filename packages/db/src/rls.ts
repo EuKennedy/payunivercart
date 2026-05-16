@@ -2,7 +2,7 @@ import { PayunivercartError } from '@payunivercart/shared';
 import { sql } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT, PgTransaction } from 'drizzle-orm/pg-core';
 import type { ExtractTablesWithRelations } from 'drizzle-orm/relations';
-import type * as schema from './schema/index.js';
+import type * as schema from './schema/index';
 
 /**
  * Row-Level Security plumbing for `apps/api` and any Drizzle caller that

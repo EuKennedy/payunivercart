@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCnpj, formatCpf, validateCnpj, validateCpf } from './index.js';
+import { formatCnpj, formatCpf, validateCnpj, validateCpf } from './index';
 
 /**
  * Test data: deterministic, public-domain CPFs that pass the Receita

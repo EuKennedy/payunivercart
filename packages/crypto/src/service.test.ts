@@ -1,9 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { BLOB_CONSTANTS, decodeBlob } from './blob.js';
-import { CryptoError } from './errors.js';
-import { createKeyRegistry } from './registry.js';
-import { CryptoService } from './service.js';
+import { BLOB_CONSTANTS, decodeBlob } from './blob';
+import { CryptoError } from './errors';
+import { createKeyRegistry } from './registry';
+import { CryptoService } from './service';
 
 function key(b64Source?: Uint8Array): string {
   return Buffer.from(b64Source ?? randomBytes(32)).toString('base64');

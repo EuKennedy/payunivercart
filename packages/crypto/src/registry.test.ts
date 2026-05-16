@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CryptoError } from './errors.js';
-import { createKeyRegistry, loadKeyRegistryFromEnv } from './registry.js';
+import { CryptoError } from './errors';
+import { createKeyRegistry, loadKeyRegistryFromEnv } from './registry';
 
 function b64(bytes = 32): string {
   return Buffer.from(randomBytes(bytes)).toString('base64');

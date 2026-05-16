@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { validateCnpj, validateCpf } from '../br-document/index.js';
+import { validateCnpj, validateCpf } from '../br-document/index';
 import {
   GATEWAY_IDS,
   OTP_CHANNELS,
   PAYMENT_METHODS,
   SUPPORTED_LOCALES,
   TRANSACTION_STATUSES,
-} from '../constants/index.js';
+} from '../constants/index';
 
 export const localeSchema = z.enum(SUPPORTED_LOCALES);
 export const gatewayIdSchema = z.enum(GATEWAY_IDS);

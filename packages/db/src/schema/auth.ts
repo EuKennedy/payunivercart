@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { createdAt, fk, id, timestampTz, timestampTzNullable, updatedAt } from './common.js';
+import { createdAt, fk, id, timestampTz, timestampTzNullable, updatedAt } from './common';
 
 /**
  * Better-Auth managed tables. Names and columns match the Better-Auth

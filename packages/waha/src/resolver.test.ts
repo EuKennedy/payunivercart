@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { WahaClient } from './client.js';
-import { ChatIdResolver, InMemoryChatIdCache } from './resolver.js';
+import { WahaClient } from './client';
+import { ChatIdResolver, InMemoryChatIdCache } from './resolver';
 
 function buildClient(fetchImpl: typeof fetch): WahaClient {
   return new WahaClient({

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { AuditError } from './errors.js';
+import { AuditError } from './errors';
 
 /**
  * HMAC-SHA256 over the chain input. The chain input is:

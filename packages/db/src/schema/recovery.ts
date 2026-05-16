@@ -8,9 +8,9 @@ import {
   text,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { carts } from './carts.js';
-import { createdAt, fk, id, timestampTz, timestampTzNullable, updatedAt } from './common.js';
-import { workspaces } from './workspaces.js';
+import { carts } from './carts';
+import { createdAt, fk, id, timestampTz, timestampTzNullable, updatedAt } from './common';
+import { workspaces } from './workspaces';
 
 export const recoveryChannelEnum = pgEnum('recovery_channel', ['whatsapp', 'email']);
 

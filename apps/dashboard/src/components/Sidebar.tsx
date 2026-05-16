@@ -3,7 +3,7 @@
 import clsx from 'clsx';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { signOut, useSession } from '../lib/auth.js';
+import { signOut, useSession } from '../lib/auth';
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: '◧' },

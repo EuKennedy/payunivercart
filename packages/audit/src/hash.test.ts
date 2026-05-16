@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { AuditError } from './errors.js';
-import { computeChainHash, hashesEqual } from './hash.js';
+import { AuditError } from './errors';
+import { computeChainHash, hashesEqual } from './hash';
 
 const KEY_A = new Uint8Array(randomBytes(32));
 const KEY_B = new Uint8Array(randomBytes(32));

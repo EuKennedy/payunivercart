@@ -10,9 +10,9 @@ import {
   timestampTzNullable,
   transactionStatusEnum,
   updatedAt,
-} from './common.js';
-import { orders } from './orders.js';
-import { workspaces } from './workspaces.js';
+} from './common';
+import { orders } from './orders';
+import { workspaces } from './workspaces';
 
 /**
  * Every payment attempt. Append-only by convention — status updates create a new

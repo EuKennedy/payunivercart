@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutCustomerSchema, cnpjSchema, cpfSchema, documentSchema } from './index.js';
+import { checkoutCustomerSchema, cnpjSchema, cpfSchema, documentSchema } from './index';
 
 describe('cpfSchema (zod + checksum)', () => {
   it('accepts a valid formatted CPF and returns the digits-only form', () => {

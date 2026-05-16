@@ -1,4 +1,4 @@
-export type { Auth, AuthServerConfig } from './server.js';
-export { createAuth, sendWhatsappOtp } from './server.js';
-export type { PayunivercartAuthClient } from './client.js';
-export { createPayunivercartAuthClient } from './client.js';
+export type { Auth, AuthServerConfig } from './server';
+export { createAuth, sendWhatsappOtp } from './server';
+export type { PayunivercartAuthClient } from './client';
+export { createPayunivercartAuthClient } from './client';

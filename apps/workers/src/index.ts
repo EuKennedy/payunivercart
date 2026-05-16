@@ -1,7 +1,7 @@
 import 'dotenv/config';
-import { loadEnv } from './env.js';
-import { startWorkers } from './processors.js';
-import { createQueues } from './queues.js';
+import { loadEnv } from './env';
+import { startWorkers } from './processors';
+import { createQueues } from './queues';
 
 /**
  * BullMQ worker process entry point. Boot order:

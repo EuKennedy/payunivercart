@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { checkouts } from './checkouts.js';
+import { checkouts } from './checkouts';
 import {
   createdAt,
   currencyEnum,
@@ -9,9 +9,9 @@ import {
   orderStatusEnum,
   timestampTzNullable,
   updatedAt,
-} from './common.js';
-import { productOffers, products } from './products.js';
-import { workspaces } from './workspaces.js';
+} from './common';
+import { productOffers, products } from './products';
+import { workspaces } from './workspaces';
 
 export const orders = pgTable(
   'orders',

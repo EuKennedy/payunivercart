@@ -8,8 +8,8 @@ import {
   text,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { createdAt, fk, gatewayIdEnum, id, timestampTzNullable, updatedAt } from './common.js';
-import { workspaces } from './workspaces.js';
+import { createdAt, fk, gatewayIdEnum, id, timestampTzNullable, updatedAt } from './common';
+import { workspaces } from './workspaces';
 
 export const webhookDirectionEnum = pgEnum('webhook_direction', ['inbound', 'outbound']);
 

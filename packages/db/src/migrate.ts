@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { createDatabaseClient } from './client.js';
+import { createDatabaseClient } from './client';
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;

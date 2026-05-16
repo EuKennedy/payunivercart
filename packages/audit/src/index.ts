@@ -1,7 +1,7 @@
-export { canonicalize } from './canonical.js';
-export { AuditError, type AuditErrorCode } from './errors.js';
-export { computeChainHash, hashesEqual } from './hash.js';
-export type { AuditPort, AuditRow, AuditRowInsert, AuditTx } from './port.js';
+export { canonicalize } from './canonical';
+export { AuditError, type AuditErrorCode } from './errors';
+export { computeChainHash, hashesEqual } from './hash';
+export type { AuditPort, AuditRow, AuditRowInsert, AuditTx } from './port';
 export {
   type AppendInput,
   type AppendResult,
@@ -12,4 +12,4 @@ export {
   type VerifyOk,
   type VerifyOptions,
   type VerifyReport,
-} from './service.js';
+} from './service';

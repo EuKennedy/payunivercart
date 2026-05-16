@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { AuditError } from './errors.js';
-import type { AuditPort, AuditRow, AuditRowInsert, AuditTx } from './port.js';
-import { AuditService } from './service.js';
+import { AuditError } from './errors';
+import type { AuditPort, AuditRow, AuditRowInsert, AuditTx } from './port';
+import { AuditService } from './service';
 
 /**
  * In-memory port for testing. Stores every row, lets us peek and tamper

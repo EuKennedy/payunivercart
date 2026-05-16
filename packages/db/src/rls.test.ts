@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { PayunivercartError } from '@payunivercart/shared';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
-import { workspaceContextSql } from './rls.js';
+import { workspaceContextSql } from './rls';
 
 const dialect = new PgDialect({ casing: 'snake_case' });
 const VALID_UUID = '01935aa1-7b8c-7d80-9f01-a1b2c3d4e5f6';

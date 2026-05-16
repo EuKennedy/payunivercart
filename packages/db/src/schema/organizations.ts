@@ -1,6 +1,6 @@
 import { boolean, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { users } from './auth.js';
-import { createdAt, deletedAt, fk, id, updatedAt } from './common.js';
+import { users } from './auth';
+import { createdAt, deletedAt, fk, id, updatedAt } from './common';
 
 /**
  * An organization is the billing root for a producer (legal entity / brand).

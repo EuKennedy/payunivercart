@@ -4,7 +4,7 @@ import {
   digitsToChatId,
   isParseablePhone,
   normalizePhone,
-} from './index.js';
+} from './index';
 
 describe('normalizePhone — Brazilian mobile guess', () => {
   it('parses national format and produces stripped guess for post-2012 accounts', () => {

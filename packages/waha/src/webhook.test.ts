@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto';
 import { PayunivercartError } from '@payunivercart/shared';
 import { describe, expect, it } from 'vitest';
-import { WAHA_EVENT } from './types.js';
-import { verifyWahaWebhook } from './webhook.js';
+import { WAHA_EVENT } from './types';
+import { verifyWahaWebhook } from './webhook';
 
 const SECRET = 'super-secret-waha-token';
 const FIXED_NOW = new Date('2026-05-15T12:00:00Z');

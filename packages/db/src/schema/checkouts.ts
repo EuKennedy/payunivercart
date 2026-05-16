@@ -1,7 +1,7 @@
 import { boolean, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { createdAt, deletedAt, fk, id, updatedAt } from './common.js';
-import { products } from './products.js';
-import { workspaces } from './workspaces.js';
+import { createdAt, deletedAt, fk, id, updatedAt } from './common';
+import { products } from './products';
+import { workspaces } from './workspaces';
 
 /**
  * A checkout binds branding, allowed payment methods, fields and pixels to one

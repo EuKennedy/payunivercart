@@ -2,7 +2,7 @@ import { schema, withWorkspace } from '@payunivercart/db';
 import { TRPCError } from '@trpc/server';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { router, workspaceProcedure } from '../trpc.js';
+import { router, workspaceProcedure } from '../trpc';
 
 /**
  * WhatsApp integration router. Multi-tenant by design:

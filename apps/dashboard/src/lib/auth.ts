@@ -4,7 +4,7 @@
 // never follows the server-side re-exports — which would drag postgres,
 // `fs`, `perf_hooks`, etc. into a browser bundle and fail the build.
 import { createPayunivercartAuthClient } from '@payunivercart/auth/client';
-import { AUTH_BASE_URL } from './env.js';
+import { AUTH_BASE_URL } from './env';
 
 /**
  * Singleton Better-Auth browser client. Imported by every component that

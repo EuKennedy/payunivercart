@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { describe, expect, it, vi } from 'vitest';
-import { PaymentError } from '../errors.js';
-import { mapStripeDeclineCode, mapStripeError, mapStripeStatus } from './stripe.js';
+import { PaymentError } from '../errors';
+import { mapStripeDeclineCode, mapStripeError, mapStripeStatus } from './stripe';
 
 /* -------------------------------------------------------------------------- */
 /*  mapStripeStatus                                                            */

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { GatewayId } from '@payunivercart/shared';
 import { PayunivercartError } from '@payunivercart/shared';
-import { type PaymentDeclineCode, PaymentError } from '../errors.js';
+import { type PaymentDeclineCode, PaymentError } from '../errors';
 import {
   type CreateBoletoInput,
   type CreateCardInput,
@@ -14,7 +14,7 @@ import {
   type WebhookEvent,
   type WebhookRequest,
   mercadoPagoCredentialsSchema,
-} from '../types.js';
+} from '../types';
 
 /**
  * Mercado Pago adapter. See `docs/research/payment-gateways.md §1`.

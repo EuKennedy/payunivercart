@@ -2,9 +2,9 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { Button, GlassCard, Heading, StatusPill } from '../../../components/ui.js';
-import { useSession } from '../../../lib/auth.js';
-import { trpc } from '../../../lib/trpc.js';
+import { Button, GlassCard, Heading, StatusPill } from '../../../components/ui';
+import { useSession } from '../../../lib/auth';
+import { trpc } from '../../../lib/trpc';
 
 /**
  * WhatsApp integration page. Multi-tenant: every workspace has its own

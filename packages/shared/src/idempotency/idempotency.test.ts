@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { PayunivercartError } from '../errors/index.js';
+import { PayunivercartError } from '../errors/index';
 import {
   IDEMPOTENCY_KINDS,
   IDEMPOTENCY_NAMESPACE,
   type IdempotencyKeyParts,
   buildIdempotencyKey,
-} from './index.js';
+} from './index';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 

@@ -1,9 +1,9 @@
 import { type GatewayId, PayunivercartError } from '@payunivercart/shared';
-import { MercadoPagoAdapter } from './adapters/mercadopago.js';
-import { PagarmeAdapter } from './adapters/pagarme.js';
-import { PagSeguroAdapter } from './adapters/pagseguro.js';
-import { StripeAdapter } from './adapters/stripe.js';
-import type { PaymentGateway } from './types.js';
+import { MercadoPagoAdapter } from './adapters/mercadopago';
+import { PagarmeAdapter } from './adapters/pagarme';
+import { PagSeguroAdapter } from './adapters/pagseguro';
+import { StripeAdapter } from './adapters/stripe';
+import type { PaymentGateway } from './types';
 
 /**
  * Lazy singleton registry of every supported gateway adapter.

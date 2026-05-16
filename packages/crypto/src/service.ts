@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { type ParsedBlob, decodeBlob, encodeBlob } from './blob.js';
-import { CryptoError } from './errors.js';
-import type { KeyRegistry } from './registry.js';
+import { type ParsedBlob, decodeBlob, encodeBlob } from './blob';
+import { CryptoError } from './errors';
+import type { KeyRegistry } from './registry';
 
 /**
  * Symmetric authenticated encryption for credentials at rest.

@@ -1,7 +1,7 @@
 import { TRPCError, initTRPC } from '@trpc/server';
 import type { Context as HonoContext } from 'hono';
 import { ZodError } from 'zod';
-import type { AppServices } from './services.js';
+import type { AppServices } from './services';
 
 /**
  * Per-request context. The Hono adapter calls `createContext` for every

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { GatewayId } from '../constants/index.js';
-import { PayunivercartError } from '../errors/index.js';
+import type { GatewayId } from '../constants/index';
+import { PayunivercartError } from '../errors/index';
 
 /**
  * Deterministic idempotency keys for every gateway call.

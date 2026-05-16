@@ -1,8 +1,8 @@
 import { sql } from 'drizzle-orm';
 import { bigint, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
-import { checkouts } from './checkouts.js';
-import { createdAt, currencyEnum, fk, id, timestampTzNullable, updatedAt } from './common.js';
-import { workspaces } from './workspaces.js';
+import { checkouts } from './checkouts';
+import { createdAt, currencyEnum, fk, id, timestampTzNullable, updatedAt } from './common';
+import { workspaces } from './workspaces';
 
 /**
  * Abandoned carts. Redis is the hot store; this table is the durable copy used

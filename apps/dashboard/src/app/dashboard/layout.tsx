@@ -1,4 +1,4 @@
-import { Sidebar } from '../../components/Sidebar.js';
+import { Sidebar } from '../../components/Sidebar';
 
 /**
  * Authenticated shell. Side-to-side layout the founder requested: fixed

@@ -1,6 +1,6 @@
 import { PayunivercartError, normalizePhone } from '@payunivercart/shared';
-import type { WahaClient } from './client.js';
-import type { WahaChatId } from './types.js';
+import type { WahaClient } from './client';
+import type { WahaChatId } from './types';
 
 /**
  * Cache port. Implementations: Redis in production, in-memory for tests.

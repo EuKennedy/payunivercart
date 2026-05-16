@@ -1,6 +1,6 @@
 import { Worker, type WorkerOptions } from 'bullmq';
 import type IORedis from 'ioredis';
-import { QUEUE_NAMES } from './queues.js';
+import { QUEUE_NAMES } from './queues';
 
 /**
  * Job processors. Each worker is a separate BullMQ instance bound to one

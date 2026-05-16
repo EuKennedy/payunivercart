@@ -1,7 +1,7 @@
 import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
-import { sessions, verifications } from './auth.js';
-import { gatewayCredentials } from './integrations.js';
+import { sessions, verifications } from './auth';
+import { gatewayCredentials } from './integrations';
 
 /**
  * Drizzle stores columns by their JS-side camelCase name and resolves the

@@ -1,6 +1,6 @@
 import { Queue, type QueueOptions } from 'bullmq';
 import IORedis from 'ioredis';
-import type { WorkersEnv } from './env.js';
+import type { WorkersEnv } from './env';
 
 /**
  * Process-wide queue + connection registry. Each queue gets its own

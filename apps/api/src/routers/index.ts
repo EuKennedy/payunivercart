@@ -1,6 +1,6 @@
-import { router } from '../trpc.js';
-import { healthRouter } from './health.js';
-import { whatsappRouter } from './whatsapp.js';
+import { router } from '../trpc';
+import { healthRouter } from './health';
+import { whatsappRouter } from './whatsapp';
 
 /**
  * Root tRPC router. Add new domain routers as they land; keep this file

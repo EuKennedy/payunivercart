@@ -3,7 +3,7 @@ import { type Auth, createAuth } from '@payunivercart/auth';
 import { CryptoService, loadKeyRegistryFromEnv } from '@payunivercart/crypto';
 import { createDatabaseClient } from '@payunivercart/db';
 import { WahaClient } from '@payunivercart/waha';
-import type { AppEnv } from './env.js';
+import type { AppEnv } from './env';
 
 /**
  * Long-lived process-wide services. Built once at boot and handed to

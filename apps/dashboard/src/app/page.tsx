@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Button, GlassCard, Heading } from '../components/ui.js';
+import { Button, GlassCard, Heading } from '../components/ui';
 
 export default function HomePage() {
   return (

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { GatewayId } from '@payunivercart/shared';
 import { PayunivercartError } from '@payunivercart/shared';
-import { type PaymentDeclineCode, PaymentError } from '../errors.js';
+import { type PaymentDeclineCode, PaymentError } from '../errors';
 import {
   type CreateBoletoInput,
   type CreateCardInput,
@@ -14,7 +14,7 @@ import {
   type WebhookEvent,
   type WebhookRequest,
   pagarmeCredentialsSchema,
-} from '../types.js';
+} from '../types';
 
 /**
  * Pagar.me v5 adapter. See `docs/research/payment-gateways.md §2`.

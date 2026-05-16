@@ -1,4 +1,4 @@
-import { AuditError } from './errors.js';
+import { AuditError } from './errors';
 
 /**
  * Deterministic JSON serialization for the audit hash chain.

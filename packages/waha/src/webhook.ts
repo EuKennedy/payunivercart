@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PayunivercartError } from '@payunivercart/shared';
 import { ZodError } from 'zod';
-import { type WahaWebhookPayload, wahaWebhookPayloadSchema } from './types.js';
+import { type WahaWebhookPayload, wahaWebhookPayloadSchema } from './types';
 
 export interface VerifyWebhookOptions {
   /** Raw request body — DO NOT pre-parse; HMAC is over the exact bytes. */
