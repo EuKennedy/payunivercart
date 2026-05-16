@@ -8,7 +8,12 @@ FROM node:${NODE_VERSION}-bookworm-slim AS builder
 # Re-import the global ARG into this stage's scope.
 ARG PNPM_VERSION
 
-ENV PNPM_HOME=/pnpm \
+# Force `development` during build so `pnpm install` keeps devDependencies
+# (typescript, tsx, etc.) even when the orchestrator (Coolify) leaks
+# `NODE_ENV=production` as a build-time env var. The runtime stage sets
+# `NODE_ENV=production` separately.
+ENV NODE_ENV=development \
+    PNPM_HOME=/pnpm \
     PATH="/pnpm:${PATH}" \
     COREPACK_DEFAULT_TO_LATEST=0
 
