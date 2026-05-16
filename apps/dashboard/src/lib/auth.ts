@@ -1,6 +1,9 @@
 'use client';
 
-import { createPayunivercartAuthClient } from '@payunivercart/auth';
+// Import from `/client` (not the package root) so webpack's client bundle
+// never follows the server-side re-exports — which would drag postgres,
+// `fs`, `perf_hooks`, etc. into a browser bundle and fail the build.
+import { createPayunivercartAuthClient } from '@payunivercart/auth/client';
 import { AUTH_BASE_URL } from './env.js';
 
 /**
