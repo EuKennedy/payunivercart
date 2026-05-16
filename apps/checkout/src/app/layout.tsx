@@ -1,6 +1,10 @@
 import './globals.css';
 import type { Metadata } from 'next';
 
+// See apps/admin/src/app/layout.tsx. Checkout sessions are always dynamic
+// per order anyway — there's no value in attempting SSG here.
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'Checkout',
   description: 'Finalize sua compra com segurança',
