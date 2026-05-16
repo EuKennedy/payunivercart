@@ -86,6 +86,8 @@ USER api
 
 EXPOSE 4000
 
-# `tsx` is in the api package's runtime dependencies. It transparently
-# resolves the workspace `.ts` sources at runtime.
-CMD ["node_modules/.bin/tsx", "apps/api/src/server.ts"]
+# `tsx` is in the api package's runtime dependencies. It lives under the
+# package's own node_modules (not the workspace root) since pnpm uses
+# strict per-package isolation by default. Reference it through the
+# explicit path so we don't depend on hoisting.
+CMD ["apps/api/node_modules/.bin/tsx", "apps/api/src/server.ts"]

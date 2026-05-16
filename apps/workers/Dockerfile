@@ -60,4 +60,7 @@ COPY --chown=worker:worker --from=builder /repo /repo
 
 USER worker
 
-CMD ["node_modules/.bin/tsx", "apps/workers/src/index.ts"]
+# `tsx` is in the workers package's runtime dependencies under its own
+# node_modules (pnpm strict isolation), so reference it through the
+# explicit per-package path.
+CMD ["apps/workers/node_modules/.bin/tsx", "apps/workers/src/index.ts"]
