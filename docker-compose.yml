@@ -83,7 +83,7 @@ services:
   # -----------------------------------------------------------------------
   migrate:
     build:
-      context: ..
+      context: .
       dockerfile: apps/api/Dockerfile
       target: builder
     command: >
@@ -105,7 +105,7 @@ services:
   # -----------------------------------------------------------------------
   api:
     build:
-      context: ..
+      context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     environment:
@@ -156,7 +156,7 @@ services:
   # -----------------------------------------------------------------------
   dashboard:
     build:
-      context: ..
+      context: .
       dockerfile: apps/dashboard/Dockerfile
     restart: unless-stopped
     environment:
@@ -172,7 +172,7 @@ services:
   # -----------------------------------------------------------------------
   checkout:
     build:
-      context: ..
+      context: .
       dockerfile: apps/checkout/Dockerfile
     restart: unless-stopped
     environment:
@@ -189,7 +189,7 @@ services:
   # -----------------------------------------------------------------------
   admin:
     build:
-      context: ..
+      context: .
       dockerfile: apps/admin/Dockerfile
     restart: unless-stopped
     environment:
@@ -208,7 +208,7 @@ services:
   # -----------------------------------------------------------------------
   workers:
     build:
-      context: ..
+      context: .
       dockerfile: apps/workers/Dockerfile
     restart: unless-stopped
     environment:
@@ -242,7 +242,7 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80"
     volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       api:
         condition: service_healthy

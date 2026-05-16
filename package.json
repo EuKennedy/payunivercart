@@ -21,9 +21,9 @@
     "db:generate": "pnpm --filter @payunivercart/db generate",
     "db:migrate": "pnpm --filter @payunivercart/db migrate",
     "db:studio": "pnpm --filter @payunivercart/db studio",
-    "docker:up": "docker compose -f docker/docker-compose.yml up -d",
-    "docker:down": "docker compose -f docker/docker-compose.yml down",
-    "docker:logs": "docker compose -f docker/docker-compose.yml logs -f",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {

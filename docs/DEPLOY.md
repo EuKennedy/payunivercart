@@ -4,7 +4,7 @@ Target: `pay.univercart.com` running on a Coolify-managed VPS.
 
 ## Stack overview
 
-Eight services boot from `docker/docker-compose.yml`:
+Eight services boot from `docker-compose.yml`:
 
 | Service     | Port (internal) | Purpose |
 |-------------|-----------------|---------|
@@ -58,7 +58,7 @@ After it exits successfully, every other service starts.
 1. **Create the project** in Coolify pointing at
    `https://github.com/EuKennedy/payunivercart` (branch `main`).
 2. **Build pack:** Docker Compose.
-3. **Compose file:** `docker/docker-compose.yml`.
+3. **Compose file:** `docker-compose.yml`.
 4. **Secrets:** add every env var from `.env.example` in Coolify's
    secrets UI. None of them may contain `__REPLACE_ME__`.
 5. **Domains** — point each subdomain at this VPS in DNS, then add
@@ -81,7 +81,7 @@ After it exits successfully, every other service starts.
 ## Postgres roles (one-time, after first migrate)
 
 ```bash
-docker compose -f docker/docker-compose.yml exec postgres \
+docker compose exec postgres \
   psql -U payunivercart -d payunivercart <<'SQL'
 CREATE ROLE payunivercart_app    LOGIN PASSWORD :'app_pwd';
 CREATE ROLE payunivercart_worker LOGIN PASSWORD :'worker_pwd' BYPASSRLS;
