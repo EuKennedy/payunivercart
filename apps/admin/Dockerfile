@@ -31,7 +31,10 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY apps/admin apps/admin
 COPY apps/api apps/api
 COPY packages packages
-RUN pnpm --filter @payunivercart/admin exec next build
+# Flip NODE_ENV back to `production` for the Next compile so the App
+# Router build doesn't generate a Pages-Router `/404` fallback (which
+# imports `<Html>` from `next/document` and crashes the prerender).
+RUN NODE_ENV=production pnpm --filter @payunivercart/admin exec next build
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ENV NODE_ENV=production \

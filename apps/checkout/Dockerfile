@@ -31,7 +31,11 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY apps/checkout apps/checkout
 COPY apps/api apps/api
 COPY packages packages
-RUN pnpm --filter @payunivercart/checkout exec next build
+# `next build` reads NODE_ENV at compile time and refuses to bundle for
+# production unless it's `production`. We deliberately ran `pnpm install`
+# with `NODE_ENV=development` (above) so devDependencies were kept; now
+# flip the env back for the actual Next compile.
+RUN NODE_ENV=production pnpm --filter @payunivercart/checkout exec next build
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ENV NODE_ENV=production \

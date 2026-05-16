@@ -41,8 +41,10 @@ COPY apps/dashboard apps/dashboard
 COPY apps/api apps/api
 COPY packages packages
 
-# Next.js standalone output keeps the runtime image to ~120 MB.
-RUN pnpm --filter @payunivercart/dashboard exec next build
+# Flip NODE_ENV back to `production` for the Next compile so the App
+# Router build doesn't generate a Pages-Router `/404` fallback (which
+# imports `<Html>` from `next/document` and crashes the prerender).
+RUN NODE_ENV=production pnpm --filter @payunivercart/dashboard exec next build
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 
