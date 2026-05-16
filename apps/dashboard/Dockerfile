@@ -42,7 +42,7 @@ COPY apps/api apps/api
 COPY packages packages
 
 # Next.js standalone output keeps the runtime image to ~120 MB.
-RUN pnpm --filter @payunivercart/dashboard exec next build
+RUN pnpm --filter @payunivercart/dashboard exec next build --webpack
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 

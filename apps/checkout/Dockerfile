@@ -31,7 +31,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY apps/checkout apps/checkout
 COPY apps/api apps/api
 COPY packages packages
-RUN pnpm --filter @payunivercart/checkout exec next build
+RUN pnpm --filter @payunivercart/checkout exec next build --webpack
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ENV NODE_ENV=production \
