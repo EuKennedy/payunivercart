@@ -129,6 +129,9 @@ importers:
       hono:
         specifier: 4.12.18
         version: 4.12.18
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
       zod:
         specifier: 3.24.1
         version: 3.24.1
@@ -139,9 +142,6 @@ importers:
       dotenv:
         specifier: 16.4.7
         version: 16.4.7
-      tsx:
-        specifier: 4.19.2
-        version: 4.19.2
       typescript:
         specifier: 5.7.2
         version: 5.7.2
@@ -312,6 +312,9 @@ importers:
       ioredis:
         specifier: 5.4.2
         version: 5.4.2
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
       zod:
         specifier: 3.24.1
         version: 3.24.1
@@ -322,9 +325,6 @@ importers:
       dotenv:
         specifier: 16.4.7
         version: 16.4.7
-      tsx:
-        specifier: 4.19.2
-        version: 4.19.2
       typescript:
         specifier: 5.7.2
         version: 5.7.2
