@@ -34,9 +34,13 @@
   "pnpm": {
     "overrides": {
       "esbuild": "^0.25.0",
+      "next": "15.5.18",
       "postcss": "^8.5.10",
+      "react": "19.2.0",
+      "react-dom": "19.2.0",
       "vite": "^6.4.2",
-      "vitest": "^3.2.4"
+      "vitest": "^3.2.4",
+      "zod": "3.25.76"
     }
   }
 }
