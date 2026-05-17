@@ -1,7 +1,11 @@
 import type { AuditService } from '@payunivercart/audit';
 import { type Auth, createAuth } from '@payunivercart/auth';
 import { CryptoService, loadKeyRegistryFromEnv } from '@payunivercart/crypto';
-import { createDatabaseClient } from '@payunivercart/db';
+import {
+  createDatabaseClient,
+  deleteUserById,
+  provisionWorkspaceForUser,
+} from '@payunivercart/db';
 import { WahaClient } from '@payunivercart/waha';
 import type { AppEnv } from './env';
 
@@ -84,6 +88,20 @@ export function buildServices(env: AppEnv): AppServices {
           })}\n`,
         );
       },
+    },
+    // Block 19: on every successful signup, provision the producer's
+    // organization + workspace + owner membership. The compensation
+    // callback deletes the user row if provisioning fails, so the
+    // signup endpoint never returns 200 with a half-created account.
+    onUserCreated: async (user) => {
+      await provisionWorkspaceForUser(db.db, {
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+      });
+    },
+    onUserCreationFailed: async (userId) => {
+      await deleteUserById(db.db, userId);
     },
   });
 

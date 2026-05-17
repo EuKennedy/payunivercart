@@ -1,6 +1,8 @@
 import { serve } from '@hono/node-server';
 import { trpcServer } from '@hono/trpc-server';
+import { schema } from '@payunivercart/db';
 import 'dotenv/config';
+import { asc, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
@@ -64,6 +66,47 @@ app.get('/health', (c) => c.json({ status: 'ok', uptimeSeconds: process.uptime()
 // sign-in, sign-up, OTP, and session endpoints live here.
 app.all('/api/auth/*', (c) => services.auth.handler(c.req.raw));
 
+/**
+ * Plain HTTP membership probe — used by the dashboard's `(app)` layout
+ * RSC to gate access without going through the tRPC URL-encoding
+ * dance. Returns 401 when the session cookie is missing/invalid, 403
+ * when the user has no memberships (shouldn't happen post-Block-19),
+ * 200 with the active workspace + role otherwise.
+ */
+app.get('/me/workspace', async (c) => {
+  const session = await services.auth.api.getSession({ headers: c.req.raw.headers });
+  if (!session?.user?.id) {
+    return c.json({ error: 'unauthenticated' }, 401);
+  }
+  const headerWs = c.req.header('x-workspace-id') ?? null;
+  const rows = await services.db.db
+    .select({
+      workspaceId: schema.memberships.workspaceId,
+      role: schema.memberships.role,
+      name: schema.workspaces.name,
+      slug: schema.workspaces.slug,
+    })
+    .from(schema.memberships)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.memberships.workspaceId))
+    .where(eq(schema.memberships.userId, session.user.id))
+    .orderBy(
+      asc(sql`coalesce(${schema.memberships.acceptedAt}, ${schema.memberships.createdAt})`),
+    );
+  if (rows.length === 0) {
+    return c.json({ error: 'no_workspace' }, 403);
+  }
+  const selected = headerWs ? rows.find((r) => r.workspaceId === headerWs) : rows[0];
+  if (!selected) {
+    return c.json({ error: 'not_a_member' }, 403);
+  }
+  return c.json({
+    workspaceId: selected.workspaceId,
+    name: selected.name,
+    slug: selected.slug,
+    role: selected.role,
+  });
+});
+
 mountWahaWebhook(app, services);
 
 app.use(
@@ -78,13 +121,19 @@ app.use(
       // handler reads the same cookie the dashboard set; null when
       // unauthenticated. tRPC procedures decide whether to enforce
       // (see `authedProcedure` / `workspaceProcedure` in `trpc.ts`).
+      //
+      // `workspaceId` and `role` are left null here; `workspaceProcedure`
+      // populates them from the user's memberships once it asserts the
+      // session. Procedures that don't need a tenant (health, workspace
+      // discovery) skip the lookup entirely.
       const session = await services.auth.api.getSession({
         headers: c.req.raw.headers,
       });
       return {
         services,
         honoCtx: c,
-        workspaceId: c.req.header('x-workspace-id') ?? null,
+        workspaceId: null,
+        role: null,
         userId: session?.user?.id ?? null,
       } satisfies TrpcContext as unknown as Record<string, unknown>;
     },

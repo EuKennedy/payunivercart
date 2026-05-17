@@ -1,6 +1,7 @@
 import { router } from '../trpc';
 import { healthRouter } from './health';
 import { whatsappRouter } from './whatsapp';
+import { workspaceRouter } from './workspace';
 
 /**
  * Root tRPC router. Add new domain routers as they land; keep this file
@@ -10,6 +11,7 @@ import { whatsappRouter } from './whatsapp';
 export const appRouter = router({
   health: healthRouter,
   whatsapp: whatsappRouter,
+  workspace: workspaceRouter,
 });
 
 export type AppRouter = typeof appRouter;

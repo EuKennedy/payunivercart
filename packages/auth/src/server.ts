@@ -9,8 +9,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
  * Better-Auth server config for payunivercart.
  *
  * Identity model:
- *   - Email + password (argon2id, enforced at DB level by a CHECK
- *     constraint from Bloco 2).
+ *   - Email + password (scrypt; default Better-Auth hash format).
  *   - Second factor / passwordless: email OTP, with WhatsApp OTP added
  *     side-by-side using the same code generator. Producer picks the
  *     channel at the login screen.
@@ -19,6 +18,16 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
  * `@payunivercart/db`: `users`, `sessions`, `accounts`, `verifications`,
  * `two_factor`. No schema migration is needed at this point — Bloco 2
  * already declared every column Better-Auth expects.
+ *
+ * Workspace bootstrap:
+ *   On every successful user create, we delegate to the caller-supplied
+ *   `onUserCreated(...)` to provision the producer's organization +
+ *   workspace + owner membership. Better-Auth's `after` hook runs in a
+ *   separate transaction from the user insert, so we apply a
+ *   compensation pattern: if `onUserCreated` throws, we call
+ *   `onUserCreationFailed` to delete the orphan user row. Net effect at
+ *   the API boundary: signup either fully succeeds or fully fails, no
+ *   half-created accounts to confuse retries.
  *
  * The factory takes the WAHA client as a parameter so the WhatsApp OTP
  * channel can be wired without making this package depend on a process-
@@ -37,6 +46,21 @@ export interface AuthServerConfig {
     /** Called by Better-Auth when an email OTP needs to be delivered. */
     sendEmailOtp: (input: { to: string; code: string }) => Promise<void>;
   };
+  /**
+   * Provision the organization + workspace + owner membership for a
+   * brand-new user. Runs AFTER Better-Auth has committed the user row.
+   * If this throws, the user row is rolled back via
+   * `onUserCreationFailed`. Both callbacks are required so a misconfigured
+   * caller cannot silently leave half-provisioned accounts behind.
+   */
+  onUserCreated: (user: { id: string; email: string; name: string }) => Promise<void>;
+  /**
+   * Compensation: delete the orphan user row when `onUserCreated`
+   * throws. Best-effort by design — the caller logs failures but the
+   * original error reaches the signup endpoint so the producer gets a
+   * coherent message.
+   */
+  onUserCreationFailed: (userId: string) => Promise<void>;
 }
 
 export function createAuth(config: AuthServerConfig) {
@@ -65,6 +89,41 @@ export function createAuth(config: AuthServerConfig) {
         twoFactor: schema.twoFactor,
       },
     }),
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            try {
+              await config.onUserCreated({
+                id: user.id,
+                email: user.email,
+                name: user.name,
+              });
+            } catch (cause) {
+              // Compensate: delete the orphan user row. Best-effort —
+              // a cleanup failure is logged but the ORIGINAL error is
+              // what we surface to the signup endpoint.
+              try {
+                await config.onUserCreationFailed(user.id);
+              } catch (cleanupCause) {
+                process.stdout.write(
+                  `${JSON.stringify({
+                    level: 'error',
+                    event: 'auth.userCreated.cleanupFailed',
+                    userId: user.id,
+                    cleanupError:
+                      cleanupCause instanceof Error
+                        ? cleanupCause.message
+                        : String(cleanupCause),
+                  })}\n`,
+                );
+              }
+              throw cause;
+            }
+          },
+        },
+      },
+    },
     emailAndPassword: {
       enabled: true,
       // Sign the user in immediately after sign-up so the dashboard can
