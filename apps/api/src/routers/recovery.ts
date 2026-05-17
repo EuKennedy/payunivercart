@@ -1,4 +1,4 @@
-import { schema } from '@payunivercart/db';
+import { DEFAULT_RECOVERY_STEPS, schema } from '@payunivercart/db';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { router, workspaceProcedure } from '../trpc';
@@ -52,7 +52,7 @@ export const recoveryRouter = router({
         .nullable(),
     )
     .query(async ({ ctx }) => {
-      const [row] = await ctx.services.db.db
+      const [existing] = await ctx.services.db.db
         .select({
           id: schema.recoveryCampaigns.id,
           name: schema.recoveryCampaigns.name,
@@ -64,10 +64,46 @@ export const recoveryRouter = router({
         .where(eq(schema.recoveryCampaigns.workspaceId, ctx.workspaceId))
         .orderBy(desc(schema.recoveryCampaigns.createdAt))
         .limit(1);
-      if (!row) return null;
+      if (existing) {
+        return {
+          ...existing,
+          steps: (existing.steps as unknown as z.infer<typeof Step>[]) ?? [],
+        };
+      }
+
+      // Self-heal: pre-Block-25 workspaces never received the seed
+      // from `provisionWorkspaceInTx`. Insert the default campaign
+      // idempotently — the unique (workspace_id, name) index makes
+      // concurrent calls converge on a single row.
+      await ctx.services.db.db
+        .insert(schema.recoveryCampaigns)
+        .values({
+          workspaceId: ctx.workspaceId,
+          name: 'Padrão',
+          isActive: true,
+          triggerWindowMinutes: 30,
+          steps: DEFAULT_RECOVERY_STEPS,
+        })
+        .onConflictDoNothing({
+          target: [schema.recoveryCampaigns.workspaceId, schema.recoveryCampaigns.name],
+        });
+
+      const [seeded] = await ctx.services.db.db
+        .select({
+          id: schema.recoveryCampaigns.id,
+          name: schema.recoveryCampaigns.name,
+          isActive: schema.recoveryCampaigns.isActive,
+          triggerWindowMinutes: schema.recoveryCampaigns.triggerWindowMinutes,
+          steps: schema.recoveryCampaigns.steps,
+        })
+        .from(schema.recoveryCampaigns)
+        .where(eq(schema.recoveryCampaigns.workspaceId, ctx.workspaceId))
+        .orderBy(desc(schema.recoveryCampaigns.createdAt))
+        .limit(1);
+      if (!seeded) return null;
       return {
-        ...row,
-        steps: (row.steps as unknown as z.infer<typeof Step>[]) ?? [],
+        ...seeded,
+        steps: (seeded.steps as unknown as z.infer<typeof Step>[]) ?? [],
       };
     }),
 
