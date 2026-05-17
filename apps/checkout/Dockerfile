@@ -44,12 +44,12 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 RUN groupadd --system --gid 10001 next \
     && useradd  --system --uid 10001 --gid next --no-create-home next
-WORKDIR /app
-COPY --chown=next:next --from=builder /repo/apps/checkout/.next ./.next
-COPY --chown=next:next --from=builder /repo/apps/checkout/public ./public
-COPY --chown=next:next --from=builder /repo/apps/checkout/package.json ./package.json
-COPY --chown=next:next --from=builder /repo/apps/checkout/next.config.ts ./next.config.ts
-COPY --chown=next:next --from=builder /repo/node_modules ./node_modules
+# Preserve workspace layout so pnpm's per-package node_modules symlinks
+# resolve at runtime. The `next` binary lives at
+# `apps/checkout/node_modules/.bin/next`, not at a root-hoisted path.
+WORKDIR /repo
+COPY --chown=next:next --from=builder /repo /repo
 USER next
+WORKDIR /repo/apps/checkout
 EXPOSE 3001
 CMD ["node_modules/.bin/next", "start", "-p", "3001"]

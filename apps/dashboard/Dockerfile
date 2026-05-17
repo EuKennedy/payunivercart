@@ -56,19 +56,17 @@ ENV NODE_ENV=production \
 RUN groupadd --system --gid 10001 next \
     && useradd  --system --uid 10001 --gid next --no-create-home next
 
-WORKDIR /app
-
-# Next 16 emits a self-contained `standalone/` tree when configured.
-# Our `next.config.ts` does NOT set `output: 'standalone'` yet so we
-# copy the full `.next` + node_modules; flip to standalone in a later
-# block once we're sure every dynamic import is reachable.
-COPY --chown=next:next --from=builder /repo/apps/dashboard/.next ./.next
-COPY --chown=next:next --from=builder /repo/apps/dashboard/public ./public
-COPY --chown=next:next --from=builder /repo/apps/dashboard/package.json ./package.json
-COPY --chown=next:next --from=builder /repo/apps/dashboard/next.config.ts ./next.config.ts
-COPY --chown=next:next --from=builder /repo/node_modules ./node_modules
+# Mirror the workspace layout in the runtime image so pnpm's per-package
+# symlinks still resolve. The `next` binary lives under
+# `apps/dashboard/node_modules/.bin/next` (per-package isolation), not
+# under a root-hoisted `node_modules`. Copying the full /repo tree keeps
+# every symlink intact.
+WORKDIR /repo
+COPY --chown=next:next --from=builder /repo /repo
 
 USER next
+
+WORKDIR /repo/apps/dashboard
 
 EXPOSE 3000
 
