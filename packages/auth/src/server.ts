@@ -44,6 +44,17 @@ export function createAuth(config: AuthServerConfig) {
     secret: config.secret,
     baseURL: config.baseURL,
     trustedOrigins: [...config.trustedOrigins],
+    advanced: {
+      database: {
+        // Every primary key in our schema is a Postgres UUID
+        // (`uuid().primaryKey().defaultRandom()`). Better-Auth's default
+        // ID generator emits a random alphanumeric string, which Postgres
+        // rejects on INSERT with `22P02 string_to_uuid`. Override it to
+        // emit RFC 4122 UUIDs so the adapter writes the shape the schema
+        // expects.
+        generateId: () => crypto.randomUUID(),
+      },
+    },
     database: drizzleAdapter(config.db, {
       provider: 'pg',
       schema: {
