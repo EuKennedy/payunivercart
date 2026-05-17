@@ -46,3 +46,29 @@ export function randomSlugSuffix(): string {
 export function mintOrganizationSlug(email: string): string {
   return `${slugifyEmailLocalPart(email)}-${randomSlugSuffix()}`;
 }
+
+/**
+ * Generic text → URL-safe slug. Lowercase, non-alnum collapsed to `-`,
+ * leading/trailing dashes trimmed, capped at 64 chars. Falls back to
+ * `'item'` if the result would be empty.
+ *
+ *   "Curso de Tráfego — 2026 (Brasil)" → "curso-de-trafego-2026-brasil"
+ */
+export function slugify(text: string): string {
+  const cleaned = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip combining marks (accents)
+    .replace(NON_URL_SAFE, '-')
+    .replace(LEADING_OR_TRAILING_DASHES, '')
+    .slice(0, 64);
+  return cleaned.length > 0 ? cleaned : 'item';
+}
+
+/**
+ * Mint a candidate product slug. The caller persists and retries on
+ * unique-violation against `(workspace_id, slug)`.
+ */
+export function mintProductSlug(name: string): string {
+  return `${slugify(name)}-${randomSlugSuffix()}`;
+}
