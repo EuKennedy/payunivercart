@@ -15,6 +15,13 @@
       "when": 1779023668529,
       "tag": "0001_lame_pixie",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779024261108,
+      "tag": "0002_cool_eternity",
+      "breakpoints": true
     }
   ]
 }
