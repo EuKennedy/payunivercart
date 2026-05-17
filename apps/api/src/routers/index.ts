@@ -4,6 +4,7 @@ import { gatewaysRouter } from './gateways';
 import { healthRouter } from './health';
 import { metricsRouter } from './metrics';
 import { productsRouter } from './products';
+import { recoveryRouter } from './recovery';
 import { whatsappRouter } from './whatsapp';
 import { workspaceRouter } from './workspace';
 
@@ -20,6 +21,7 @@ export const appRouter = router({
   checkout: checkoutRouter,
   gateways: gatewaysRouter,
   metrics: metricsRouter,
+  recovery: recoveryRouter,
 });
 
 export type AppRouter = typeof appRouter;

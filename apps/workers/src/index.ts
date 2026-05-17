@@ -25,6 +25,7 @@ async function main() {
   );
 
   const workers = startWorkers({
+    env,
     connection: queues.connection,
     concurrency: env.WORKERS_CONCURRENCY,
   });
@@ -36,6 +37,18 @@ async function main() {
     { every: 60 * 60 * 1000 },
     {
       name: 'audit.verify.all-workspaces',
+      data: {},
+    },
+  );
+
+  // Repeatable cart-recovery sweep — every 60s, scan recovery_attempts
+  // for rows whose scheduled_for has passed and dispatch via WAHA.
+  // The handler is a no-op when there are no due rows.
+  await queues.recovery.upsertJobScheduler(
+    'sweeper',
+    { every: 60 * 1000 },
+    {
+      name: 'recovery.sweep',
       data: {},
     },
   );

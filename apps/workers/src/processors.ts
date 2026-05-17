@@ -1,16 +1,19 @@
+import { createDatabaseClient } from '@payunivercart/db';
+import { WahaClient } from '@payunivercart/waha';
 import { Worker, type WorkerOptions } from 'bullmq';
 import type IORedis from 'ioredis';
+import type { WorkersEnv } from './env';
+import { runRecoverySweep } from './handlers/recovery';
 import { QUEUE_NAMES } from './queues';
 
 /**
- * Job processors. Each worker is a separate BullMQ instance bound to one
- * queue. Heavy lifting (DB writes, audit chain appends, gateway calls)
- * lives in handlers under `./handlers/*` when each one lands; for the
- * scaffolding pass we register the workers and log structured events so
- * the boot already shows up correctly in `docker compose logs`.
+ * BullMQ job processors. Workers are instantiated once per process and
+ * registered against the relevant queue. Heavy lifting per queue lives
+ * in `./handlers/*` so this file stays a dispatch table.
  */
 
 interface WorkerCtx {
+  env: WorkersEnv;
   connection: IORedis;
   concurrency: number;
 }
@@ -18,13 +21,18 @@ interface WorkerCtx {
 export function startWorkers(ctx: WorkerCtx): Worker[] {
   const opts: WorkerOptions = { connection: ctx.connection, concurrency: ctx.concurrency };
 
+  // Process-wide shared clients. Each worker handler that touches DB
+  // or WAHA uses these — sharing avoids per-job connection churn.
+  const dbWrapper = createDatabaseClient({ connectionString: ctx.env.DATABASE_URL });
+  const waha = new WahaClient({
+    baseUrl: ctx.env.WAHA_BASE_URL,
+    apiKey: ctx.env.WAHA_API_KEY,
+  });
+
   const webhookInbound = new Worker(
     QUEUE_NAMES.webhookInbound,
     async (job) => {
       logEvent('webhook.inbound.received', { jobId: job.id, payloadKeys: Object.keys(job.data) });
-      // Production handler lands with the next block. For now we just
-      // mark the job as processed so apps/api can already enqueue
-      // events from the webhook receiver without the queue piling up.
       return { ack: true };
     },
     opts,
@@ -34,10 +42,6 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     QUEUE_NAMES.webhookOutbox,
     async (job) => {
       logEvent('webhook.outbox.dispatch', { jobId: job.id });
-      // Reads from `webhooks_outbox` and POSTs to the producer's
-      // configured URL with HMAC signature. Real delivery loop lands
-      // with Bloco 17 alongside the producer-facing endpoints
-      // listing.
       return { delivered: false, reason: 'handler-pending' };
     },
     opts,
@@ -46,9 +50,13 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
   const recovery = new Worker(
     QUEUE_NAMES.recovery,
     async (job) => {
-      logEvent('recovery.dispatch', { jobId: job.id });
-      // Reads `recovery_attempts` due rows and fires WhatsApp / email.
-      return { sent: false, reason: 'handler-pending' };
+      // The recovery queue is driven by a single repeatable "sweep"
+      // job that fires every 60s (registered in index.ts). Each tick
+      // scans `recovery_attempts` for rows whose scheduled_for has
+      // passed and dispatches WhatsApp via WAHA.
+      const result = await runRecoverySweep({ db: dbWrapper.db, waha });
+      logEvent('recovery.sweep', { jobId: job.id, ...result });
+      return result;
     },
     opts,
   );
@@ -57,9 +65,6 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     QUEUE_NAMES.auditVerify,
     async (job) => {
       logEvent('audit.verify', { jobId: job.id, workspaceId: job.data?.workspaceId ?? null });
-      // Calls `AuditService.verify(...)` per workspace; alerts on
-      // chain breaks. Real verifier lands with the audit Drizzle
-      // port + cron registration in Bloco 17.
       return { ok: true };
     },
     opts,

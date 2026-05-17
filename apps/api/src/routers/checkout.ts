@@ -474,6 +474,16 @@ export const checkoutRouter = router({
           .update(schema.orders)
           .set({ status: 'paid', paidAt: nowDate })
           .where(eq(schema.orders.id, created.orderId));
+      } else if (phone.guessedWahaChatId) {
+        // Order is in pending_payment AND we have a WhatsApp chatId
+        // for the buyer. Schedule cart-recovery touches per the
+        // workspace's active campaign. We tolerate "no active
+        // campaign" silently — the producer might've paused it.
+        await scheduleRecoveryAttempts(ctx.services.db.db, {
+          workspaceId: productRow.workspaceId,
+          orderId: created.orderId,
+          chatId: phone.guessedWahaChatId,
+        });
       }
 
       return {
@@ -502,6 +512,62 @@ export const checkoutRouter = router({
 function mintOrderReference(): string {
   const random = globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
   return `UNV-${random}`;
+}
+
+interface RecoveryStepShape {
+  delayMinutes: number;
+  channel: 'whatsapp' | 'email';
+  template: string;
+}
+
+/**
+ * Insert `recovery_attempts` rows for the workspace's active campaign.
+ * Each step is a separate row scheduled at the campaign-defined delay
+ * from now. The sweeper worker picks them up when `scheduled_for <=
+ * now()` and dispatches via WAHA.
+ *
+ * No-op when the workspace has no active campaign, when the campaign
+ * has no whatsapp steps, or when the buyer's phone didn't resolve to
+ * a WAHA chatId.
+ */
+async function scheduleRecoveryAttempts(
+  db: import('@payunivercart/db').WorkspaceDb,
+  input: { workspaceId: string; orderId: string; chatId: string },
+): Promise<void> {
+  const [campaign] = await db
+    .select({
+      id: schema.recoveryCampaigns.id,
+      steps: schema.recoveryCampaigns.steps,
+    })
+    .from(schema.recoveryCampaigns)
+    .where(
+      and(
+        eq(schema.recoveryCampaigns.workspaceId, input.workspaceId),
+        eq(schema.recoveryCampaigns.isActive, true),
+      ),
+    )
+    .limit(1);
+  if (!campaign) return;
+
+  const steps = (campaign.steps as unknown as RecoveryStepShape[] | null) ?? [];
+  const whatsappSteps = steps
+    .map((step, idx) => ({ step, idx }))
+    .filter(({ step }) => step.channel === 'whatsapp');
+  if (whatsappSteps.length === 0) return;
+
+  const now = Date.now();
+  await db.insert(schema.recoveryAttempts).values(
+    whatsappSteps.map(({ step, idx }) => ({
+      workspaceId: input.workspaceId,
+      orderId: input.orderId,
+      campaignId: campaign.id,
+      stepIndex: idx,
+      channel: step.channel,
+      targetIdentifier: input.chatId,
+      status: 'queued',
+      scheduledFor: new Date(now + step.delayMinutes * 60_000),
+    })),
+  );
 }
 
 /**

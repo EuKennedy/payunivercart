@@ -49,6 +49,40 @@ const POSTGRES_UNIQUE_VIOLATION = '23505';
 const MAX_SLUG_RETRIES = 2;
 
 /**
+ * Default cart-recovery cadence — proven intervals from BR digital
+ * product funnels. Each step is a separate WhatsApp message at the
+ * delay (minutes) after the order entered `pending_payment`.
+ *
+ * Templates use mustache-style placeholders resolved by the worker:
+ *   {nome}    → customer first name
+ *   {produto} → first order-item name
+ *   {valor}   → formatCents(totalCents, currency)
+ *   {codigo}  → order public reference (UNV-XXXXXXXX)
+ */
+export const DEFAULT_RECOVERY_STEPS = [
+  {
+    delayMinutes: 15,
+    channel: 'whatsapp' as const,
+    template:
+      'Oi {nome}! Faltou só o pagamento do *{produto}*. Seu Pix de *{valor}* já tá reservado — finaliza aqui pra liberar o acesso imediato. Pedido {codigo}.',
+  },
+  {
+    delayMinutes: 120,
+    channel: 'whatsapp' as const,
+    template:
+      'Oi {nome}, separei sua vaga em *{produto}* mas o Pix expira em algumas horas. Conclui em segundos: total *{valor}*. Pedido {codigo}.',
+  },
+  {
+    delayMinutes: 720,
+    channel: 'whatsapp' as const,
+    template:
+      'Última chance, {nome}. Seu pedido {codigo} de *{produto}* ({valor}) expira nas próximas horas. Se algo deu errado, me chama.',
+  },
+];
+
+export type RecoveryStep = (typeof DEFAULT_RECOVERY_STEPS)[number];
+
+/**
  * Provision `(organization, workspace, owner membership)` for `userId`.
  *
  * - One retry on a slug collision (23505 on `organizations_slug_unique`).
@@ -132,6 +166,17 @@ export async function provisionWorkspaceInTx(
             message: 'memberships insert returned no row',
           });
         }
+
+        // Seed the default recovery campaign — three WhatsApp touches
+        // with intervals proven on Hotmart/Eduzz funnels (15min, 2h,
+        // 12h). Producer can edit later from the dashboard.
+        await savepoint.insert(schema.recoveryCampaigns).values({
+          workspaceId: workspace.id,
+          name: 'Padrão',
+          isActive: true,
+          triggerWindowMinutes: 30,
+          steps: DEFAULT_RECOVERY_STEPS,
+        });
 
         return {
           organizationId: org.id,
