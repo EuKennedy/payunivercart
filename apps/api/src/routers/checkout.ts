@@ -1,5 +1,5 @@
 import { schema } from '@payunivercart/db';
-import { type MercadoPagoCredentials, getAdapter } from '@payunivercart/payments';
+import { type MercadoPagoCredentials, MercadoPagoAdapter, getAdapter } from '@payunivercart/payments';
 import { normalizePhone, validateCnpj, validateCpf } from '@payunivercart/shared';
 import { TRPCError } from '@trpc/server';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -139,6 +139,21 @@ export const checkoutRouter = router({
         buyer: BuyerInput,
         method: PaymentMethod,
         installments: z.number().int().min(1).max(24).optional(),
+        /**
+         * Required when method=credit_card. PCI-DSS note: production
+         * deploys MUST switch to client-side tokenization via the MP
+         * browser SDK so raw PANs never reach our servers. This
+         * inline-card path is for sandbox + single-merchant setups
+         * only and is documented as such on the adapter.
+         */
+        card: z
+          .object({
+            number: z.string().min(13).max(19),
+            expiry: z.string().regex(/^\d{2}\/\d{2,4}$/, 'Validade no formato MM/AA'),
+            cvc: z.string().min(3).max(4),
+            holderName: z.string().trim().min(1).max(60),
+          })
+          .optional(),
       }),
     )
     .output(
@@ -319,70 +334,103 @@ export const checkoutRouter = router({
         };
       }
 
-      // 7. Call the gateway. Only PIX is wired in Block 22 — card needs
-      //    a tokenization round-trip (browser SDK) and boleto needs a
-      //    full address that the current form doesn't collect.
-      if (input.method !== 'pix') {
-        // Mark the freshly-inserted transaction as failed so the producer
-        // sees the attempt; buyer gets a clear error.
-        await ctx.services.db.db
-          .update(schema.transactions)
-          .set({
-            status: 'failed',
-            failureCode: 'METHOD_NOT_YET_SUPPORTED',
-            failureMessage: 'Cartão e boleto entram no próximo bloco.',
-          })
-          .where(eq(schema.transactions.id, created.transactionId));
-        await ctx.services.db.db
-          .update(schema.orders)
-          .set({ status: 'cancelled', cancelledAt: new Date() })
-          .where(eq(schema.orders.id, created.orderId));
+      // 7. Call the gateway. PIX + Cartão wired in Block 22; boleto
+      //    needs a full billing address the form doesn't yet collect.
+      if (input.method === 'boleto') {
+        await failTransactionAndOrder(
+          ctx.services.db.db,
+          created.transactionId,
+          created.orderId,
+          'METHOD_NOT_YET_SUPPORTED',
+          'Boleto entra no próximo bloco. Use Pix ou cartão por enquanto.',
+        );
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'Cartão e boleto entram no próximo bloco. Use Pix por enquanto.',
+          message: 'Boleto entra no próximo bloco. Use Pix ou cartão por enquanto.',
+        });
+      }
+      if (input.method === 'credit_card' && !input.card) {
+        await failTransactionAndOrder(
+          ctx.services.db.db,
+          created.transactionId,
+          created.orderId,
+          'CARD_MISSING',
+          'Dados do cartão obrigatórios.',
+        );
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Dados do cartão obrigatórios.',
         });
       }
 
-      const adapter = getAdapter('mercadopago');
-      const credentials = ctx.services.crypto.unsealJson<MercadoPagoCredentials>(
-        gatewayRow.credentialsEncrypted,
+      const adapter = getAdapter('mercadopago') as unknown as MercadoPagoAdapter;
+      const credentials = adapter.parseCredentials(
+        ctx.services.crypto.unsealJson<MercadoPagoCredentials>(gatewayRow.credentialsEncrypted),
       );
 
-      let pix;
+      let charge;
       try {
-        pix = await adapter.createPix!(adapter.parseCredentials(credentials) as MercadoPagoCredentials, {
-          workspaceId: productRow.workspaceId,
-          orderId: created.orderId,
-          amount: { amount: Number(totalCents), currency },
-          customer: {
-            name: input.buyer.name,
-            email: input.buyer.email.toLowerCase(),
-            document: docDigits,
-            phoneE164: phone.e164,
-          },
-          description: productRow.description ?? productRow.name,
-          expiresInSeconds: PIX_EXPIRY_SECONDS,
-          idempotencyKey,
-          metadata: {
-            public_reference: publicReference,
-            product_slug: input.slug,
-          },
-        });
+        if (input.method === 'pix') {
+          charge = await adapter.createPix(credentials, {
+            workspaceId: productRow.workspaceId,
+            orderId: created.orderId,
+            amount: { amount: Number(totalCents), currency },
+            customer: {
+              name: input.buyer.name,
+              email: input.buyer.email.toLowerCase(),
+              document: docDigits,
+              phoneE164: phone.e164,
+            },
+            description: productRow.description ?? productRow.name,
+            expiresInSeconds: PIX_EXPIRY_SECONDS,
+            idempotencyKey,
+            metadata: {
+              public_reference: publicReference,
+              product_slug: input.slug,
+            },
+          });
+        } else {
+          // Server-side tokenization (sandbox path — see adapter docblock).
+          const card = input.card!;
+          const [mm, yyRaw] = card.expiry.split('/');
+          const yy = yyRaw!.length === 2 ? `20${yyRaw}` : yyRaw!;
+          const token = await adapter.tokenizeCard(credentials, {
+            cardNumber: card.number,
+            expirationMonth: Number(mm),
+            expirationYear: Number(yy),
+            securityCode: card.cvc,
+            holderName: card.holderName,
+            holderDocument: docDigits,
+          });
+          charge = await adapter.createCard(credentials, {
+            workspaceId: productRow.workspaceId,
+            orderId: created.orderId,
+            amount: { amount: Number(totalCents), currency },
+            customer: {
+              name: input.buyer.name,
+              email: input.buyer.email.toLowerCase(),
+              document: docDigits,
+              phoneE164: phone.e164,
+            },
+            card: { token, holderName: card.holderName },
+            installments,
+            description: productRow.description ?? productRow.name,
+            idempotencyKey,
+            metadata: {
+              public_reference: publicReference,
+              product_slug: input.slug,
+            },
+          });
+        }
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
-        await ctx.services.db.db
-          .update(schema.transactions)
-          .set({
-            status: 'failed',
-            failureCode: 'GATEWAY_REJECT',
-            failureMessage: message,
-            rawResponse: { error: message },
-          })
-          .where(eq(schema.transactions.id, created.transactionId));
-        await ctx.services.db.db
-          .update(schema.orders)
-          .set({ status: 'cancelled', cancelledAt: new Date() })
-          .where(eq(schema.orders.id, created.orderId));
+        await failTransactionAndOrder(
+          ctx.services.db.db,
+          created.transactionId,
+          created.orderId,
+          'GATEWAY_REJECT',
+          message,
+        );
         throw new TRPCError({
           code: 'BAD_GATEWAY',
           message: `Gateway recusou a cobrança: ${message}`,
@@ -390,41 +438,54 @@ export const checkoutRouter = router({
         });
       }
 
-      // 8. Persist gateway result on the transaction and surface a
-      //    matching order.expires_at so the dashboard can timer-decrement.
+      // 8. Persist gateway result on the transaction; bump order.expiresAt
+      //    when the gateway gave us a deadline.
+      const nowDate = new Date();
       await ctx.services.db.db
         .update(schema.transactions)
         .set({
-          gatewayChargeId: pix.gatewayChargeId,
-          gatewayRequestId: pix.gatewayRequestId,
-          status: pix.status,
-          pixQrCode: pix.pixQrCode,
-          pixQrCodeImage: pix.pixQrCodeImage,
-          pixCopyPaste: pix.pixCopyPaste,
-          expiresAt: pix.pixExpiresAt,
-          rawResponse: pix.raw as object,
+          gatewayChargeId: charge.gatewayChargeId,
+          gatewayRequestId: charge.gatewayRequestId,
+          status: charge.status,
+          pixQrCode: charge.pixQrCode,
+          pixQrCodeImage: charge.pixQrCodeImage,
+          pixCopyPaste: charge.pixCopyPaste,
+          boletoUrl: charge.boletoUrl,
+          boletoBarcode: charge.boletoBarcode,
+          cardBrand: charge.cardBrand,
+          cardLast4: charge.cardLast4,
+          expiresAt: charge.pixExpiresAt ?? charge.boletoDueDate,
+          paidAt: charge.status === 'paid' ? nowDate : undefined,
+          authorizedAt: charge.status === 'authorized' ? nowDate : undefined,
+          rawResponse: charge.raw as object,
         })
         .where(eq(schema.transactions.id, created.transactionId));
-      if (pix.pixExpiresAt) {
+      if (charge.pixExpiresAt) {
         await ctx.services.db.db
           .update(schema.orders)
-          .set({ expiresAt: pix.pixExpiresAt })
+          .set({ expiresAt: charge.pixExpiresAt })
+          .where(eq(schema.orders.id, created.orderId));
+      }
+      if (charge.status === 'paid') {
+        await ctx.services.db.db
+          .update(schema.orders)
+          .set({ status: 'paid', paidAt: nowDate })
           .where(eq(schema.orders.id, created.orderId));
       }
 
       return {
         orderId: created.orderId,
         publicReference,
-        status: 'pending_payment',
+        status: charge.status === 'paid' ? 'paid' : 'pending_payment',
         method: input.method,
         amountCents: Number(totalCents),
         currency,
-        pixQrCode: pix.pixQrCode ?? null,
-        pixQrCodeImage: pix.pixQrCodeImage ?? null,
-        pixCopyPaste: pix.pixCopyPaste ?? null,
-        pixExpiresAt: pix.pixExpiresAt ?? null,
-        boletoUrl: pix.boletoUrl ?? null,
-        boletoBarcode: pix.boletoBarcode ?? null,
+        pixQrCode: charge.pixQrCode ?? null,
+        pixQrCodeImage: charge.pixQrCodeImage ?? null,
+        pixCopyPaste: charge.pixCopyPaste ?? null,
+        pixExpiresAt: charge.pixExpiresAt ?? null,
+        boletoUrl: charge.boletoUrl ?? null,
+        boletoBarcode: charge.boletoBarcode ?? null,
         gatewayConfigured: true,
       };
     }),
@@ -438,4 +499,31 @@ export const checkoutRouter = router({
 function mintOrderReference(): string {
   const random = globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
   return `UNV-${random}`;
+}
+
+/**
+ * Mark a freshly-inserted transaction + order as failed/cancelled. Used
+ * when the gateway rejects the charge or the input fails a method-
+ * specific precondition (boleto without address, card without token).
+ */
+async function failTransactionAndOrder(
+  db: import('@payunivercart/db').WorkspaceDb,
+  transactionId: string,
+  orderId: string,
+  failureCode: string,
+  failureMessage: string,
+): Promise<void> {
+  await db
+    .update(schema.transactions)
+    .set({
+      status: 'failed',
+      failureCode,
+      failureMessage,
+      rawResponse: { error: failureMessage },
+    })
+    .where(eq(schema.transactions.id, transactionId));
+  await db
+    .update(schema.orders)
+    .set({ status: 'cancelled', cancelledAt: new Date() })
+    .where(eq(schema.orders.id, orderId));
 }

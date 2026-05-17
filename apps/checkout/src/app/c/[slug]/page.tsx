@@ -102,6 +102,15 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
         document: doc,
         phone,
       },
+      card:
+        method === 'credit_card'
+          ? {
+              number: card.number,
+              expiry: card.expiry,
+              cvc: card.cvc,
+              holderName: name.trim() || 'APRO',
+            }
+          : undefined,
     });
   };
 

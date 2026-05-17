@@ -115,6 +115,48 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
     return this.toPaymentResult(json, 'pix');
   }
 
+  /**
+   * Server-side card tokenization. PCI-DSS note: in production the
+   * tokenization MUST happen client-side via MP's browser SDK so the
+   * raw PAN never traverses our infrastructure. For sandbox /
+   * single-merchant test setups, this path is acceptable; flip to
+   * client-side tokenization before production (Block 26 follow-up).
+   */
+  async tokenizeCard(
+    credentials: MercadoPagoCredentials,
+    card: {
+      cardNumber: string;
+      expirationMonth: number;
+      expirationYear: number;
+      securityCode: string;
+      holderName: string;
+      holderDocument: string;
+    },
+  ): Promise<string> {
+    const body = {
+      card_number: card.cardNumber.replace(/\s+/g, ''),
+      expiration_month: card.expirationMonth,
+      expiration_year: card.expirationYear,
+      security_code: card.securityCode,
+      cardholder: {
+        name: card.holderName,
+        identification: documentTo(card.holderDocument),
+      },
+    };
+    const res = await this.request(credentials, 'POST', '/v1/card_tokens', body, {
+      timeoutMs: TIMEOUTS_MS.payment,
+    });
+    if (!res.ok) throw await this.mapHttpError(res, 'INVALID_CARD');
+    const json = (await res.json()) as { id?: string };
+    if (!json.id) {
+      throw new PaymentError('Mercado Pago tokenization returned no id', {
+        gatewayId: this.id,
+        declineCode: 'INVALID_CARD',
+      });
+    }
+    return json.id;
+  }
+
   async createCard(
     credentials: MercadoPagoCredentials,
     input: CreateCardInput,
