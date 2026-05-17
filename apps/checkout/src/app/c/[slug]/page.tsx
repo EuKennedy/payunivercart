@@ -12,15 +12,15 @@ type CheckoutData = inferRouterOutputs<AppRouter>['checkout']['getBySlug'];
 /**
  * Public checkout — `/c/<slug>`.
  *
- * Layout: single column, centered card on light background. Mirrors
- * the Stripe / Apple Pay / Shopify Pay pattern that buyers are
- * trained on. Brand color (when the workspace has one set) tints the
- * primary CTA so the producer's identity shows without overpowering
- * trust signals.
+ * Layout: a 3-column responsive grid that mirrors Lizzon's
+ * conversion flow:
+ *   1. Identificação  (buyer fields, "Continuar" CTA)
+ *   2. Pagamento      (method tabs + method-specific fields; locked
+ *                     until Identificação is valid)
+ *   3. Resumo         (product card + totals; always visible)
  *
- * Submission posts to tRPC `checkout.createOrder`. On success we
- * render an "order received" state with the public reference. Real
- * Pix/cartão/boleto payloads land with Block 22's gateway wire-up.
+ * The right column on mobile collapses below the form so the buyer
+ * always sees the price within a thumb-scroll.
  */
 
 type Method = 'pix' | 'credit_card' | 'boleto';
@@ -64,8 +64,8 @@ export default function CheckoutPage({ params }: { params: Promise<{ slug: strin
 
 function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
-  const brand = workspace.brandPrimaryColor ?? '#f97316';
 
+  const [step, setStep] = useState<'identify' | 'pay'>('identify');
   const [method, setMethod] = useState<Method>('pix');
   const [installments, setInstallments] = useState(1);
   const [name, setName] = useState('');
@@ -76,22 +76,30 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 
   const createOrder = trpc.checkout.createOrder.useMutation();
 
-  const ctaLabel = METHOD_CTA[method];
-
   const formattedTotal = useMemo(
     () => formatCents(product.priceCents, product.currency),
     [product.priceCents, product.currency],
   );
-
-  // Per-installment price preview (no interest in the stub; real
-  // installment math lands with the gateway in Block 22).
   const perInstallment = useMemo(() => {
-    if (method !== 'credit_card' || installments <= 1) return null;
-    return formatCents(Math.ceil(product.priceCents / installments), product.currency);
-  }, [installments, method, product.currency, product.priceCents]);
+    if (product.maxInstallments < 2) return null;
+    return formatCents(
+      Math.ceil(product.priceCents / product.maxInstallments),
+      product.currency,
+    );
+  }, [product.maxInstallments, product.currency, product.priceCents]);
+
+  const identifyComplete =
+    name.trim().length >= 2 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    doc.replace(/\D+/g, '').length >= 11 &&
+    phone.trim().length >= 10;
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!identifyComplete) {
+      setStep('identify');
+      return;
+    }
     createOrder.mutate({
       slug,
       method,
@@ -133,16 +141,13 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   }
 
   return (
-    <main className="min-h-screen px-4 py-10 sm:px-6 sm:py-16">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-        {/* Producer header */}
-        <header className="flex items-center justify-between gap-3 px-1">
+    <main className="min-h-screen bg-[var(--color-bg)]">
+      {/* Producer header */}
+      <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             {workspace.brandLogoUrl ? (
-              // Producer-supplied logo. We do NOT render arbitrary HTML
-              // and the URL goes through the api's content-validated
-              // brand_logo_url column — safe to embed.
-              // biome-ignore lint/performance/noImgElement: producer logos are tiny + remote, optimization adds friction.
+              // biome-ignore lint/performance/noImgElement: producer logo, remote, no optimization gain.
               <img
                 src={workspace.brandLogoUrl}
                 alt={workspace.name}
@@ -151,7 +156,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
             ) : (
               <span
                 className="grid h-9 w-9 place-items-center rounded-xl text-[14px] font-semibold text-white"
-                style={{ backgroundColor: brand }}
+                style={{ backgroundColor: BRAND_GREEN }}
               >
                 {(workspace.name[0] ?? 'p').toUpperCase()}
               </span>
@@ -160,221 +165,387 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
               <span className="text-[14px] font-semibold text-[var(--color-fg)]">
                 {workspace.name}
               </span>
-              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
                 Checkout seguro
               </span>
             </div>
           </div>
           <p className="hidden text-[11px] text-[var(--color-fg-subtle)] sm:block">
-            🔒 Conexão criptografada · payunivercart
+            🔒 Conexão criptografada · processado por payunivercart
           </p>
-        </header>
+        </div>
+      </header>
 
-        {/* Product summary */}
-        <section className="surface px-6 py-7">
-          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-brand-600)]">
-            Resumo do pedido
-          </p>
-          <h1 className="display mt-3 text-[26px] font-semibold leading-tight text-[var(--color-fg)] sm:text-[30px]">
-            {product.name}
-          </h1>
-          {product.description ? (
-            <p className="mt-3 text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
-              {product.description}
-            </p>
-          ) : null}
-          <div className="mt-6 flex items-baseline gap-3 border-t border-[var(--color-border)] pt-5">
-            <span className="display text-[34px] font-semibold leading-none text-[var(--color-fg)]">
-              {formattedTotal}
-            </span>
-            {product.maxInstallments > 1 ? (
-              <span className="text-[13px] text-[var(--color-fg-subtle)]">
-                em até {product.maxInstallments}× no cartão
-              </span>
-            ) : (
-              <span className="text-[13px] text-[var(--color-fg-subtle)]">à vista</span>
+      <form onSubmit={onSubmit} className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+          {/* ---------- Step 1 — Identificação ---------- */}
+          <section
+            className={clsx(
+              'flex flex-col gap-5 rounded-2xl border bg-[var(--color-surface)] p-5 transition',
+              step === 'identify'
+                ? 'border-[var(--color-success)] shadow-[0_0_0_3px_rgba(0,135,90,0.08)]'
+                : 'border-[var(--color-border)]',
             )}
-          </div>
-        </section>
+          >
+            <StepHeader number="1" active={step === 'identify'} done={identifyComplete && step !== 'identify'}>
+              Identificação
+            </StepHeader>
 
-        {/* Form */}
-        <form className="surface px-6 py-7" onSubmit={onSubmit}>
-          {/* Method tabs */}
-          <fieldset>
-            <legend className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
-              Forma de pagamento
-            </legend>
-            <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-[var(--color-surface-muted)] p-1">
-              {(['pix', 'credit_card', 'boleto'] as Method[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMethod(m)}
-                  className={clsx(
-                    'rounded-lg px-3 py-2 text-[13px] font-medium transition',
-                    method === m
-                      ? 'bg-[var(--color-surface)] text-[var(--color-fg)] shadow-sm'
-                      : 'text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]',
-                  )}
-                >
-                  {METHOD_LABELS[m]}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          {/* Buyer fields */}
-          <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Nome completo" className="sm:col-span-2">
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Como aparece no documento"
-                className={inputClass}
-                autoComplete="name"
-                required
-              />
-            </Field>
-            <Field label="Email" className="sm:col-span-2">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="voce@empresa.com"
-                className={inputClass}
-                autoComplete="email"
-                required
-              />
-            </Field>
-            <Field label="CPF ou CNPJ">
-              <input
-                type="text"
-                value={doc}
-                onChange={(e) => setDoc(e.target.value)}
-                placeholder="000.000.000-00"
-                inputMode="numeric"
-                className={inputClass}
-                required
-              />
-            </Field>
-            <Field label="Telefone (WhatsApp)">
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(11) 91234-5678"
-                inputMode="tel"
-                className={inputClass}
-                autoComplete="tel"
-                required
-              />
-            </Field>
-          </div>
-
-          {/* Method-specific extras */}
-          {method === 'credit_card' ? (
-            <div className="mt-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/40 p-5">
-              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
-                Dados do cartão
-              </p>
-              <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Número do cartão" className="sm:col-span-2">
+            <div className="flex flex-col gap-4">
+              <Field label="Nome completo">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Como aparece no documento"
+                  className={inputClass}
+                  autoComplete="name"
+                />
+              </Field>
+              <Field label="Email">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="voce@empresa.com"
+                  className={inputClass}
+                  autoComplete="email"
+                />
+              </Field>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="CPF / CNPJ">
                   <input
                     type="text"
-                    value={card.number}
-                    onChange={(e) => setCard({ ...card, number: e.target.value })}
-                    placeholder="0000 0000 0000 0000"
+                    value={doc}
+                    onChange={(e) => setDoc(e.target.value)}
+                    placeholder="000.000.000-00"
                     inputMode="numeric"
-                    autoComplete="cc-number"
                     className={inputClass}
-                    required
                   />
                 </Field>
-                <Field label="Validade (MM/AA)">
+                <Field label="Telefone (WhatsApp)">
                   <input
-                    type="text"
-                    value={card.expiry}
-                    onChange={(e) => setCard({ ...card, expiry: e.target.value })}
-                    placeholder="12/30"
-                    autoComplete="cc-exp"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="(11) 91234-5678"
+                    inputMode="tel"
                     className={inputClass}
-                    required
-                  />
-                </Field>
-                <Field label="CVV">
-                  <input
-                    type="text"
-                    value={card.cvc}
-                    onChange={(e) => setCard({ ...card, cvc: e.target.value })}
-                    placeholder="000"
-                    inputMode="numeric"
-                    autoComplete="cc-csc"
-                    className={inputClass}
-                    required
+                    autoComplete="tel"
                   />
                 </Field>
               </div>
-              {product.maxInstallments > 1 ? (
-                <Field label="Parcelas" className="mt-4">
-                  <select
-                    value={installments}
-                    onChange={(e) => setInstallments(Number.parseInt(e.target.value, 10))}
-                    className={clsx(inputClass, 'appearance-none')}
-                  >
-                    {Array.from({ length: product.maxInstallments }, (_, i) => i + 1).map((n) => (
-                      <option key={n} value={n}>
-                        {n === 1
-                          ? `1× (à vista) — ${formattedTotal}`
-                          : `${n}× — ${formatCents(Math.ceil(product.priceCents / n), product.currency)}/parcela`}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              ) : null}
-              {perInstallment ? (
-                <p className="mt-2 text-[12px] text-[var(--color-fg-subtle)]">
-                  Sem juros pela plataforma. Confirme as taxas com a operadora do seu cartão.
-                </p>
-              ) : null}
             </div>
-          ) : null}
 
-          {createOrder.error ? (
-            <p className="mt-4 rounded-xl border border-[var(--color-danger-bg)] bg-[var(--color-danger-bg)] px-4 py-3 text-[13px] text-[var(--color-danger)]">
-              {createOrder.error.message}
-            </p>
-          ) : null}
+            {step === 'identify' ? (
+              <button
+                type="button"
+                onClick={() => identifyComplete && setStep('pay')}
+                disabled={!identifyComplete}
+                className={clsx(
+                  'mt-1 inline-flex w-full items-center justify-center rounded-full px-5 py-3 text-[14px] font-semibold transition',
+                  identifyComplete
+                    ? 'bg-[var(--color-success)] text-white shadow-[0_8px_20px_-12px_rgba(0,135,90,0.55)] hover:brightness-105'
+                    : 'cursor-not-allowed bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)]',
+                )}
+              >
+                Ir para o pagamento →
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setStep('identify')}
+                className="self-start text-[12px] font-medium text-[var(--color-success)] hover:underline"
+              >
+                Editar dados
+              </button>
+            )}
+          </section>
 
-          <button
-            type="submit"
-            disabled={createOrder.isPending}
-            className="mt-6 w-full rounded-full px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_8px_20px_-12px_rgba(234,88,12,0.55)] transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ backgroundColor: brand }}
+          {/* ---------- Step 2 — Pagamento ---------- */}
+          <section
+            className={clsx(
+              'flex flex-col gap-5 rounded-2xl border bg-[var(--color-surface)] p-5 transition',
+              step === 'pay'
+                ? 'border-[var(--color-success)] shadow-[0_0_0_3px_rgba(0,135,90,0.08)]'
+                : 'border-[var(--color-border)]',
+            )}
           >
-            {createOrder.isPending ? 'Processando…' : ctaLabel}
-          </button>
-        </form>
+            <StepHeader number="2" active={step === 'pay'} done={false}>
+              Pagamento
+            </StepHeader>
 
-        <p className="px-1 text-center text-[11px] leading-[1.5] text-[var(--color-fg-subtle)]">
-          Pagamento processado por <strong>payunivercart</strong>. Ao confirmar, você concorda com
-          os termos e a política de privacidade do produtor.
-        </p>
-      </div>
+            {step !== 'pay' ? (
+              <p className="text-[13px] leading-[1.55] text-[var(--color-fg-subtle)]">
+                Complete seus dados de identificação para continuar.
+              </p>
+            ) : (
+              <>
+                <fieldset>
+                  <legend className="sr-only">Forma de pagamento</legend>
+                  <div className="grid grid-cols-3 gap-2 rounded-xl bg-[var(--color-surface-muted)] p-1">
+                    {(['pix', 'credit_card', 'boleto'] as Method[]).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setMethod(m)}
+                        className={clsx(
+                          'rounded-lg px-3 py-2 text-[13px] font-medium transition',
+                          method === m
+                            ? 'bg-[var(--color-surface)] text-[var(--color-fg)] shadow-sm'
+                            : 'text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]',
+                        )}
+                      >
+                        {METHOD_LABELS[m]}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+
+                {method === 'pix' ? (
+                  <p className="text-[13px] leading-[1.55] text-[var(--color-fg-muted)]">
+                    Você vai receber um QR-code para pagar no app do seu banco. Aprovação em
+                    segundos.
+                  </p>
+                ) : null}
+
+                {method === 'boleto' ? (
+                  <p className="text-[13px] leading-[1.55] text-[var(--color-fg-muted)]">
+                    O boleto leva até 2 dias úteis para compensar. Indicado para quem não usa Pix.
+                  </p>
+                ) : null}
+
+                {method === 'credit_card' ? (
+                  <div className="flex flex-col gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/40 p-4">
+                    <Field label="Número do cartão">
+                      <input
+                        type="text"
+                        value={card.number}
+                        onChange={(e) => setCard({ ...card, number: e.target.value })}
+                        placeholder="0000 0000 0000 0000"
+                        inputMode="numeric"
+                        autoComplete="cc-number"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Validade (MM/AA)">
+                        <input
+                          type="text"
+                          value={card.expiry}
+                          onChange={(e) => setCard({ ...card, expiry: e.target.value })}
+                          placeholder="12/30"
+                          autoComplete="cc-exp"
+                          className={inputClass}
+                        />
+                      </Field>
+                      <Field label="CVV">
+                        <input
+                          type="text"
+                          value={card.cvc}
+                          onChange={(e) => setCard({ ...card, cvc: e.target.value })}
+                          placeholder="000"
+                          inputMode="numeric"
+                          autoComplete="cc-csc"
+                          className={inputClass}
+                        />
+                      </Field>
+                    </div>
+                    {product.maxInstallments > 1 ? (
+                      <Field label="Parcelas">
+                        <select
+                          value={installments}
+                          onChange={(e) => setInstallments(Number.parseInt(e.target.value, 10))}
+                          className={clsx(inputClass, 'appearance-none')}
+                        >
+                          {Array.from({ length: product.maxInstallments }, (_, i) => i + 1).map(
+                            (n) => (
+                              <option key={n} value={n}>
+                                {n === 1
+                                  ? `1× — ${formattedTotal}`
+                                  : `${n}× — ${formatCents(Math.ceil(product.priceCents / n), product.currency)} sem juros`}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </Field>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {createOrder.error ? (
+                  <p className="rounded-xl border border-[var(--color-danger-bg)] bg-[var(--color-danger-bg)] px-4 py-3 text-[12px] leading-[1.5] text-[var(--color-danger)]">
+                    {createOrder.error.message}
+                  </p>
+                ) : null}
+
+                <button
+                  type="submit"
+                  disabled={createOrder.isPending}
+                  className="inline-flex w-full items-center justify-center rounded-full bg-[var(--color-success)] px-5 py-3 text-[14px] font-semibold text-white shadow-[0_8px_20px_-12px_rgba(0,135,90,0.55)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {createOrder.isPending ? 'Processando…' : METHOD_CTA[method]}
+                </button>
+              </>
+            )}
+          </section>
+
+          {/* ---------- Resumo ---------- */}
+          <aside className="md:row-span-2">
+            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+              <p className="text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+                Resumo do pedido
+              </p>
+
+              <div className="mt-4 flex items-start gap-3 border-y border-[var(--color-border)] py-4">
+                {product.coverImageUrl ? (
+                  // biome-ignore lint/performance/noImgElement: producer-supplied URL.
+                  <img
+                    src={product.coverImageUrl}
+                    alt={product.name}
+                    className="h-16 w-16 shrink-0 rounded-xl object-cover"
+                  />
+                ) : (
+                  <span
+                    className="grid h-16 w-16 shrink-0 place-items-center rounded-xl text-[18px] font-semibold text-white"
+                    style={{ backgroundColor: BRAND_GREEN }}
+                  >
+                    {(product.name[0] ?? '·').toUpperCase()}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-semibold leading-tight text-[var(--color-fg)]">
+                    {product.name}
+                  </p>
+                  <p className="mt-1 text-[11px] text-[var(--color-fg-subtle)]">Quantidade: 1</p>
+                </div>
+                <p className="shrink-0 text-[13px] font-semibold text-[var(--color-fg)]">
+                  {formattedTotal}
+                </p>
+              </div>
+
+              <dl className="mt-4 space-y-2 text-[13px]">
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-[var(--color-fg-muted)]">Subtotal (1 produto)</dt>
+                  <dd className="font-medium text-[var(--color-fg)]">{formattedTotal}</dd>
+                </div>
+                {product.type === 'physical' ? (
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-[var(--color-fg-muted)]">Frete</dt>
+                    <dd className="italic text-[var(--color-fg-muted)]">a calcular</dd>
+                  </div>
+                ) : null}
+              </dl>
+
+              <div className="mt-4 flex items-baseline justify-between border-t border-[var(--color-border)] pt-4">
+                <span className="text-[12px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+                  Total
+                </span>
+                <div className="flex flex-col items-end">
+                  <span className="display text-[24px] font-semibold leading-none text-[var(--color-fg)]">
+                    {formattedTotal}
+                  </span>
+                  {product.maxInstallments > 1 && perInstallment ? (
+                    <span className="mt-1 text-[11px] text-[var(--color-success)]">
+                      até {product.maxInstallments}× de {perInstallment} sem juros
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-[11px] text-[var(--color-fg-subtle)]">
+              <div className="flex items-center gap-2">
+                <span>🔒</span>
+                <span>
+                  Seus dados trafegam por HTTPS e ficam armazenados em servidores no Brasil.
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-[var(--color-fg-muted)]">Formas aceitas:</span>
+                <PaymentBadge>Pix</PaymentBadge>
+                <PaymentBadge>Visa</PaymentBadge>
+                <PaymentBadge>MC</PaymentBadge>
+                <PaymentBadge>Amex</PaymentBadge>
+                <PaymentBadge>Elo</PaymentBadge>
+                <PaymentBadge>Boleto</PaymentBadge>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </form>
+
+      <footer className="mt-8 border-t border-[var(--color-border)] bg-[var(--color-surface)]/60">
+        <div className="mx-auto flex max-w-6xl flex-col items-center gap-1 px-4 py-5 text-center text-[11px] text-[var(--color-fg-subtle)] sm:px-6">
+          <p>
+            Pagamento processado por <strong>payunivercart</strong>. Ao confirmar, você concorda
+            com os termos e a política de privacidade do produtor.
+          </p>
+          <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>
+        </div>
+      </footer>
     </main>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Tiny presentational helpers                                                */
+/* Presentational primitives                                                  */
 /* -------------------------------------------------------------------------- */
+
+const BRAND_GREEN = '#00875a';
+
+function StepHeader({
+  number,
+  active,
+  done,
+  children,
+}: {
+  number: string;
+  active: boolean;
+  done: boolean;
+  children: React.ReactNode;
+}) {
+  const tone = done
+    ? 'bg-[var(--color-success)] text-white'
+    : active
+    ? 'bg-[var(--color-success)] text-white'
+    : 'bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)]';
+  return (
+    <div className="flex items-center gap-3">
+      <span
+        className={clsx(
+          'grid h-7 w-7 place-items-center rounded-full text-[12px] font-semibold transition',
+          tone,
+        )}
+      >
+        {done ? '✓' : number}
+      </span>
+      <h2
+        className={clsx(
+          'text-[15px] font-semibold',
+          active || done ? 'text-[var(--color-fg)]' : 'text-[var(--color-fg-muted)]',
+        )}
+      >
+        {children}
+      </h2>
+    </div>
+  );
+}
+
+function PaymentBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-fg-muted)]">
+      {children}
+    </span>
+  );
+}
 
 function CenteredCard({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <main className="grid min-h-screen place-items-center px-6 py-16">
       <div
         className={clsx(
-          'surface w-full',
+          'w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm',
           wide ? 'max-w-xl px-6 py-10' : 'max-w-md px-6 py-10',
         )}
       >
@@ -518,8 +689,6 @@ function PixCopyButton({ code }: { code: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Clipboard API unavailable (insecure context or denied) — fall
-      // back to a manual select via a hidden textarea.
       const ta = document.createElement('textarea');
       ta.value = code;
       ta.style.position = 'fixed';
@@ -567,6 +736,10 @@ function formatExpiresAt(date: Date | string): string {
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/* Field + input shared classes                                               */
+/* -------------------------------------------------------------------------- */
+
 function Field({
   label,
   className,
@@ -577,8 +750,8 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className={clsx('flex flex-col gap-2', className)}>
-      <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+    <label className={clsx('flex flex-col gap-1.5', className)}>
+      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
         {label}
       </span>
       {children}
@@ -588,7 +761,7 @@ function Field({
 
 const inputClass =
   'w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] ' +
-  'px-4 py-3 text-[15px] text-[var(--color-fg)] outline-none transition ' +
+  'px-3.5 py-2.5 text-[14px] text-[var(--color-fg)] outline-none transition ' +
   'placeholder:text-[var(--color-fg-subtle)] ' +
   'hover:border-[var(--color-border-strong)] ' +
-  'focus:border-[var(--color-brand-500)] focus:ring-4 focus:ring-[var(--color-brand-500)]/15';
+  'focus:border-[var(--color-success)] focus:ring-4 focus:ring-[rgba(0,135,90,0.12)]';
