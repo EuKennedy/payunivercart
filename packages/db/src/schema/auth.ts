@@ -1,5 +1,4 @@
-import { sql } from 'drizzle-orm';
-import { boolean, check, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { createdAt, fk, id, timestampTz, timestampTzNullable, updatedAt } from './common';
 
 /**
