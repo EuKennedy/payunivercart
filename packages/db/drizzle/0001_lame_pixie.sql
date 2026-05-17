@@ -1,0 +1,2 @@
+ALTER TABLE "accounts" DROP CONSTRAINT "accounts_password_argon2id_format";--> statement-breakpoint
+ALTER TABLE "accounts" ADD CONSTRAINT "accounts_password_is_hashed" CHECK (password IS NULL OR password ~ '^[\$:]');

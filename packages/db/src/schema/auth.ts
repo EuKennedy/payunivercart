@@ -67,13 +67,19 @@ export const accounts = pgTable(
   (table) => [
     uniqueIndex('accounts_provider_account_unique').on(table.providerId, table.accountId),
     index('accounts_user_idx').on(table.userId),
-    // Defense-in-depth: any non-null password MUST be an argon2id hash, the
-    // format Better-Auth emits. A bug that wrote plaintext (or bcrypt, or
-    // any other format) is rejected at the DB level rather than silently
-    // accepted and only discovered when login starts failing.
+    // Defense-in-depth: any non-null password MUST be a structured hash
+    // (algorithm-prefixed with `$<algo>$` like crypt(3), PHC string format,
+    // or scrypt's `<salt>:<hash>` convention). A bug that wrote plaintext
+    // is rejected at the DB level rather than silently accepted and only
+    // discovered when login starts failing.
+    //
+    // The exact algorithm Better-Auth uses (currently scrypt in 1.3.x, was
+    // argon2id in 1.6.x) changes between minor versions, so we don't pin
+    // a specific prefix here — we just require the value to look like a
+    // hash format, not a raw password.
     check(
-      'accounts_password_argon2id_format',
-      sql`password IS NULL OR password LIKE '$argon2id$%'`,
+      'accounts_password_is_hashed',
+      sql`password IS NULL OR password ~ '^[\\$:]'`,
     ),
   ],
 );
