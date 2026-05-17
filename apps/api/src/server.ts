@@ -1,8 +1,6 @@
 import { serve } from '@hono/node-server';
 import { trpcServer } from '@hono/trpc-server';
-import { schema } from '@payunivercart/db';
 import 'dotenv/config';
-import { asc, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
@@ -12,6 +10,7 @@ import { appRouter } from './routers/index';
 import { buildServices } from './services';
 import type { TrpcContext } from './trpc';
 import { mountWahaWebhook } from './webhooks/waha';
+import { listOrProvisionMemberships } from './workspace-lookup';
 
 /**
  * Hono entry point. Boot order:
@@ -78,23 +77,11 @@ app.get('/me/workspace', async (c) => {
   if (!session?.user?.id) {
     return c.json({ error: 'unauthenticated' }, 401);
   }
-  const headerWs = c.req.header('x-workspace-id') ?? null;
-  const rows = await services.db.db
-    .select({
-      workspaceId: schema.memberships.workspaceId,
-      role: schema.memberships.role,
-      name: schema.workspaces.name,
-      slug: schema.workspaces.slug,
-    })
-    .from(schema.memberships)
-    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.memberships.workspaceId))
-    .where(eq(schema.memberships.userId, session.user.id))
-    .orderBy(
-      asc(sql`coalesce(${schema.memberships.acceptedAt}, ${schema.memberships.createdAt})`),
-    );
+  const rows = await listOrProvisionMemberships(services.db.db, session.user.id);
   if (rows.length === 0) {
     return c.json({ error: 'no_workspace' }, 403);
   }
+  const headerWs = c.req.header('x-workspace-id') ?? null;
   const selected = headerWs ? rows.find((r) => r.workspaceId === headerWs) : rows[0];
   if (!selected) {
     return c.json({ error: 'not_a_member' }, 403);
