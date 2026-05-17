@@ -126,6 +126,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           pixCopyPaste={createOrder.data.pixCopyPaste}
           pixExpiresAt={createOrder.data.pixExpiresAt}
           gatewayConfigured={createOrder.data.gatewayConfigured}
+          status={createOrder.data.status}
         />
       </CenteredCard>
     );
@@ -416,6 +417,7 @@ function SuccessView({
   pixCopyPaste,
   pixExpiresAt,
   gatewayConfigured,
+  status,
 }: {
   reference: string;
   methodLabel: string;
@@ -425,18 +427,31 @@ function SuccessView({
   pixCopyPaste: string | null;
   pixExpiresAt: Date | string | null;
   gatewayConfigured: boolean;
+  status: string;
 }) {
+  const isPaid = status === 'paid';
   const hasPix = !!(pixQrCodeImage || pixCopyPaste);
+  const kicker = isPaid ? 'Pagamento aprovado' : hasPix ? 'Pix gerado' : 'Pedido criado';
+  const headline = isPaid
+    ? 'Compra confirmada!'
+    : hasPix
+    ? 'Pague com Pix em segundos.'
+    : 'Recebemos sua compra.';
   return (
     <div>
       <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-success)]">
-        {hasPix ? 'Pix gerado' : 'Pedido criado'}
+        {kicker}
       </p>
       <h1 className="display mt-3 text-[26px] font-semibold text-[var(--color-fg)]">
-        {hasPix ? 'Pague com Pix em segundos.' : 'Recebemos sua compra.'}
+        {headline}
       </h1>
 
-      {hasPix ? (
+      {isPaid ? (
+        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
+          Pagamento aprovado pelo {methodLabel.toLowerCase()}. Em alguns minutos você recebe os
+          dados de acesso em <strong>{buyerEmail}</strong> e no seu WhatsApp.
+        </p>
+      ) : hasPix ? (
         <>
           <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
             Escaneie o QR-code com o app do seu banco ou copie o código abaixo. Assim que a gente
