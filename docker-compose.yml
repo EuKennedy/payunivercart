@@ -5,8 +5,11 @@
 # Stop everything: `pnpm docker:down`
 #
 # Coolify reads the same file when deploying to pay.univercart.com.
-# Coolify-specific env (DOMAIN, traefik labels) are layered on top via the
-# Coolify dashboard.
+# Coolify owns reverse-proxy via Traefik: no custom networks, no custom
+# nginx, no `ports:` host binding. Each user-facing service uses `expose:`
+# and gets its Traefik route from the "Domains for <service>" UI entry
+# (must include `:<port>` suffix when the service listens on a non-80
+# port, e.g. `https://api.univercart.com:4000`).
 # =========================================================================
 
 name: payunivercart
@@ -34,7 +37,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    networks: [internal]
 
   # -----------------------------------------------------------------------
   # Redis — BullMQ queues + caches (chatId resolver, rate-limit counters).
@@ -55,7 +57,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    networks: [internal]
 
   # -----------------------------------------------------------------------
   # WAHA — local fallback only. Enable with `--profile local-waha`.
@@ -73,7 +74,6 @@ services:
       WAHA_LOG_LEVEL: info
     volumes:
       - waha-sessions:/app/.sessions
-    networks: [internal]
 
   # -----------------------------------------------------------------------
   # Drizzle migration runner. One-shot service that runs the SQL files +
@@ -97,17 +97,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [internal]
     restart: "no"
 
   # -----------------------------------------------------------------------
   # API — Hono + tRPC backend. Stateless; horizontally scalable.
+  # Traefik route: `Domains for api` = `https://api.univercart.com:4000`.
   # -----------------------------------------------------------------------
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    expose: ["4000"]
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 4000
@@ -115,6 +116,7 @@ services:
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET required}
       AUTH_TRUSTED_ORIGINS: ${AUTH_TRUSTED_ORIGINS:-http://localhost:3000}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
       # WAHA_BASE_URL points at the external WAHA instance in production
       # (e.g. https://whatsapp.univerzap.cloud) and falls back to the
       # internal `waha` service only when the `local-waha` profile is up.
@@ -132,8 +134,11 @@ services:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 30s
+      # tsx cold-start under linux/amd64 can take 30-60s once the
+      # workspace symlinks have to resolve, so leave plenty of slack
+      # before Traefik gives up on routing.
+      retries: 15
+      start_period: 90s
     depends_on:
       postgres:
         condition: service_healthy
@@ -143,68 +148,86 @@ services:
         condition: service_completed_successfully
       # Local `waha` is opt-in via the `local-waha` profile. When the
       # profile is OFF (production using an external WAHA) Docker
-      # Compose skips this dependency entirely. The `required: false`
-      # makes it a soft link when the profile IS on, so api still
-      # starts if waha is mid-boot.
+      # Compose skips this dependency entirely.
       waha:
         condition: service_started
         required: false
-    networks: [internal, public]
 
   # -----------------------------------------------------------------------
-  # Dashboard — Next.js, producer-facing. Port 3000 internal.
+  # Dashboard — Next.js, producer-facing.
+  # Traefik route: `Domains for dashboard` = `https://pay.univercart.com:3000`.
   # -----------------------------------------------------------------------
   dashboard:
     build:
       context: .
       dockerfile: apps/dashboard/Dockerfile
     restart: unless-stopped
+    expose: ["3000"]
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.univercart.com}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/').then(r => process.exit(r.ok || r.status === 404 ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     depends_on:
       api:
         condition: service_healthy
-    networks: [internal]
 
   # -----------------------------------------------------------------------
-  # Checkout — Next.js, public-facing. Port 3001 internal.
+  # Checkout — Next.js, public-facing.
+  # Traefik route: `Domains for checkout` = `https://check.univercart.com:3001`.
   # -----------------------------------------------------------------------
   checkout:
     build:
       context: .
       dockerfile: apps/checkout/Dockerfile
     restart: unless-stopped
+    expose: ["3001"]
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.univercart.com}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/').then(r => process.exit(r.ok || r.status === 404 ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     depends_on:
       api:
         condition: service_healthy
-    networks: [internal]
 
   # -----------------------------------------------------------------------
-  # Admin — Next.js, operator-only. Port 3002 internal. Nginx gates
-  # access via Coolify-side IP allowlist (set per deploy).
+  # Admin — Next.js, operator-only.
+  # Traefik route: `Domains for admin` = `https://admin.univercart.com:3002`.
+  # IP allowlist for this surface lives in Coolify (NEVER trust the app
+  # alone for the gate).
   # -----------------------------------------------------------------------
   admin:
     build:
       context: .
       dockerfile: apps/admin/Dockerfile
     restart: unless-stopped
+    expose: ["3002"]
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.univercart.com}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3002/').then(r => process.exit(r.ok || r.status === 404 ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     depends_on:
       api:
         condition: service_healthy
-    networks: [internal]
 
   # -----------------------------------------------------------------------
-  # Workers — BullMQ processors. Stateless; sits inside `internal` only,
-  # never exposed to the outside. Reads from Redis (queues) and Postgres
-  # (audit chain, recovery_attempts, webhooks_inbound). Uses the `worker`
-  # Postgres role with BYPASSRLS (see packages/db/sql/README.md).
+  # Workers — BullMQ processors. Stateless; reads from Redis (queues) and
+  # Postgres (audit chain, recovery_attempts, webhooks_inbound). Uses the
+  # `worker` Postgres role with BYPASSRLS (see packages/db/sql/README.md).
   # -----------------------------------------------------------------------
   workers:
     build:
@@ -229,38 +252,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    networks: [internal]
-
-  # -----------------------------------------------------------------------
-  # Nginx — terminates TLS (Coolify provides the cert via Let's Encrypt)
-  # and reverse-proxies to the api and (later) the dashboard/checkout/admin.
-  # On local dev we serve plain HTTP and skip TLS.
-  # -----------------------------------------------------------------------
-  nginx:
-    build:
-      context: ./docker/nginx
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "${HTTP_PORT:-80}:80"
-    depends_on:
-      api:
-        condition: service_healthy
-      dashboard:
-        condition: service_started
-      checkout:
-        condition: service_started
-      admin:
-        condition: service_started
-    networks: [internal, public]
 
 volumes:
   postgres-data:
   redis-data:
   waha-sessions:
-
-networks:
-  # Containers talk to each other on `internal`; only nginx is exposed.
-  internal:
-    internal: true
-  public: {}
