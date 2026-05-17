@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { signOut, useSession } from '../lib/auth';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 /**
  * Persistent left sidebar — Apple-style light-mode navigation panel.
@@ -59,15 +60,9 @@ export function Sidebar() {
     <aside
       className="sticky top-0 flex h-screen w-[280px] shrink-0 flex-col gap-7 border-r border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-6"
     >
-      {/* Brand */}
-      <Link href="/dashboard" className="flex items-center gap-2.5 px-1">
-        <span className="grid size-9 place-items-center rounded-xl bg-[var(--color-fg)] text-[15px] font-semibold tracking-tight text-[var(--color-fg-inverse)]">
-          p
-        </span>
-        <span className="text-[15px] font-semibold tracking-tight text-[var(--color-fg)]">
-          payunivercart
-        </span>
-      </Link>
+      {/* Workspace switcher — replaces the static brand block now that
+          producers have a real (and switchable) tenant. */}
+      <WorkspaceSwitcher />
 
       {/* Sections */}
       <nav className="flex flex-1 flex-col gap-6 overflow-y-auto">
@@ -131,6 +126,13 @@ export function Sidebar() {
           Sair
         </button>
       </div>
+
+      {/* Product wordmark — moved out of the brand mark so the workspace
+          name owns the top-left. Keeps the payunivercart attribution
+          visible without competing with the producer's tenant name. */}
+      <p className="px-1 text-center text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
+        payunivercart
+      </p>
     </aside>
   );
 }
