@@ -84,8 +84,8 @@ services:
   migrate:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-      target: builder
+      dockerfile: Dockerfile
+      target: migrate
     command: >
       sh -c "
         pnpm --filter @payunivercart/db migrate &&
@@ -106,7 +106,8 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
+      dockerfile: Dockerfile
+      target: api-runtime
     restart: unless-stopped
     expose: ["4000"]
     environment:
@@ -160,7 +161,8 @@ services:
   dashboard:
     build:
       context: .
-      dockerfile: apps/dashboard/Dockerfile
+      dockerfile: Dockerfile
+      target: dashboard-runtime
     restart: unless-stopped
     expose: ["3000"]
     environment:
@@ -183,7 +185,8 @@ services:
   checkout:
     build:
       context: .
-      dockerfile: apps/checkout/Dockerfile
+      dockerfile: Dockerfile
+      target: checkout-runtime
     restart: unless-stopped
     expose: ["3001"]
     environment:
@@ -208,7 +211,8 @@ services:
   admin:
     build:
       context: .
-      dockerfile: apps/admin/Dockerfile
+      dockerfile: Dockerfile
+      target: admin-runtime
     restart: unless-stopped
     expose: ["3002"]
     environment:
@@ -232,7 +236,8 @@ services:
   workers:
     build:
       context: .
-      dockerfile: apps/workers/Dockerfile
+      dockerfile: Dockerfile
+      target: workers-runtime
     restart: unless-stopped
     environment:
       NODE_ENV: ${NODE_ENV:-production}
