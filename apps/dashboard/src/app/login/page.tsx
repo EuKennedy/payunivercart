@@ -3,9 +3,13 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Button, GlassCard, Heading, Input } from '../../components/ui';
+import { Button, Heading, Input, Kicker } from '../../components/ui';
 import { signIn } from '../../lib/auth';
 
+/**
+ * Login — split-screen: form on the left, marketing pillars on the right.
+ * Mobile collapses to single column with the form first.
+ */
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -20,54 +24,139 @@ export default function LoginPage() {
     const { error: err } = await signIn.email({ email, password });
     setBusy(false);
     if (err) {
-      setError(err.message ?? 'Falha ao entrar');
+      setError(err.message ?? 'Não foi possível entrar. Verifique suas credenciais.');
       return;
     }
     router.push('/dashboard');
   }
 
   return (
-    <main className="grid min-h-screen place-items-center px-6 py-12">
-      <GlassCard className="w-full max-w-md space-y-6">
-        <div className="space-y-2 text-center">
-          <Heading level={2}>Entrar</Heading>
-          <p className="text-sm text-[var(--color-fg-muted)]">Acesse seu painel de produtor.</p>
-        </div>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <Input
-            label="Email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="voce@empresa.com"
-          />
-          <Input
-            label="Senha"
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••••"
-          />
-          {error && (
-            <p className="text-sm text-red-300/90" role="alert">
-              {error}
-            </p>
-          )}
-          <Button type="submit" className="w-full" disabled={busy}>
-            {busy ? 'Entrando…' : 'Entrar'}
-          </Button>
-        </form>
-        <p className="text-center text-sm text-[var(--color-fg-muted)]">
-          Não tem conta?{' '}
-          <Link href="/signup" className="text-[var(--color-brand-400)] hover:underline">
-            Criar conta
+    <main className="min-h-screen bg-[var(--color-bg)]">
+      <div className="mx-auto grid min-h-screen max-w-7xl grid-cols-1 lg:grid-cols-2">
+        {/* Left — form */}
+        <section className="flex flex-col px-6 py-8 lg:px-16 lg:py-12">
+          <Link href="/" className="flex items-center gap-2.5">
+            <span className="grid size-9 place-items-center rounded-lg bg-[var(--color-fg)] text-[14px] font-semibold text-[var(--color-fg-inverse)]">
+              p
+            </span>
+            <span className="text-[15px] font-semibold tracking-tight">payunivercart</span>
           </Link>
-        </p>
-      </GlassCard>
+
+          <div className="flex flex-1 flex-col justify-center py-10">
+            <div className="mx-auto w-full max-w-sm">
+              <Kicker>Painel do produtor</Kicker>
+              <Heading level={1} className="mt-3">
+                Bem-vindo de volta.
+              </Heading>
+              <p className="mt-3 text-[15px] text-[var(--color-fg-muted)]">
+                Entre com seu email e senha pra acessar o workspace.
+              </p>
+
+              <form onSubmit={onSubmit} className="mt-8 space-y-5">
+                <Input
+                  label="Email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="voce@empresa.com"
+                />
+                <Input
+                  label="Senha"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••••"
+                />
+                {error && (
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-[rgba(194,38,26,0.18)] bg-[var(--color-danger-bg)] px-4 py-3 text-[13px] font-medium text-[var(--color-danger)]"
+                  >
+                    {error}
+                  </div>
+                )}
+                <Button type="submit" className="w-full" size="lg" disabled={busy}>
+                  {busy ? 'Entrando…' : 'Entrar'}
+                </Button>
+              </form>
+
+              <p className="mt-6 text-center text-[14px] text-[var(--color-fg-muted)]">
+                Não tem conta?{' '}
+                <Link
+                  href="/signup"
+                  className="font-medium text-[var(--color-fg)] underline-offset-4 hover:underline"
+                >
+                  Criar workspace
+                </Link>
+              </p>
+            </div>
+          </div>
+
+          <p className="text-[12px] text-[var(--color-fg-subtle)]">
+            © {new Date().getFullYear()} payunivercart
+          </p>
+        </section>
+
+        {/* Right — sales/social proof panel. Hidden on mobile. */}
+        <aside className="relative hidden overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface-muted)] p-16 lg:flex lg:flex-col lg:justify-between">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-[-15%] mx-auto h-[400px] max-w-md bg-[radial-gradient(closest-side,rgba(249,115,22,0.10),transparent_75%)] blur-3xl"
+          />
+          <div className="relative">
+            <Kicker>Por que payunivercart</Kicker>
+            <Heading level={2} className="mt-3 text-balance">
+              A plataforma que cresce com a sua operação.
+            </Heading>
+            <p className="mt-4 text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+              Multi-tenant nativo, auditoria criptográfica em cada transação e checkout que aceita
+              Pix, cartão, boleto e Stripe USD — pronto pra escalar de R$ 10k a R$ 10M por mês.
+            </p>
+          </div>
+
+          <div className="relative space-y-3">
+            <PullQuote
+              quote="Migrei do Hotmart e a primeira venda chegou em 3 horas. O WhatsApp integrado é o diferencial."
+              author="produtor digital, infoprodutos"
+            />
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="Workspaces" value="—" />
+              <Stat label="GMV mensal" value="—" />
+              <Stat label="Uptime" value="99,9%" />
+            </div>
+          </div>
+        </aside>
+      </div>
     </main>
+  );
+}
+
+function PullQuote({ quote, author }: { quote: string; author: string }) {
+  return (
+    <figure className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+      <blockquote className="text-[15px] leading-[1.55] text-[var(--color-fg)]">
+        “{quote}”
+      </blockquote>
+      <figcaption className="mt-4 text-[12px] uppercase tracking-wider text-[var(--color-fg-subtle)]">
+        {author}
+      </figcaption>
+    </figure>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+        {label}
+      </p>
+      <p className="mt-1.5 text-[22px] font-semibold tracking-tight text-[var(--color-fg)]">
+        {value}
+      </p>
+    </div>
   );
 }

@@ -8,10 +8,10 @@ import { Sidebar } from '../../components/Sidebar';
  */
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[var(--color-bg)]">
       <Sidebar />
       <main className="flex-1 overflow-x-hidden">
-        <div className="mx-auto max-w-6xl px-8 py-10">{children}</div>
+        <div className="mx-auto max-w-6xl px-10 py-12">{children}</div>
       </main>
     </div>
   );
