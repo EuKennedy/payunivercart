@@ -81,6 +81,39 @@ export function Heading({
   return <h3 className={cls}>{children}</h3>;
 }
 
+/**
+ * EmptyState — premium placeholder for pages that are wired up routing-
+ * wise but don't have data/features yet. Used by the dashboard sidebar
+ * destinations whose CRUD lands in later blocks. Keeps the surface from
+ * feeling broken while the backend is still being built.
+ */
+export function EmptyState({
+  kicker,
+  title,
+  description,
+  action,
+  className,
+}: {
+  kicker?: string;
+  title: string;
+  description: string;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={clsx('mx-auto flex max-w-2xl flex-col items-start gap-5', className)}>
+      {kicker && (
+        <span className="text-xs uppercase tracking-[0.24em] text-[var(--color-brand-400)]">
+          {kicker}
+        </span>
+      )}
+      <h1 className="text-4xl font-semibold leading-tight tracking-tight">{title}</h1>
+      <p className="text-base leading-relaxed text-[var(--color-fg-muted)]">{description}</p>
+      {action && <div className="pt-2">{action}</div>}
+    </div>
+  );
+}
+
 export function StatusPill({ status }: { status: string }) {
   const tone =
     status === 'WORKING'
