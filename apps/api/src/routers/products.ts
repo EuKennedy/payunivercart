@@ -46,6 +46,14 @@ export const productsRouter = router({
    */
   list: workspaceProcedure.output(z.array(ProductRow)).query(async ({ ctx }) => {
     return withWorkspace(ctx.services.db.db, ctx.workspaceId, async (tx) => {
+      // Defense-in-depth: we filter by `workspaceId` in the query itself
+      // even though `withWorkspace` already set the RLS context. The api
+      // process currently connects as a Postgres role that bypasses RLS
+      // (the bundled docker-compose Postgres uses POSTGRES_USER as a
+      // superuser), so the policy is dormant. An explicit predicate keeps
+      // every query tenant-scoped regardless of role privileges. The
+      // role-hardening block will switch to a non-BYPASSRLS role and
+      // RLS becomes the second wall; until then it's the only wall.
       const rows = await tx
         .select({
           id: schema.products.id,
@@ -69,7 +77,12 @@ export const productsRouter = router({
             eq(schema.productOffers.isDefault, true),
           ),
         )
-        .where(isNull(schema.products.deletedAt))
+        .where(
+          and(
+            eq(schema.products.workspaceId, ctx.workspaceId),
+            isNull(schema.products.deletedAt),
+          ),
+        )
         .orderBy(desc(schema.products.createdAt));
 
       return rows.map((r) => ({
@@ -177,8 +190,18 @@ export const productsRouter = router({
         if (input.name !== undefined) patch.name = input.name;
         if (input.description !== undefined) patch.description = input.description;
         if (input.isActive !== undefined) patch.isActive = input.isActive;
+        // Tenant-scoped predicates on every write — defense-in-depth on
+        // top of withWorkspace's RLS context (see list-query comment).
         if (Object.keys(patch).length > 0) {
-          await tx.update(schema.products).set(patch).where(eq(schema.products.id, input.id));
+          await tx
+            .update(schema.products)
+            .set(patch)
+            .where(
+              and(
+                eq(schema.products.id, input.id),
+                eq(schema.products.workspaceId, ctx.workspaceId),
+              ),
+            );
         }
         if (input.priceCents !== undefined || input.maxInstallments !== undefined) {
           const offerPatch: Record<string, unknown> = {};
@@ -190,6 +213,7 @@ export const productsRouter = router({
             .where(
               and(
                 eq(schema.productOffers.productId, input.id),
+                eq(schema.productOffers.workspaceId, ctx.workspaceId),
                 eq(schema.productOffers.isDefault, true),
               ),
             );
@@ -211,7 +235,12 @@ export const productsRouter = router({
         await tx
           .update(schema.products)
           .set({ deletedAt: new Date(), isActive: false })
-          .where(eq(schema.products.id, input.id));
+          .where(
+            and(
+              eq(schema.products.id, input.id),
+              eq(schema.products.workspaceId, ctx.workspaceId),
+            ),
+          );
       });
       return { ok: true as const };
     }),
