@@ -1,46 +1,67 @@
 @import "tailwindcss";
 
 /*
- * Public checkout uses a lighter, more conversion-focused palette than
- * the producer dashboard. Default is light mode (checkout audiences are
- * trained on white-ish payment forms) with the brand orange as accent.
- * Dark mode is supported via `prefers-color-scheme` but not the default.
+ * Public checkout — light-first, Apple-tier conversion surface.
+ * Dark mode intentionally NOT supported: buyers on payment surfaces
+ * are trained on white/light. A dark Pix screen is friction.
  */
 
 @theme {
+  --color-bg: #fbfbfd;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f4f4f7;
+  --color-surface-hover: #efeff2;
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-strong: rgba(0, 0, 0, 0.16);
+
+  --color-fg: #1d1d1f;
+  --color-fg-muted: #515154;
+  --color-fg-subtle: #86868b;
+  --color-fg-inverse: #ffffff;
+
+  --color-brand-50: #fff7ed;
+  --color-brand-100: #ffedd5;
   --color-brand-500: #f97316;
   --color-brand-600: #ea580c;
   --color-brand-700: #c2410c;
 
-  --color-fg: #0f0f12;
-  --color-fg-muted: rgba(15, 15, 18, 0.6);
-  --color-fg-subtle: rgba(15, 15, 18, 0.42);
+  --color-success: #00875a;
+  --color-success-bg: #e3fcef;
+  --color-warning: #b76e00;
+  --color-warning-bg: #fff4dc;
+  --color-danger: #c2261a;
+  --color-danger-bg: #ffeceb;
 
-  --color-surface: #ffffff;
-  --color-surface-muted: #f5f5f7;
-  --color-border: rgba(15, 15, 18, 0.08);
-
+  --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
-}
+  --radius-xl: 1.5rem;
 
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-fg: #f5f5f7;
-    --color-fg-muted: rgba(245, 245, 247, 0.6);
-    --color-fg-subtle: rgba(245, 245, 247, 0.4);
-    --color-surface: #131318;
-    --color-surface-muted: #1c1c23;
-    --color-border: rgba(255, 255, 255, 0.08);
-  }
+  --font-display: ui-sans-serif, "SF Pro Display", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 html,
 body {
-  background: var(--color-surface-muted);
+  background: var(--color-bg);
   color: var(--color-fg);
 }
+
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial;
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.surface {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px -16px rgba(0, 0, 0, 0.08);
 }
