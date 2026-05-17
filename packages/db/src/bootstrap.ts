@@ -1,6 +1,6 @@
 import { mintOrganizationSlug, slugifyEmailLocalPart, PayunivercartError } from '@payunivercart/shared';
 import { eq } from 'drizzle-orm';
-import type { WorkspaceDb } from './rls';
+import type { WorkspaceDb, WorkspaceTx } from './rls';
 import * as schema from './schema/index';
 
 /**
@@ -56,9 +56,27 @@ const MAX_SLUG_RETRIES = 2;
  *   rolls them all back.
  * - Returns the newly-minted ids so callers can audit-log or eagerly
  *   set the tenant cookie.
+ *
+ * Wrapper that opens its own transaction. Callers already inside a
+ * transaction (e.g. `listOrProvisionMemberships`, which holds a per-user
+ * advisory lock to serialize self-heal attempts) should instead use
+ * `provisionWorkspaceInTx` and pass their own `tx`.
  */
 export async function provisionWorkspaceForUser(
   db: WorkspaceDb,
+  input: ProvisionWorkspaceInput,
+): Promise<ProvisionedWorkspace> {
+  return db.transaction((tx) => provisionWorkspaceInTx(tx, input));
+}
+
+/**
+ * Same as `provisionWorkspaceForUser` but operates on an existing
+ * Drizzle transaction. The 23505 retry uses Drizzle's nested-transaction
+ * (savepoint) so a slug collision rolls back JUST the failed attempt's
+ * inserts, not the outer transaction.
+ */
+export async function provisionWorkspaceInTx(
+  tx: WorkspaceTx,
   input: ProvisionWorkspaceInput,
 ): Promise<ProvisionedWorkspace> {
   const baseName = (input.name ?? '').trim() || slugifyEmailLocalPart(input.email);
@@ -66,8 +84,8 @@ export async function provisionWorkspaceForUser(
   for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
     const orgSlug = mintOrganizationSlug(input.email);
     try {
-      return await db.transaction(async (tx) => {
-        const [org] = await tx
+      return await tx.transaction(async (savepoint) => {
+        const [org] = await savepoint
           .insert(schema.organizations)
           .values({
             slug: orgSlug,
@@ -83,7 +101,7 @@ export async function provisionWorkspaceForUser(
           });
         }
 
-        const [workspace] = await tx
+        const [workspace] = await savepoint
           .insert(schema.workspaces)
           .values({
             organizationId: org.id,
@@ -98,7 +116,7 @@ export async function provisionWorkspaceForUser(
           });
         }
 
-        const [membership] = await tx
+        const [membership] = await savepoint
           .insert(schema.memberships)
           .values({
             workspaceId: workspace.id,
