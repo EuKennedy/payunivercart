@@ -5,6 +5,14 @@ import type { inferRouterOutputs } from '@trpc/server';
 import clsx from 'clsx';
 import { use, useMemo, useState } from 'react';
 import { formatCents } from '../../../lib/money';
+import {
+  maskBrPhone,
+  maskCardExpiry,
+  maskCardNumber,
+  maskCpfCnpj,
+  maskDigits,
+  unmaskDigits,
+} from '../../../lib/masks';
 import { trpc } from '../../../lib/trpc';
 
 type CheckoutData = inferRouterOutputs<AppRouter>['checkout']['getBySlug'];
@@ -12,15 +20,9 @@ type CheckoutData = inferRouterOutputs<AppRouter>['checkout']['getBySlug'];
 /**
  * Public checkout — `/c/<slug>`.
  *
- * Layout: a 3-column responsive grid that mirrors Lizzon's
- * conversion flow:
- *   1. Identificação  (buyer fields, "Continuar" CTA)
- *   2. Pagamento      (method tabs + method-specific fields; locked
- *                     until Identificação is valid)
- *   3. Resumo         (product card + totals; always visible)
- *
- * The right column on mobile collapses below the form so the buyer
- * always sees the price within a thumb-scroll.
+ * Lizzon-tier 2-step glass UI. Identificação → Pagamento, with a
+ * permanent order summary on the right. Dopamine green accent
+ * (--dop-*) for active state, glass-card surfaces, masked inputs.
  */
 
 type Method = 'pix' | 'credit_card' | 'boleto';
@@ -72,7 +74,9 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const [email, setEmail] = useState('');
   const [doc, setDoc] = useState('');
   const [phone, setPhone] = useState('');
-  const [card, setCard] = useState({ number: '', expiry: '', cvc: '' });
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvc, setCardCvc] = useState('');
 
   const createOrder = trpc.checkout.createOrder.useMutation();
 
@@ -80,6 +84,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
     () => formatCents(product.priceCents, product.currency),
     [product.priceCents, product.currency],
   );
+
   const perInstallment = useMemo(() => {
     if (product.maxInstallments < 2) return null;
     return formatCents(
@@ -88,11 +93,24 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
     );
   }, [product.maxInstallments, product.currency, product.priceCents]);
 
+  const docDigits = unmaskDigits(doc);
+  const phoneDigits = unmaskDigits(phone);
+  const cardDigits = unmaskDigits(cardNumber);
+  const expiryDigits = unmaskDigits(cardExpiry);
+
   const identifyComplete =
     name.trim().length >= 2 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
-    doc.replace(/\D+/g, '').length >= 11 &&
-    phone.trim().length >= 10;
+    (docDigits.length === 11 || docDigits.length === 14) &&
+    phoneDigits.length >= 10;
+
+  const cardComplete =
+    method !== 'credit_card' ||
+    (cardDigits.length >= 13 &&
+      expiryDigits.length === 4 &&
+      cardCvc.length >= 3);
+
+  const submitDisabled = !identifyComplete || !cardComplete || createOrder.isPending;
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -113,9 +131,9 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
       card:
         method === 'credit_card'
           ? {
-              number: card.number,
-              expiry: card.expiry,
-              cvc: card.cvc,
+              number: cardNumber,
+              expiry: cardExpiry,
+              cvc: cardCvc,
               holderName: name.trim() || 'APRO',
             }
           : undefined,
@@ -140,349 +158,285 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
     );
   }
 
+  const brandTone = workspace.brandPrimaryColor;
+
   return (
-    <main className="min-h-screen bg-[var(--color-bg)]">
-      {/* Producer header */}
-      <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            {workspace.brandLogoUrl ? (
-              // biome-ignore lint/performance/noImgElement: producer logo, remote, no optimization gain.
-              <img
-                src={workspace.brandLogoUrl}
-                alt={workspace.name}
-                className="h-9 w-9 rounded-xl object-cover"
-              />
-            ) : (
-              <span
-                className="grid h-9 w-9 place-items-center rounded-xl text-[14px] font-semibold text-white"
-                style={{ backgroundColor: BRAND_GREEN }}
-              >
-                {(workspace.name[0] ?? 'p').toUpperCase()}
-              </span>
-            )}
-            <div className="flex flex-col leading-tight">
-              <span className="text-[14px] font-semibold text-[var(--color-fg)]">
-                {workspace.name}
-              </span>
-              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
-                Checkout seguro
-              </span>
-            </div>
-          </div>
-          <p className="hidden text-[11px] text-[var(--color-fg-subtle)] sm:block">
-            🔒 Conexão criptografada · processado por payunivercart
-          </p>
-        </div>
-      </header>
+    <main className="min-h-screen">
+      <ProducerHeader workspace={workspace} brandTone={brandTone} />
 
-      <form onSubmit={onSubmit} className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-          {/* ---------- Step 1 — Identificação ---------- */}
-          <section
-            className={clsx(
-              'flex flex-col gap-5 rounded-2xl border bg-[var(--color-surface)] p-5 transition',
-              step === 'identify'
-                ? 'border-[var(--color-success)] shadow-[0_0_0_3px_rgba(0,135,90,0.08)]'
-                : 'border-[var(--color-border)]',
-            )}
-          >
-            <StepHeader number="1" active={step === 'identify'} done={identifyComplete && step !== 'identify'}>
-              Identificação
-            </StepHeader>
-
-            <div className="flex flex-col gap-4">
-              <Field label="Nome completo">
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Como aparece no documento"
-                  className={inputClass}
-                  autoComplete="name"
-                />
-              </Field>
-              <Field label="Email">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="voce@empresa.com"
-                  className={inputClass}
-                  autoComplete="email"
-                />
-              </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
-                <Field label="CPF / CNPJ">
-                  <input
-                    type="text"
-                    value={doc}
-                    onChange={(e) => setDoc(e.target.value)}
-                    placeholder="000.000.000-00"
-                    inputMode="numeric"
-                    className={inputClass}
-                  />
-                </Field>
-                <Field label="Telefone">
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="(11) 91234-5678"
-                    inputMode="tel"
-                    className={inputClass}
-                    autoComplete="tel"
-                  />
-                </Field>
-              </div>
-              <p className="-mt-1 text-[11px] leading-[1.5] text-[var(--color-fg-subtle)]">
-                Usaremos seu telefone pra mandar o acesso no WhatsApp.
-              </p>
-            </div>
-
-            {step === 'identify' ? (
-              <button
-                type="button"
-                onClick={() => identifyComplete && setStep('pay')}
-                disabled={!identifyComplete}
-                className={clsx(
-                  'mt-1 inline-flex w-full items-center justify-center rounded-full px-5 py-3 text-[14px] font-semibold transition',
-                  identifyComplete
-                    ? 'bg-[var(--color-success)] text-white shadow-[0_8px_20px_-12px_rgba(0,135,90,0.55)] hover:brightness-105'
-                    : 'cursor-not-allowed bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)]',
-                )}
-              >
-                Ir para o pagamento →
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setStep('identify')}
-                className="self-start text-[12px] font-medium text-[var(--color-success)] hover:underline"
-              >
-                Editar dados
-              </button>
-            )}
-          </section>
-
-          {/* ---------- Step 2 — Pagamento ---------- */}
-          <section
-            className={clsx(
-              'flex flex-col gap-5 rounded-2xl border bg-[var(--color-surface)] p-5 transition',
-              step === 'pay'
-                ? 'border-[var(--color-success)] shadow-[0_0_0_3px_rgba(0,135,90,0.08)]'
-                : 'border-[var(--color-border)]',
-            )}
-          >
-            <StepHeader number="2" active={step === 'pay'} done={false}>
-              Pagamento
-            </StepHeader>
-
-            {step !== 'pay' ? (
-              <p className="text-[13px] leading-[1.55] text-[var(--color-fg-subtle)]">
-                Complete seus dados de identificação para continuar.
-              </p>
-            ) : (
-              <>
-                <fieldset>
-                  <legend className="sr-only">Forma de pagamento</legend>
-                  <div className="grid grid-cols-3 gap-2 rounded-xl bg-[var(--color-surface-muted)] p-1">
-                    {(['pix', 'credit_card', 'boleto'] as Method[]).map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => setMethod(m)}
-                        className={clsx(
-                          'rounded-lg px-3 py-2 text-[13px] font-medium transition',
-                          method === m
-                            ? 'bg-[var(--color-surface)] text-[var(--color-fg)] shadow-sm'
-                            : 'text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]',
-                        )}
-                      >
-                        {METHOD_LABELS[m]}
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-
-                {method === 'pix' ? (
-                  <p className="text-[13px] leading-[1.55] text-[var(--color-fg-muted)]">
-                    Você vai receber um QR-code para pagar no app do seu banco. Aprovação em
-                    segundos.
-                  </p>
-                ) : null}
-
-                {method === 'boleto' ? (
-                  <p className="text-[13px] leading-[1.55] text-[var(--color-fg-muted)]">
-                    O boleto leva até 2 dias úteis para compensar. Indicado para quem não usa Pix.
-                  </p>
-                ) : null}
-
-                {method === 'credit_card' ? (
-                  <div className="flex flex-col gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/40 p-4">
-                    <Field label="Número do cartão">
+      <form
+        onSubmit={onSubmit}
+        className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10"
+      >
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr] lg:gap-7">
+          {/* ---------- Left column: steps ---------- */}
+          <div className="flex flex-col gap-4">
+            <StepCard
+              num={1}
+              label="Identificação"
+              active={step === 'identify'}
+              done={step === 'pay' && identifyComplete}
+              onEdit={step === 'pay' ? () => setStep('identify') : undefined}
+            >
+              {step === 'identify' ? (
+                <div className="flex flex-col gap-3">
+                  <Field label="Nome completo">
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Como aparece no documento"
+                      autoComplete="name"
+                      autoFocus
+                    />
+                  </Field>
+                  <Field label="Email">
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="voce@empresa.com"
+                      autoComplete="email"
+                      inputMode="email"
+                    />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="CPF / CNPJ">
                       <input
                         type="text"
-                        value={card.number}
-                        onChange={(e) => setCard({ ...card, number: e.target.value })}
-                        placeholder="0000 0000 0000 0000"
+                        value={doc}
+                        onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
+                        placeholder="000.000.000-00"
                         inputMode="numeric"
-                        autoComplete="cc-number"
-                        className={inputClass}
                       />
                     </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Validade (MM/AA)">
-                        <input
-                          type="text"
-                          value={card.expiry}
-                          onChange={(e) => setCard({ ...card, expiry: e.target.value })}
-                          placeholder="12/30"
-                          autoComplete="cc-exp"
-                          className={inputClass}
-                        />
-                      </Field>
-                      <Field label="CVV">
-                        <input
-                          type="text"
-                          value={card.cvc}
-                          onChange={(e) => setCard({ ...card, cvc: e.target.value })}
-                          placeholder="000"
-                          inputMode="numeric"
-                          autoComplete="cc-csc"
-                          className={inputClass}
-                        />
-                      </Field>
-                    </div>
-                    {product.maxInstallments > 1 ? (
-                      <Field label="Parcelas">
-                        <select
-                          value={installments}
-                          onChange={(e) => setInstallments(Number.parseInt(e.target.value, 10))}
-                          className={clsx(inputClass, 'appearance-none')}
-                        >
-                          {Array.from({ length: product.maxInstallments }, (_, i) => i + 1).map(
-                            (n) => (
-                              <option key={n} value={n}>
-                                {n === 1
-                                  ? `1× — ${formattedTotal}`
-                                  : `${n}× — ${formatCents(Math.ceil(product.priceCents / n), product.currency)} sem juros`}
-                              </option>
-                            ),
-                          )}
-                        </select>
-                      </Field>
-                    ) : null}
+                    <Field label="Telefone">
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(maskBrPhone(e.target.value))}
+                        placeholder="(11) 91234-5678"
+                        inputMode="tel"
+                        autoComplete="tel"
+                      />
+                    </Field>
                   </div>
-                ) : null}
-
-                {createOrder.error ? (
-                  <p className="rounded-xl border border-[var(--color-danger-bg)] bg-[var(--color-danger-bg)] px-4 py-3 text-[12px] leading-[1.5] text-[var(--color-danger)]">
-                    {createOrder.error.message}
+                  <p className="text-[11px] leading-[1.45] text-[var(--ink-50)]">
+                    Usaremos seu telefone para enviar o acesso por WhatsApp.
                   </p>
-                ) : null}
+                  <button
+                    type="button"
+                    onClick={() => identifyComplete && setStep('pay')}
+                    disabled={!identifyComplete}
+                    className="btn btn-primary mt-2 w-full text-[15px]"
+                  >
+                    Ir para o pagamento →
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-1 text-[13px] text-[var(--ink-70)]">
+                  <p className="text-[var(--ink-90)]">{name}</p>
+                  <p>{email}</p>
+                  <p>
+                    {doc} · {phone}
+                  </p>
+                </div>
+              )}
+            </StepCard>
 
-                <button
-                  type="submit"
-                  disabled={createOrder.isPending}
-                  className="inline-flex w-full items-center justify-center rounded-full bg-[var(--color-success)] px-5 py-3 text-[14px] font-semibold text-white shadow-[0_8px_20px_-12px_rgba(0,135,90,0.55)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {createOrder.isPending ? 'Processando…' : METHOD_CTA[method]}
-                </button>
-              </>
-            )}
-          </section>
+            <StepCard
+              num={2}
+              label="Pagamento"
+              active={step === 'pay'}
+              done={false}
+              locked={step !== 'pay'}
+            >
+              {step !== 'pay' ? (
+                <p className="text-[13px] leading-[1.55] text-[var(--ink-50)]">
+                  Complete seus dados de identificação para continuar.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <MethodTabs current={method} onChange={setMethod} />
 
-          {/* ---------- Resumo ---------- */}
-          <aside className="md:row-span-2">
-            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-              <p className="text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+                  {method === 'pix' ? (
+                    <p className="text-[13px] leading-[1.55] text-[var(--ink-70)]">
+                      Você vai receber um QR-code para pagar no app do seu banco. Aprovação em
+                      segundos.
+                    </p>
+                  ) : null}
+
+                  {method === 'boleto' ? (
+                    <p className="text-[13px] leading-[1.55] text-[var(--ink-70)]">
+                      O boleto leva até 2 dias úteis para compensar. Indicado para quem não usa Pix.
+                    </p>
+                  ) : null}
+
+                  {method === 'credit_card' ? (
+                    <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-4">
+                      <Field label="Número do cartão">
+                        <input
+                          type="text"
+                          value={cardNumber}
+                          onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                          placeholder="0000 0000 0000 0000"
+                          inputMode="numeric"
+                          autoComplete="cc-number"
+                        />
+                      </Field>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Validade (MM/AA)">
+                          <input
+                            type="text"
+                            value={cardExpiry}
+                            onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
+                            placeholder="12/30"
+                            inputMode="numeric"
+                            autoComplete="cc-exp"
+                          />
+                        </Field>
+                        <Field label="CVV">
+                          <input
+                            type="text"
+                            value={cardCvc}
+                            onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
+                            placeholder="000"
+                            inputMode="numeric"
+                            autoComplete="cc-csc"
+                          />
+                        </Field>
+                      </div>
+                      {product.maxInstallments > 1 ? (
+                        <Field label="Parcelas">
+                          <select
+                            value={installments}
+                            onChange={(e) => setInstallments(Number.parseInt(e.target.value, 10))}
+                          >
+                            {Array.from({ length: product.maxInstallments }, (_, i) => i + 1).map(
+                              (n) => (
+                                <option key={n} value={n}>
+                                  {n === 1
+                                    ? `1× — ${formattedTotal}`
+                                    : `${n}× — ${formatCents(Math.ceil(product.priceCents / n), product.currency)} sem juros`}
+                                </option>
+                              ),
+                            )}
+                          </select>
+                        </Field>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {createOrder.error ? (
+                    <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] leading-[1.5] text-[var(--danger-text)]">
+                      {createOrder.error.message}
+                    </p>
+                  ) : null}
+
+                  <button
+                    type="submit"
+                    disabled={submitDisabled}
+                    className="btn btn-primary mt-1 w-full text-[15px]"
+                  >
+                    {createOrder.isPending ? 'Processando…' : `${METHOD_CTA[method]} · ${formattedTotal}`}
+                  </button>
+
+                  <SecurityLine />
+                </div>
+              )}
+            </StepCard>
+          </div>
+
+          {/* ---------- Right column: summary ---------- */}
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            <div className="glass-card p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-50)]">
                 Resumo do pedido
               </p>
 
-              <div className="mt-4 flex items-start gap-3 border-y border-[var(--color-border)] py-4">
+              <div className="mt-4 flex items-start gap-3 border-b border-[var(--hairline)] pb-4">
                 {product.coverImageUrl ? (
-                  // biome-ignore lint/performance/noImgElement: producer-supplied URL.
+                  // biome-ignore lint/performance/noImgElement: producer-supplied remote URL.
                   <img
                     src={product.coverImageUrl}
                     alt={product.name}
-                    className="h-16 w-16 shrink-0 rounded-xl object-cover"
+                    className="h-16 w-16 shrink-0 rounded-2xl object-cover"
                   />
                 ) : (
                   <span
-                    className="grid h-16 w-16 shrink-0 place-items-center rounded-xl text-[18px] font-semibold text-white"
-                    style={{ backgroundColor: BRAND_GREEN }}
+                    className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl text-[18px] font-semibold text-white"
+                    style={{
+                      background:
+                        brandTone ??
+                        'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
+                    }}
                   >
                     {(product.name[0] ?? '·').toUpperCase()}
                   </span>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold leading-tight text-[var(--color-fg)]">
+                  <p className="text-[14px] font-semibold leading-tight text-[var(--ink-100)]">
                     {product.name}
                   </p>
-                  <p className="mt-1 text-[11px] text-[var(--color-fg-subtle)]">Quantidade: 1</p>
+                  <p className="mt-1 text-[12px] text-[var(--ink-50)]">Quantidade: 1</p>
                 </div>
-                <p className="shrink-0 text-[13px] font-semibold text-[var(--color-fg)]">
+                <p className="shrink-0 text-[14px] font-semibold tabular-nums text-[var(--ink-100)]">
                   {formattedTotal}
                 </p>
               </div>
 
               <dl className="mt-4 space-y-2 text-[13px]">
                 <div className="flex items-baseline justify-between">
-                  <dt className="text-[var(--color-fg-muted)]">Subtotal (1 produto)</dt>
-                  <dd className="font-medium text-[var(--color-fg)]">{formattedTotal}</dd>
+                  <dt className="text-[var(--ink-70)]">Subtotal (1 produto)</dt>
+                  <dd className="tabular-nums text-[var(--ink-90)]">{formattedTotal}</dd>
                 </div>
-                {product.type === 'physical' ? (
-                  <div className="flex items-baseline justify-between">
-                    <dt className="text-[var(--color-fg-muted)]">Frete</dt>
-                    <dd className="italic text-[var(--color-fg-muted)]">a calcular</dd>
-                  </div>
-                ) : null}
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-[var(--ink-70)]">Frete</dt>
+                  <dd className="font-medium text-[var(--dop-600)]">
+                    {product.type === 'physical' ? 'a calcular' : 'Grátis'}
+                  </dd>
+                </div>
               </dl>
 
-              <div className="mt-4 flex items-baseline justify-between border-t border-[var(--color-border)] pt-4">
-                <span className="text-[12px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+              <div className="mt-4 flex items-end justify-between border-t border-[var(--hairline)] pt-4">
+                <span className="text-[13px] uppercase tracking-[0.16em] text-[var(--ink-50)]">
                   Total
                 </span>
-                <div className="flex flex-col items-end">
-                  <span className="display text-[24px] font-semibold leading-none text-[var(--color-fg)]">
-                    {formattedTotal}
-                  </span>
-                  {product.maxInstallments > 1 && perInstallment ? (
-                    <span className="mt-1 text-[11px] text-[var(--color-success)]">
-                      até {product.maxInstallments}× de {perInstallment} sem juros
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-[11px] text-[var(--color-fg-subtle)]">
-              <div className="flex items-center gap-2">
-                <span>🔒</span>
-                <span>
-                  Seus dados trafegam por HTTPS e ficam armazenados em servidores no Brasil.
+                <span className="text-[28px] font-semibold leading-none tabular-nums tracking-tight text-[var(--ink-100)]">
+                  {formattedTotal}
                 </span>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-[var(--color-fg-muted)]">Formas aceitas:</span>
-                <PaymentBadge>Pix</PaymentBadge>
-                <PaymentBadge>Visa</PaymentBadge>
-                <PaymentBadge>MC</PaymentBadge>
-                <PaymentBadge>Amex</PaymentBadge>
-                <PaymentBadge>Elo</PaymentBadge>
-                <PaymentBadge>Boleto</PaymentBadge>
+              {product.maxInstallments > 1 && perInstallment ? (
+                <p className="mt-1 text-right text-[12px] font-medium text-[var(--dop-600)]">
+                  até {product.maxInstallments}× de {perInstallment} sem juros
+                </p>
+              ) : null}
+            </div>
+
+            <div className="glass-card flex flex-col gap-3 p-5 text-[12px] text-[var(--ink-70)]">
+              <div className="flex items-start gap-2">
+                <ShieldIcon />
+                <span>
+                  Seus dados trafegam em HTTPS e ficam armazenados em servidores brasileiros.
+                  Pagamento processado por Mercado Pago.
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-medium text-[var(--ink-50)]">Aceitamos:</span>
+                {['Pix', 'Visa', 'Master', 'Amex', 'Elo', 'Boleto'].map((b) => (
+                  <PaymentBadge key={b}>{b}</PaymentBadge>
+                ))}
               </div>
             </div>
           </aside>
         </div>
       </form>
 
-      <footer className="mt-8 border-t border-[var(--color-border)] bg-[var(--color-surface)]/60">
-        <div className="mx-auto flex max-w-6xl flex-col items-center gap-1 px-4 py-5 text-center text-[11px] text-[var(--color-fg-subtle)] sm:px-6">
+      <footer className="mt-6 border-t border-[var(--hairline)] bg-[var(--bg-elev-1)]/60">
+        <div className="container-x mx-auto flex w-full max-w-[1180px] flex-col items-center gap-1 py-5 text-center text-[11px] text-[var(--ink-50)]">
           <p>
-            Pagamento processado por <strong>payunivercart</strong>. Ao confirmar, você concorda
-            com os termos e a política de privacidade do produtor.
+            Pagamento processado por <strong className="text-[var(--ink-70)]">payunivercart</strong>.
+            Ao confirmar, você concorda com os termos e a política de privacidade do produtor.
           </p>
           <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>
         </div>
@@ -492,66 +446,203 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Presentational primitives                                                  */
+/* Header                                                                     */
 /* -------------------------------------------------------------------------- */
 
-const BRAND_GREEN = '#00875a';
+function ProducerHeader({
+  workspace,
+  brandTone,
+}: {
+  workspace: CheckoutData['workspace'];
+  brandTone: string | null;
+}) {
+  return (
+    <header className="border-b border-[var(--hairline)] bg-[var(--bg-elev-1)]/70 backdrop-blur">
+      <div className="container-x mx-auto flex w-full max-w-[1180px] items-center justify-between py-4">
+        <div className="flex items-center gap-3">
+          {workspace.brandLogoUrl ? (
+            // biome-ignore lint/performance/noImgElement: producer logo, remote.
+            <img
+              src={workspace.brandLogoUrl}
+              alt={workspace.name}
+              className="h-9 w-9 rounded-xl object-cover"
+            />
+          ) : (
+            <span
+              className="grid h-9 w-9 place-items-center rounded-xl text-[14px] font-semibold text-white"
+              style={{
+                background:
+                  brandTone ??
+                  'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
+              }}
+            >
+              {(workspace.name[0] ?? 'p').toUpperCase()}
+            </span>
+          )}
+          <div className="flex flex-col leading-tight">
+            <span className="text-[14px] font-semibold text-[var(--ink-100)]">
+              {workspace.name}
+            </span>
+            <span className="flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-[var(--ink-50)]">
+              <ShieldIcon size={10} /> Checkout seguro
+            </span>
+          </div>
+        </div>
+        <span className="hidden text-[11px] text-[var(--ink-50)] sm:inline">
+          🔒 Conexão criptografada · payunivercart
+        </span>
+      </div>
+    </header>
+  );
+}
 
-function StepHeader({
-  number,
+/* -------------------------------------------------------------------------- */
+/* Step + Method primitives                                                   */
+/* -------------------------------------------------------------------------- */
+
+function StepCard({
+  num,
+  label,
   active,
   done,
+  locked,
+  onEdit,
   children,
 }: {
-  number: string;
-  active: boolean;
-  done: boolean;
+  num: number;
+  label: string;
+  active?: boolean;
+  done?: boolean;
+  locked?: boolean;
+  onEdit?: () => void;
   children: React.ReactNode;
 }) {
-  const tone = done
-    ? 'bg-[var(--color-success)] text-white'
-    : active
-    ? 'bg-[var(--color-success)] text-white'
-    : 'bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)]';
   return (
-    <div className="flex items-center gap-3">
-      <span
-        className={clsx(
-          'grid h-7 w-7 place-items-center rounded-full text-[12px] font-semibold transition',
-          tone,
-        )}
-      >
-        {done ? '✓' : number}
-      </span>
-      <h2
-        className={clsx(
-          'text-[15px] font-semibold',
-          active || done ? 'text-[var(--color-fg)]' : 'text-[var(--color-fg-muted)]',
-        )}
-      >
-        {children}
-      </h2>
+    <section
+      className={clsx(
+        'glass-card p-5 transition',
+        active && 'dop-glow',
+        locked && 'opacity-90',
+      )}
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span
+            className={clsx(
+              'grid h-7 w-7 place-items-center rounded-full text-[13px] font-semibold transition',
+              done
+                ? 'bg-[var(--dop-500)] text-white'
+                : active
+                ? 'bg-[var(--dop-500)] text-white shadow-[0_4px_14px_var(--dop-glow)]'
+                : 'bg-[var(--surface-2)] text-[var(--ink-50)]',
+            )}
+          >
+            {done ? '✓' : num}
+          </span>
+          <h2
+            className={clsx(
+              'text-[15px] font-semibold',
+              active || done ? 'text-[var(--ink-100)]' : 'text-[var(--ink-70)]',
+            )}
+          >
+            {label}
+          </h2>
+        </div>
+        {done && onEdit ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-[12px] font-medium text-[var(--dop-600)] hover:text-[var(--dop-700)]"
+          >
+            Editar
+          </button>
+        ) : null}
+        {done && !onEdit ? (
+          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dop-600)]">
+            Concluído
+          </span>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function MethodTabs({ current, onChange }: { current: Method; onChange: (m: Method) => void }) {
+  return (
+    <div className="grid grid-cols-3 gap-1 rounded-full bg-[var(--surface-2)] p-1">
+      {(['pix', 'credit_card', 'boleto'] as Method[]).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => onChange(m)}
+          className={clsx(
+            'rounded-full px-3 py-2 text-[13px] font-medium transition',
+            current === m
+              ? 'bg-white text-[var(--ink-100)] shadow-[0_1px_3px_rgba(15,23,42,0.10)]'
+              : 'text-[var(--ink-70)] hover:text-[var(--ink-100)]',
+          )}
+        >
+          {METHOD_LABELS[m]}
+        </button>
+      ))}
     </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="field-glass block cursor-text">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function SecurityLine() {
+  return (
+    <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-[var(--ink-50)]">
+      <ShieldIcon size={11} /> Pagamento criptografado · seus dados não são armazenados aqui
+    </p>
   );
 }
 
 function PaymentBadge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-fg-muted)]">
+    <span className="rounded-md border border-[var(--hairline)] bg-[var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-70)]">
       {children}
     </span>
   );
 }
 
+function ShieldIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-[var(--dop-500)]"
+      aria-hidden="true"
+    >
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Loading / error / success                                                  */
+/* -------------------------------------------------------------------------- */
+
 function CenteredCard({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <main className="grid min-h-screen place-items-center px-6 py-16">
-      <div
-        className={clsx(
-          'w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm',
-          wide ? 'max-w-xl px-6 py-10' : 'max-w-md px-6 py-10',
-        )}
-      >
+      <div className={clsx('glass-card w-full p-8', wide ? 'max-w-xl' : 'max-w-md')}>
         {children}
       </div>
     </main>
@@ -561,11 +652,11 @@ function CenteredCard({ children, wide = false }: { children: React.ReactNode; w
 function Skeleton() {
   return (
     <div className="space-y-3">
-      <div className="h-3 w-20 animate-pulse rounded bg-[var(--color-surface-muted)]" />
-      <div className="h-8 w-2/3 animate-pulse rounded bg-[var(--color-surface-muted)]" />
-      <div className="h-3 w-full animate-pulse rounded bg-[var(--color-surface-muted)]" />
-      <div className="h-3 w-5/6 animate-pulse rounded bg-[var(--color-surface-muted)]" />
-      <div className="h-32 animate-pulse rounded-xl bg-[var(--color-surface-muted)]" />
+      <div className="h-3 w-20 animate-pulse rounded bg-[var(--surface-2)]" />
+      <div className="h-8 w-2/3 animate-pulse rounded bg-[var(--surface-2)]" />
+      <div className="h-3 w-full animate-pulse rounded bg-[var(--surface-2)]" />
+      <div className="h-3 w-5/6 animate-pulse rounded bg-[var(--surface-2)]" />
+      <div className="h-32 animate-pulse rounded-xl bg-[var(--surface-2)]" />
     </div>
   );
 }
@@ -573,11 +664,11 @@ function Skeleton() {
 function ErrorView({ title, body }: { title: string; body: string }) {
   return (
     <div className="text-center">
-      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-danger)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--danger-text)]">
         Erro
       </p>
-      <h1 className="display mt-3 text-[24px] font-semibold text-[var(--color-fg)]">{title}</h1>
-      <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">{body}</p>
+      <h1 className="mt-3 text-[24px] font-semibold text-[var(--ink-100)]">{title}</h1>
+      <p className="mt-3 text-[14px] leading-[1.55] text-[var(--ink-70)]">{body}</p>
     </div>
   );
 }
@@ -609,33 +700,30 @@ function SuccessView({
   const headline = isPaid
     ? 'Compra confirmada!'
     : hasPix
-    ? 'Pague com Pix em segundos.'
+    ? 'Pague em segundos.'
     : 'Recebemos sua compra.';
   return (
     <div>
-      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-success)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--dop-600)]">
         {kicker}
       </p>
-      <h1 className="display mt-3 text-[26px] font-semibold text-[var(--color-fg)]">
-        {headline}
-      </h1>
+      <h1 className="mt-3 text-[26px] font-semibold text-[var(--ink-100)]">{headline}</h1>
 
       {isPaid ? (
-        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
+        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--ink-70)]">
           Pagamento aprovado pelo {methodLabel.toLowerCase()}. Em alguns minutos você recebe os
           dados de acesso em <strong>{buyerEmail}</strong> e no seu WhatsApp.
         </p>
       ) : hasPix ? (
         <>
-          <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
-            Escaneie o QR-code com o app do seu banco ou copie o código abaixo. Assim que a gente
-            receber a confirmação do Pix, mandamos o acesso em <strong>{buyerEmail}</strong> e no
-            seu WhatsApp.
+          <p className="mt-3 text-[14px] leading-[1.55] text-[var(--ink-70)]">
+            Escaneie o QR-code com o app do seu banco ou copie o código abaixo. Quando recebermos a
+            confirmação do Pix, mandamos o acesso em <strong>{buyerEmail}</strong> e no seu
+            WhatsApp.
           </p>
-
           {pixQrCodeImage ? (
             <div className="mt-6 flex justify-center">
-              <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-sm">
+              <div className="rounded-2xl border border-[var(--hairline)] bg-white p-3 shadow-[var(--sh-sm)]">
                 {/** biome-ignore lint/performance/noImgElement: data URI base64 from gateway. */}
                 <img
                   src={`data:image/png;base64,${pixQrCodeImage}`}
@@ -645,41 +733,39 @@ function SuccessView({
               </div>
             </div>
           ) : null}
-
           {pixCopyPaste ? <PixCopyButton code={pixCopyPaste} /> : null}
-
           {pixExpiresAt ? (
-            <p className="mt-4 text-center text-[12px] text-[var(--color-fg-subtle)]">
+            <p className="mt-4 text-center text-[12px] text-[var(--ink-50)]">
               Pague até {formatExpiresAt(pixExpiresAt)} para garantir o pedido.
             </p>
           ) : null}
         </>
       ) : (
-        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
+        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--ink-70)]">
           {gatewayConfigured
-            ? `Estamos gerando seu ${methodLabel.toLowerCase()} agora. Em alguns instantes você receberá as instruções em ${buyerEmail} e no seu WhatsApp.`
-            : `Seu pedido foi registrado. O produtor está finalizando a integração com o gateway de pagamento — você receberá as instruções de pagamento em ${buyerEmail} assim que a configuração concluir.`}
+            ? `Estamos gerando seu ${methodLabel.toLowerCase()} agora. Em instantes você recebe as instruções em ${buyerEmail} e no seu WhatsApp.`
+            : `Seu pedido foi registrado. O produtor está finalizando a integração do gateway de pagamento — você receberá as instruções em ${buyerEmail} assim que estiver pronto.`}
         </p>
       )}
 
-      <dl className="mt-6 space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/60 p-5 text-[13px]">
-        <div className="flex items-baseline justify-between gap-4">
-          <dt className="text-[var(--color-fg-subtle)]">Código do pedido</dt>
-          <dd className="font-mono font-medium text-[var(--color-fg)]">{reference}</dd>
-        </div>
-        <div className="flex items-baseline justify-between gap-4">
-          <dt className="text-[var(--color-fg-subtle)]">Método</dt>
-          <dd className="font-medium text-[var(--color-fg)]">{methodLabel}</dd>
-        </div>
-        <div className="flex items-baseline justify-between gap-4">
-          <dt className="text-[var(--color-fg-subtle)]">Valor</dt>
-          <dd className="font-semibold text-[var(--color-fg)]">{formattedTotal}</dd>
-        </div>
+      <dl className="mt-6 space-y-3 rounded-2xl bg-[var(--surface-1)] p-5 text-[13px]">
+        <Row label="Código do pedido" value={<span className="font-mono">{reference}</span>} />
+        <Row label="Método" value={methodLabel} />
+        <Row label="Valor" value={<strong>{formattedTotal}</strong>} />
       </dl>
 
-      <p className="mt-6 text-center text-[11px] text-[var(--color-fg-subtle)]">
-        Guarde o código do pedido — você pode usá-lo para tirar dúvidas com o produtor.
+      <p className="mt-6 text-center text-[11px] text-[var(--ink-50)]">
+        Guarde o código — use-o para tirar dúvidas com o produtor.
       </p>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4">
+      <dt className="text-[var(--ink-50)]">{label}</dt>
+      <dd className="text-[var(--ink-100)]">{value}</dd>
     </div>
   );
 }
@@ -709,18 +795,14 @@ function PixCopyButton({ code }: { code: string }) {
   };
   return (
     <div className="mt-5 flex flex-col gap-2">
-      <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ink-50)]">
         Pix copia e cola
       </span>
       <div className="flex items-stretch gap-2">
-        <code className="flex-1 overflow-hidden truncate rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3 text-[12px] font-mono text-[var(--color-fg-muted)]">
+        <code className="flex-1 overflow-hidden truncate rounded-xl border border-[var(--hairline)] bg-[var(--surface-1)] px-4 py-3 text-[12px] font-mono text-[var(--ink-70)]">
           {code}
         </code>
-        <button
-          type="button"
-          onClick={copy}
-          className="rounded-xl bg-[var(--color-fg)] px-5 text-[13px] font-semibold text-white transition hover:bg-black"
-        >
+        <button type="button" onClick={copy} className="btn btn-primary px-5 text-[13px]">
           {copied ? 'Copiado!' : 'Copiar'}
         </button>
       </div>
@@ -738,33 +820,3 @@ function formatExpiresAt(date: Date | string): string {
     minute: '2-digit',
   });
 }
-
-/* -------------------------------------------------------------------------- */
-/* Field + input shared classes                                               */
-/* -------------------------------------------------------------------------- */
-
-function Field({
-  label,
-  className,
-  children,
-}: {
-  label: string;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className={clsx('flex flex-col gap-1.5', className)}>
-      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-const inputClass =
-  'w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] ' +
-  'px-3.5 py-2.5 text-[14px] text-[var(--color-fg)] outline-none transition ' +
-  'placeholder:text-[var(--color-fg-subtle)] ' +
-  'hover:border-[var(--color-border-strong)] ' +
-  'focus:border-[var(--color-success)] focus:ring-4 focus:ring-[rgba(0,135,90,0.12)]';

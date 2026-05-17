@@ -1,67 +1,304 @@
 @import "tailwindcss";
 
 /*
- * Public checkout — light-first, Apple-tier conversion surface.
- * Dark mode intentionally NOT supported: buyers on payment surfaces
- * are trained on white/light. A dark Pix screen is friction.
+ * Public checkout — light premium dopamine palette.
+ * Ported from univer-checkout-lp landing tokens so the buyer surface
+ * matches the producer's existing visual identity (Lizzon-tier glass).
  */
 
-@theme {
-  --color-bg: #fbfbfd;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f4f4f7;
-  --color-surface-hover: #efeff2;
-  --color-border: rgba(0, 0, 0, 0.08);
-  --color-border-strong: rgba(0, 0, 0, 0.16);
+:root {
+  /* Surfaces — branco premium em camadas */
+  --bg:        #FFFFFF;
+  --bg-elev-1: #FAFBFC;
+  --bg-elev-2: #F4F5F7;
+  --bg-elev-3: #ECEEF1;
 
-  --color-fg: #1d1d1f;
-  --color-fg-muted: #515154;
-  --color-fg-subtle: #86868b;
-  --color-fg-inverse: #ffffff;
+  /* Ink (foreground) — pretos com leve tom morno */
+  --ink-100: #0A0E13;
+  --ink-90:  #1B2229;
+  --ink-70:  #4F5760;
+  --ink-50:  #767E88;
+  --ink-30:  #ABB1B9;
+  --ink-10:  #DEE2E6;
 
-  --color-brand-50: #fff7ed;
-  --color-brand-100: #ffedd5;
-  --color-brand-500: #f97316;
-  --color-brand-600: #ea580c;
-  --color-brand-700: #c2410c;
+  /* Dopamine — verde premium, contrast AA em fundo branco */
+  --dop-500: #16A34A;
+  --dop-400: #22C55E;
+  --dop-300: #4ADE80;
+  --dop-200: #BBF7D0;
+  --dop-600: #15803D;
+  --dop-700: #166534;
+  --dop-glow:     rgba(22, 163, 74, 0.22);
+  --dop-soft:     rgba(22, 163, 74, 0.07);
+  --dop-hairline: rgba(22, 163, 74, 0.22);
 
-  --color-success: #00875a;
-  --color-success-bg: #e3fcef;
-  --color-warning: #b76e00;
-  --color-warning-bg: #fff4dc;
-  --color-danger: #c2261a;
-  --color-danger-bg: #ffeceb;
+  /* Glass — vidro claro estilo Apple iOS light */
+  --glass-bg:     rgba(255, 255, 255, 0.62);
+  --glass-bg-2:   rgba(255, 255, 255, 0.85);
+  --glass-border:        rgba(15, 23, 42, 0.08);
+  --glass-border-strong: rgba(15, 23, 42, 0.14);
+  --glass-shadow: 0 1px 0 rgba(255,255,255,0.6) inset, 0 24px 60px rgba(15, 23, 42, 0.08);
 
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
+  /* Surface overlays semantic */
+  --surface-1:       rgba(15, 23, 42, 0.03);
+  --surface-2:       rgba(15, 23, 42, 0.05);
+  --surface-3:       rgba(15, 23, 42, 0.08);
+  --surface-strong:  rgba(15, 23, 42, 0.12);
+  --hairline:        rgba(15, 23, 42, 0.06);
+  --hairline-strong: rgba(15, 23, 42, 0.10);
 
-  --font-display: ui-sans-serif, "SF Pro Display", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Danger + warning (raros no checkout, mas precisamos) */
+  --danger-bg:     rgba(220, 38, 38, 0.08);
+  --danger-text:   #B91C1C;
+  --danger-border: rgba(220, 38, 38, 0.18);
+
+  --warn-bg:       rgba(180, 83, 9, 0.08);
+  --warn-text:     #92400E;
+
+  /* Shadows premium */
+  --sh-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.03);
+  --sh-md: 0 4px 12px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --sh-lg: 0 16px 40px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --sh-xl: 0 32px 64px rgba(15, 23, 42, 0.10), 0 8px 16px rgba(15, 23, 42, 0.04);
+
+  /* Type */
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Radii */
+  --r-sm:  10px;
+  --r-md:  16px;
+  --r-lg:  22px;
+  --r-xl:  32px;
+
+  /* Easings */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Selection */
+  --select-bg: var(--dop-500);
+  --select-fg: #FFFFFF;
 }
 
-html,
-body {
-  background: var(--color-bg);
-  color: var(--color-fg);
+/* Theme bridge — semantic colors callable as bg-[var(--color-foo)] */
+@theme inline {
+  --color-bg:         var(--bg);
+  --color-bg-elev-1:  var(--bg-elev-1);
+  --color-bg-elev-2:  var(--bg-elev-2);
+  --color-bg-elev-3:  var(--bg-elev-3);
+
+  --color-ink-100:    var(--ink-100);
+  --color-ink-90:     var(--ink-90);
+  --color-ink-70:     var(--ink-70);
+  --color-ink-50:     var(--ink-50);
+  --color-ink-30:     var(--ink-30);
+  --color-ink-10:     var(--ink-10);
+
+  --color-dop:        var(--dop-500);
+  --color-dop-400:    var(--dop-400);
+  --color-dop-600:    var(--dop-600);
+  --color-dop-soft:   var(--dop-soft);
+
+  --color-hairline:        var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+* { box-sizing: border-box; }
+
+html {
+  background: var(--bg);
+  color-scheme: light;
+  scroll-behavior: smooth;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: clip;
 }
 
 body {
-  font-family: var(--font-display);
+  background: var(--bg);
+  color: var(--ink-90);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11", "cv03", "cv04";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: clip;
+  width: 100%;
+  max-width: 100vw;
 }
 
-.display {
-  font-family: var(--font-display);
+/* Subtle ambient body glow */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(22, 163, 74, 0.05), transparent 50%),
+    radial-gradient(900px 500px at -10% 90%, rgba(22, 163, 74, 0.035), transparent 60%);
+  z-index: 0;
+}
+
+main, section, header, footer { position: relative; z-index: 1; }
+
+::selection {
+  background: var(--select-bg);
+  color: var(--select-fg);
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--ink-100);
   letter-spacing: -0.02em;
-  line-height: 1.05;
+  font-weight: 600;
+  line-height: 1.1;
 }
 
-.surface {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px -16px rgba(0, 0, 0, 0.08);
+/* Glass card primitives */
+.glass-card {
+  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: var(--sh-md);
+  transition: border-color 200ms var(--ease-out-expo),
+              box-shadow 220ms var(--ease-out-expo),
+              background 200ms var(--ease-out-expo);
+}
+.glass-card:hover {
+  border-color: var(--glass-border-strong);
+}
+
+.dop-glow {
+  box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.30), 0 12px 48px var(--dop-glow);
+}
+
+/* Primary CTA — dopamine gradient pill */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 22px;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border-radius: 9999px;
+  cursor: pointer;
+  border: 0;
+  transition: transform 150ms var(--ease-out-expo),
+              box-shadow 250ms var(--ease-out-expo),
+              background 200ms var(--ease-out-expo);
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+}
+.btn:active { transform: scale(0.98); }
+.btn:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--dop-400) 0%, var(--dop-500) 60%, var(--dop-600) 100%);
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.20) inset,
+    0 8px 28px rgba(22, 163, 74, 0.35),
+    0 0 0 1px rgba(22, 163, 74, 0.55);
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.30) inset,
+    0 14px 40px rgba(22, 163, 74, 0.45),
+    0 0 0 1px rgba(22, 163, 74, 0.70);
+  transform: translateY(-1px);
+}
+.btn-primary:disabled {
+  background: var(--surface-3);
+  color: var(--ink-50);
+  box-shadow: none;
+}
+
+.btn-ghost {
+  background: var(--glass-bg);
+  color: var(--ink-90);
+  border: 1px solid var(--glass-border);
+  padding: 10px 16px;
+  font-size: 13px;
+}
+.btn-ghost:hover {
+  background: var(--glass-bg-2);
+  border-color: var(--glass-border-strong);
+}
+
+/* Eyebrow / kicker pill */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dop-600);
+  background: var(--dop-soft);
+  border: 1px solid var(--dop-hairline);
+  border-radius: 9999px;
+}
+
+/* Field shell — glass card row with floating label inside */
+.field-glass {
+  position: relative;
+  background: var(--surface-1);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  padding: 10px 14px 8px;
+  transition: border-color 150ms var(--ease-out-expo),
+              background 150ms var(--ease-out-expo),
+              box-shadow 150ms var(--ease-out-expo);
+}
+.field-glass:focus-within {
+  border-color: var(--dop-500);
+  background: #FFFFFF;
+  box-shadow: 0 0 0 4px rgba(22,163,74,0.10);
+}
+.field-glass > label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--ink-50);
+}
+.field-glass > input,
+.field-glass > select {
+  width: 100%;
+  margin-top: 2px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--ink-100);
+  font-size: 15px;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.field-glass > input::placeholder {
+  color: var(--ink-30);
+}
+.field-glass > select {
+  appearance: none;
+  cursor: pointer;
+}
+
+/* Mobile fixed-bottom CTA on small viewports */
+@media (max-width: 640px) {
+  .btn { padding-inline: 18px; }
+}
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation: none !important; transition: none !important; }
 }
