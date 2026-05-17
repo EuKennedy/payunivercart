@@ -212,7 +212,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                   autoComplete="email"
                 />
               </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
                 <Field label="CPF / CNPJ">
                   <input
                     type="text"
@@ -223,7 +223,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                     className={inputClass}
                   />
                 </Field>
-                <Field label="Telefone (WhatsApp)">
+                <Field label="Telefone">
                   <input
                     type="tel"
                     value={phone}
@@ -235,6 +235,9 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                   />
                 </Field>
               </div>
+              <p className="-mt-1 text-[11px] leading-[1.5] text-[var(--color-fg-subtle)]">
+                Usaremos seu telefone pra mandar o acesso no WhatsApp.
+              </p>
             </div>
 
             {step === 'identify' ? (
