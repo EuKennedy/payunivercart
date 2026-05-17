@@ -42,6 +42,7 @@ const NAV: NavGroup[] = [
   {
     label: 'Integrações',
     items: [
+      { href: '/integrations/gateways', label: 'Pagamentos', icon: <IconCard /> },
       { href: '/integrations/whatsapp', label: 'WhatsApp', icon: <IconChat /> },
       { href: '/integrations/email', label: 'Email', icon: <IconMail /> },
     ],

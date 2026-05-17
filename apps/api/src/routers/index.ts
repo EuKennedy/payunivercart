@@ -1,5 +1,6 @@
 import { router } from '../trpc';
 import { checkoutRouter } from './checkout';
+import { gatewaysRouter } from './gateways';
 import { healthRouter } from './health';
 import { productsRouter } from './products';
 import { whatsappRouter } from './whatsapp';
@@ -16,6 +17,7 @@ export const appRouter = router({
   workspace: workspaceRouter,
   products: productsRouter,
   checkout: checkoutRouter,
+  gateways: gatewaysRouter,
 });
 
 export type AppRouter = typeof appRouter;

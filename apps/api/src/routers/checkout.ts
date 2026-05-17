@@ -1,4 +1,5 @@
 import { schema } from '@payunivercart/db';
+import { type MercadoPagoCredentials, getAdapter } from '@payunivercart/payments';
 import { normalizePhone, validateCnpj, validateCpf } from '@payunivercart/shared';
 import { TRPCError } from '@trpc/server';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -14,11 +15,14 @@ import { publicProcedure, router } from '../trpc';
  * row (the request only carries the public slug) and constraining every
  * subsequent insert (order, transaction) to that workspaceId.
  *
- * Block 21 scope: returns product data for the page and creates an
- * order + transaction in `pending` status with a deterministic public
- * reference. Real gateway calls land in Block 22; until then the
- * `createOrder` mutation returns the order id + reference so the buyer
- * sees a "processing" confirmation screen.
+ * Block 22 wires the real Mercado Pago PIX flow:
+ *   - When the workspace has a default mercadopago gateway saved, we
+ *     decrypt the credentials and call `createPix`. The returned
+ *     `pixQrCode` / `pixCopyPaste` / `pixExpiresAt` are persisted on
+ *     the transactions row and returned to the buyer in one round-trip.
+ *   - When no gateway is configured, the order + transaction are still
+ *     created (in `pending`) so the producer's UX exercises the full
+ *     path; the buyer just sees an "estamos gerando" confirmation.
  */
 
 const SlugSchema = z.string().min(3).max(80);
@@ -50,15 +54,13 @@ const BuyerInput = z.object({
 
 const PaymentMethod = z.enum(['pix', 'credit_card', 'boleto']);
 
+const PIX_EXPIRY_SECONDS = 60 * 60; // 1 hour — better conversion than MP's 30-day default.
+
 export const checkoutRouter = router({
   /**
-   * Public product lookup. Returns the product + its default offer +
-   * workspace branding (logo, primary color, name) so the page can
-   * render the producer's identity above the form.
-   *
-   * No auth, no tenant context — slug uniqueness is per-workspace but
-   * we accept ambiguity is impossible in practice (4-hex suffix makes
-   * collisions vanishingly rare; and the very first matching row wins).
+   * Public product lookup. Returns product + default offer + workspace
+   * branding so the page can render the producer's identity above the
+   * form.
    */
   getBySlug: publicProcedure
     .input(z.object({ slug: SlugSchema }))
@@ -99,19 +101,10 @@ export const checkoutRouter = router({
         .limit(1);
 
       if (!row || !row.isActive) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Produto indisponível.',
-        });
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto indisponível.' });
       }
       if (row.priceCents == null) {
-        // Default offer missing — defensively reject; the dashboard form
-        // always creates one alongside the product so this would only
-        // happen for accounts created outside the public flow.
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Produto indisponível.',
-        });
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto indisponível.' });
       }
 
       return {
@@ -135,12 +128,9 @@ export const checkoutRouter = router({
     }),
 
   /**
-   * Place an order. Creates an `orders` row + `transactions` row in a
-   * single transaction. The transaction starts in `pending` status; a
-   * real gateway integration (Block 22) will later populate
-   * `gatewayChargeId`, `pixQrCode`, `pixCopyPaste`, `boletoUrl`, etc.
-   * For now we return the order's public reference so the buyer sees
-   * a "compra recebida" confirmation.
+   * Place an order + open a transaction. Calls the configured gateway
+   * inline so the buyer's "Gerar QR-code" click returns the real PIX
+   * payload in a single round-trip.
    */
   createOrder: publicProcedure
     .input(
@@ -159,34 +149,31 @@ export const checkoutRouter = router({
         method: PaymentMethod,
         amountCents: z.number().int().nonnegative(),
         currency: z.enum(['BRL', 'USD', 'EUR']),
+        pixQrCode: z.string().nullable(),
+        pixQrCodeImage: z.string().nullable(),
+        pixCopyPaste: z.string().nullable(),
+        pixExpiresAt: z.date().nullable(),
+        boletoUrl: z.string().nullable(),
+        boletoBarcode: z.string().nullable(),
+        gatewayConfigured: z.boolean(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // 1. Validate document (CPF or CNPJ — accept either).
+      // 1. Validate document (CPF or CNPJ).
       const docDigits = validateCpf(input.buyer.document) ?? validateCnpj(input.buyer.document);
       if (!docDigits) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'CPF ou CNPJ inválido.',
-        });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'CPF ou CNPJ inválido.' });
       }
 
-      // 2. Validate phone (BR-default; international DDI honored if provided).
+      // 2. Validate phone.
       let phone;
       try {
         phone = normalizePhone(input.buyer.phone);
       } catch (cause) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Telefone inválido.',
-          cause,
-        });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Telefone inválido.', cause });
       }
       if (!phone.valid) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Telefone inválido.',
-        });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Telefone inválido.' });
       }
 
       // 3. Resolve product + offer + workspace.
@@ -194,13 +181,14 @@ export const checkoutRouter = router({
         .select({
           productId: schema.products.id,
           name: schema.products.name,
+          description: schema.products.description,
           workspaceId: schema.workspaces.id,
+          workspaceName: schema.workspaces.name,
           priceCents: schema.productOffers.amountCents,
           offerId: schema.productOffers.id,
           currency: schema.productOffers.currency,
           maxInstallments: schema.productOffers.maxInstallments,
           isActive: schema.products.isActive,
-          deletedAt: schema.products.deletedAt,
         })
         .from(schema.products)
         .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.products.workspaceId))
@@ -215,24 +203,43 @@ export const checkoutRouter = router({
         .limit(1);
 
       if (!productRow || !productRow.isActive || productRow.priceCents == null) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Produto indisponível.',
-        });
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto indisponível.' });
       }
 
       const totalCents = productRow.priceCents;
       const currency = productRow.currency ?? 'BRL';
       const installments =
-        input.method === 'credit_card' ? Math.min(input.installments ?? 1, productRow.maxInstallments ?? 1) : 1;
+        input.method === 'credit_card'
+          ? Math.min(input.installments ?? 1, productRow.maxInstallments ?? 1)
+          : 1;
 
-      // 4. Insert order + transaction atomically. Defensive workspaceId
-      // predicate is implicit here since we only write rows for this
-      // exact workspace; on rollback the tx undoes everything.
+      // 4. Look up the workspace's default gateway for this method.
+      //    PIX is supported by every adapter — we hard-code mercadopago for
+      //    Block 22's MVP and add provider selection in a follow-up block.
+      const desiredGatewayId = 'mercadopago';
+      const [gatewayRow] = await ctx.services.db.db
+        .select({
+          id: schema.gatewayCredentials.id,
+          gatewayId: schema.gatewayCredentials.gatewayId,
+          credentialsEncrypted: schema.gatewayCredentials.credentialsEncrypted,
+        })
+        .from(schema.gatewayCredentials)
+        .where(
+          and(
+            eq(schema.gatewayCredentials.workspaceId, productRow.workspaceId),
+            eq(schema.gatewayCredentials.gatewayId, desiredGatewayId),
+            eq(schema.gatewayCredentials.isDefault, true),
+          ),
+        )
+        .limit(1);
+
+      // 5. Create order + items + transaction in pending state. Done
+      //    BEFORE the gateway call so we have a stable orderId to pass
+      //    as `external_reference` (correlation key on webhook).
       const publicReference = mintOrderReference();
       const idempotencyKey = globalThis.crypto.randomUUID();
 
-      const result = await ctx.services.db.db.transaction(async (tx) => {
+      const created = await ctx.services.db.db.transaction(async (tx) => {
         const [order] = await tx
           .insert(schema.orders)
           .values({
@@ -250,7 +257,6 @@ export const checkoutRouter = router({
             currency,
           })
           .returning({ id: schema.orders.id });
-
         if (!order) {
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
@@ -268,31 +274,158 @@ export const checkoutRouter = router({
           totalCents,
         });
 
-        await tx.insert(schema.transactions).values({
-          workspaceId: productRow.workspaceId,
-          orderId: order.id,
-          // Stub gateway choice — Block 22 selects per-workspace from
-          // gateway_credentials. mercadopago is the placeholder so the
-          // transactions row satisfies the NOT-NULL constraint.
-          gatewayId: 'mercadopago',
-          method: input.method,
-          status: 'pending',
-          amountCents: totalCents,
-          currency,
-          installments: input.method === 'credit_card' ? installments : null,
-          idempotencyKey,
-        });
+        const [transaction] = await tx
+          .insert(schema.transactions)
+          .values({
+            workspaceId: productRow.workspaceId,
+            orderId: order.id,
+            gatewayId: desiredGatewayId,
+            method: input.method,
+            status: 'pending',
+            amountCents: totalCents,
+            currency,
+            installments: input.method === 'credit_card' ? installments : null,
+            idempotencyKey,
+          })
+          .returning({ id: schema.transactions.id });
+        if (!transaction) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'transactions insert returned no row',
+          });
+        }
 
-        return { orderId: order.id };
+        return { orderId: order.id, transactionId: transaction.id };
       });
 
+      // 6. If no gateway configured, return the pending order so the UX
+      //    still completes. Producer sees pending_payment in dashboard;
+      //    buyer sees "estamos gerando" stub.
+      if (!gatewayRow) {
+        return {
+          orderId: created.orderId,
+          publicReference,
+          status: 'pending_payment',
+          method: input.method,
+          amountCents: Number(totalCents),
+          currency,
+          pixQrCode: null,
+          pixQrCodeImage: null,
+          pixCopyPaste: null,
+          pixExpiresAt: null,
+          boletoUrl: null,
+          boletoBarcode: null,
+          gatewayConfigured: false,
+        };
+      }
+
+      // 7. Call the gateway. Only PIX is wired in Block 22 — card needs
+      //    a tokenization round-trip (browser SDK) and boleto needs a
+      //    full address that the current form doesn't collect.
+      if (input.method !== 'pix') {
+        // Mark the freshly-inserted transaction as failed so the producer
+        // sees the attempt; buyer gets a clear error.
+        await ctx.services.db.db
+          .update(schema.transactions)
+          .set({
+            status: 'failed',
+            failureCode: 'METHOD_NOT_YET_SUPPORTED',
+            failureMessage: 'Cartão e boleto entram no próximo bloco.',
+          })
+          .where(eq(schema.transactions.id, created.transactionId));
+        await ctx.services.db.db
+          .update(schema.orders)
+          .set({ status: 'cancelled', cancelledAt: new Date() })
+          .where(eq(schema.orders.id, created.orderId));
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cartão e boleto entram no próximo bloco. Use Pix por enquanto.',
+        });
+      }
+
+      const adapter = getAdapter('mercadopago');
+      const credentials = ctx.services.crypto.unsealJson<MercadoPagoCredentials>(
+        gatewayRow.credentialsEncrypted,
+      );
+
+      let pix;
+      try {
+        pix = await adapter.createPix!(adapter.parseCredentials(credentials) as MercadoPagoCredentials, {
+          workspaceId: productRow.workspaceId,
+          orderId: created.orderId,
+          amount: { amount: Number(totalCents), currency },
+          customer: {
+            name: input.buyer.name,
+            email: input.buyer.email.toLowerCase(),
+            document: docDigits,
+            phoneE164: phone.e164,
+          },
+          description: productRow.description ?? productRow.name,
+          expiresInSeconds: PIX_EXPIRY_SECONDS,
+          idempotencyKey,
+          metadata: {
+            public_reference: publicReference,
+            product_slug: input.slug,
+          },
+        });
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        await ctx.services.db.db
+          .update(schema.transactions)
+          .set({
+            status: 'failed',
+            failureCode: 'GATEWAY_REJECT',
+            failureMessage: message,
+            rawResponse: { error: message },
+          })
+          .where(eq(schema.transactions.id, created.transactionId));
+        await ctx.services.db.db
+          .update(schema.orders)
+          .set({ status: 'cancelled', cancelledAt: new Date() })
+          .where(eq(schema.orders.id, created.orderId));
+        throw new TRPCError({
+          code: 'BAD_GATEWAY',
+          message: `Gateway recusou a cobrança: ${message}`,
+          cause,
+        });
+      }
+
+      // 8. Persist gateway result on the transaction and surface a
+      //    matching order.expires_at so the dashboard can timer-decrement.
+      await ctx.services.db.db
+        .update(schema.transactions)
+        .set({
+          gatewayChargeId: pix.gatewayChargeId,
+          gatewayRequestId: pix.gatewayRequestId,
+          status: pix.status,
+          pixQrCode: pix.pixQrCode,
+          pixQrCodeImage: pix.pixQrCodeImage,
+          pixCopyPaste: pix.pixCopyPaste,
+          expiresAt: pix.pixExpiresAt,
+          rawResponse: pix.raw as object,
+        })
+        .where(eq(schema.transactions.id, created.transactionId));
+      if (pix.pixExpiresAt) {
+        await ctx.services.db.db
+          .update(schema.orders)
+          .set({ expiresAt: pix.pixExpiresAt })
+          .where(eq(schema.orders.id, created.orderId));
+      }
+
       return {
-        orderId: result.orderId,
+        orderId: created.orderId,
         publicReference,
         status: 'pending_payment',
         method: input.method,
         amountCents: Number(totalCents),
         currency,
+        pixQrCode: pix.pixQrCode ?? null,
+        pixQrCodeImage: pix.pixQrCodeImage ?? null,
+        pixCopyPaste: pix.pixCopyPaste ?? null,
+        pixExpiresAt: pix.pixExpiresAt ?? null,
+        boletoUrl: pix.boletoUrl ?? null,
+        boletoBarcode: pix.boletoBarcode ?? null,
+        gatewayConfigured: true,
       };
     }),
 });

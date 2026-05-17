@@ -113,6 +113,10 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
           formattedTotal={formattedTotal}
           buyerEmail={email.trim()}
+          pixQrCodeImage={createOrder.data.pixQrCodeImage}
+          pixCopyPaste={createOrder.data.pixCopyPaste}
+          pixExpiresAt={createOrder.data.pixExpiresAt}
+          gatewayConfigured={createOrder.data.gatewayConfigured}
         />
       </CenteredCard>
     );
@@ -399,24 +403,66 @@ function SuccessView({
   methodLabel,
   formattedTotal,
   buyerEmail,
+  pixQrCodeImage,
+  pixCopyPaste,
+  pixExpiresAt,
+  gatewayConfigured,
 }: {
   reference: string;
   methodLabel: string;
   formattedTotal: string;
   buyerEmail: string;
+  pixQrCodeImage: string | null;
+  pixCopyPaste: string | null;
+  pixExpiresAt: Date | string | null;
+  gatewayConfigured: boolean;
 }) {
+  const hasPix = !!(pixQrCodeImage || pixCopyPaste);
   return (
     <div>
       <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-success)]">
-        Pedido criado
+        {hasPix ? 'Pix gerado' : 'Pedido criado'}
       </p>
       <h1 className="display mt-3 text-[26px] font-semibold text-[var(--color-fg)]">
-        Recebemos sua compra.
+        {hasPix ? 'Pague com Pix em segundos.' : 'Recebemos sua compra.'}
       </h1>
-      <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
-        Estamos gerando seu {methodLabel.toLowerCase()} agora. Em alguns instantes você receberá
-        as instruções de pagamento em <strong>{buyerEmail}</strong> e no seu WhatsApp.
-      </p>
+
+      {hasPix ? (
+        <>
+          <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
+            Escaneie o QR-code com o app do seu banco ou copie o código abaixo. Assim que a gente
+            receber a confirmação do Pix, mandamos o acesso em <strong>{buyerEmail}</strong> e no
+            seu WhatsApp.
+          </p>
+
+          {pixQrCodeImage ? (
+            <div className="mt-6 flex justify-center">
+              <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-sm">
+                {/** biome-ignore lint/performance/noImgElement: data URI base64 from gateway. */}
+                <img
+                  src={`data:image/png;base64,${pixQrCodeImage}`}
+                  alt="QR-code Pix"
+                  className="h-56 w-56"
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {pixCopyPaste ? <PixCopyButton code={pixCopyPaste} /> : null}
+
+          {pixExpiresAt ? (
+            <p className="mt-4 text-center text-[12px] text-[var(--color-fg-subtle)]">
+              Pague até {formatExpiresAt(pixExpiresAt)} para garantir o pedido.
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-fg-muted)]">
+          {gatewayConfigured
+            ? `Estamos gerando seu ${methodLabel.toLowerCase()} agora. Em alguns instantes você receberá as instruções em ${buyerEmail} e no seu WhatsApp.`
+            : `Seu pedido foi registrado. O produtor está finalizando a integração com o gateway de pagamento — você receberá as instruções de pagamento em ${buyerEmail} assim que a configuração concluir.`}
+        </p>
+      )}
 
       <dl className="mt-6 space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/60 p-5 text-[13px]">
         <div className="flex items-baseline justify-between gap-4">
@@ -438,6 +484,63 @@ function SuccessView({
       </p>
     </div>
   );
+}
+
+function PixCopyButton({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable (insecure context or denied) — fall
+      // back to a manual select via a hidden textarea.
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } finally {
+        document.body.removeChild(ta);
+      }
+    }
+  };
+  return (
+    <div className="mt-5 flex flex-col gap-2">
+      <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+        Pix copia e cola
+      </span>
+      <div className="flex items-stretch gap-2">
+        <code className="flex-1 overflow-hidden truncate rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3 text-[12px] font-mono text-[var(--color-fg-muted)]">
+          {code}
+        </code>
+        <button
+          type="button"
+          onClick={copy}
+          className="rounded-xl bg-[var(--color-fg)] px-5 text-[13px] font-semibold text-white transition hover:bg-black"
+        >
+          {copied ? 'Copiado!' : 'Copiar'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function formatExpiresAt(date: Date | string): string {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function Field({

@@ -9,6 +9,7 @@ import { loadEnv } from './env';
 import { appRouter } from './routers/index';
 import { buildServices } from './services';
 import type { TrpcContext } from './trpc';
+import { mountGatewayWebhooks } from './webhooks/gateways';
 import { mountWahaWebhook } from './webhooks/waha';
 import { listOrProvisionMemberships } from './workspace-lookup';
 
@@ -95,6 +96,7 @@ app.get('/me/workspace', async (c) => {
 });
 
 mountWahaWebhook(app, services);
+mountGatewayWebhooks(app, services);
 
 app.use(
   '/trpc/*',
