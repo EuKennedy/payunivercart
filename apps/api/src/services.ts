@@ -32,7 +32,12 @@ export interface AppServices {
 export function buildServices(env: AppEnv): AppServices {
   const db = createDatabaseClient({
     connectionString: env.DATABASE_URL,
-    ssl: env.NODE_ENV === 'production',
+    // SSL is disabled for the in-cluster `postgres` service: the container
+    // doesn't have TLS configured and the Docker bridge network is already
+    // isolated. For an external managed Postgres (RDS / Neon / etc.) append
+    // `?sslmode=require` to `DATABASE_URL` — the postgres driver picks it
+    // up from the connection string regardless of this flag.
+    ssl: false,
   });
 
   const encryptionRegistry = loadKeyRegistryFromEnv({
