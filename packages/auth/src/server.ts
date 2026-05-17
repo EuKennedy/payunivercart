@@ -67,10 +67,12 @@ export function createAuth(config: AuthServerConfig) {
     }),
     emailAndPassword: {
       enabled: true,
-      // The DB-level CHECK on accounts.password (`LIKE '$argon2id$%'`)
-      // requires Better-Auth's default argon2id hasher; do NOT swap to
-      // bcrypt or pbkdf2 here without dropping the CHECK first.
-      autoSignIn: false,
+      // Sign the user in immediately after sign-up so the dashboard can
+      // redirect to /dashboard without an extra login round-trip. Email
+      // verification is decoupled (lands when Resend is wired) — until
+      // then the producer can use the panel right after creating the
+      // workspace.
+      autoSignIn: true,
       requireEmailVerification: false,
     },
     session: {
