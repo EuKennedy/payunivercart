@@ -26,8 +26,12 @@ export default function WhatsappIntegrationPage() {
     enabled: !!me.data,
     refetchInterval: (q) => {
       const s = q.state.data?.status;
-      if (!s) return 3_000;
-      if (s === 'WORKING' || s === 'FAILED' || s === 'STOPPED') return false;
+      // WORKING is the only happy terminal — stop polling there.
+      // FAILED / STOPPED keep polling at 10s so external recovery
+      // (operator restarts WAHA, retry mutation lands) flips the
+      // UI without forcing the producer to reload.
+      if (s === 'WORKING') return false;
+      if (s === 'FAILED' || s === 'STOPPED') return 10_000;
       return 3_000;
     },
   });
@@ -37,15 +41,23 @@ export default function WhatsappIntegrationPage() {
     onSuccess: () => {
       utils.whatsapp.me.invalidate();
       utils.whatsapp.status.invalidate();
+      utils.whatsapp.qr.invalidate();
     },
   });
   const stop = trpc.whatsapp.stop.useMutation({
     onSuccess: () => utils.whatsapp.status.invalidate(),
   });
+  const retry = trpc.whatsapp.retry.useMutation({
+    onSuccess: () => {
+      utils.whatsapp.status.invalidate();
+      utils.whatsapp.qr.invalidate();
+    },
+  });
   const reset = trpc.whatsapp.reset.useMutation({
     onSuccess: () => {
       utils.whatsapp.me.invalidate();
       utils.whatsapp.status.invalidate();
+      utils.whatsapp.qr.invalidate();
     },
   });
 
@@ -75,11 +87,14 @@ export default function WhatsappIntegrationPage() {
           phoneNumber={status.data?.phoneNumber ?? null}
           sessionName={me.data.sessionName}
           onStop={() => stop.mutate()}
+          onRetry={() => retry.mutate()}
           onReset={() => {
-            if (!confirm('Recomeçar apaga a sessão atual no WAHA. Tem certeza?')) return;
+            if (!confirm('Mudar nome apaga a sessão atual no WAHA. Tem certeza?')) return;
             reset.mutate();
           }}
           stopPending={stop.isPending}
+          retryPending={retry.isPending}
+          retryError={retry.error?.message ?? null}
           resetPending={reset.isPending}
         />
       )}
@@ -165,18 +180,25 @@ function SessionCard({
   phoneNumber,
   sessionName,
   onStop,
+  onRetry,
   onReset,
   stopPending,
+  retryPending,
+  retryError,
   resetPending,
 }: {
   status: 'STARTING' | 'SCAN_QR_CODE' | 'WORKING' | 'FAILED' | 'STOPPED' | null;
   phoneNumber: string | null;
   sessionName: string;
   onStop: () => void;
+  onRetry: () => void;
   onReset: () => void;
   stopPending: boolean;
+  retryPending: boolean;
+  retryError: string | null;
   resetPending: boolean;
 }) {
+  const canRetry = status === 'FAILED' || status === 'STOPPED';
   return (
     <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -193,25 +215,29 @@ function SessionCard({
             ) : null}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {status === 'WORKING' ? (
             <Button variant="danger" size="sm" onClick={onStop} disabled={stopPending}>
               {stopPending ? 'Desconectando…' : 'Desconectar'}
             </Button>
           ) : null}
-          <Button variant="ghost" size="sm" onClick={onReset} disabled={resetPending}>
-            {resetPending ? 'Limpando…' : 'Recomeçar'}
+          {canRetry ? (
+            <Button size="sm" onClick={onRetry} disabled={retryPending || resetPending}>
+              {retryPending ? 'Reiniciando…' : 'Tentar novamente'}
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onReset}
+            disabled={resetPending || retryPending}
+          >
+            {resetPending ? 'Limpando…' : 'Mudar nome'}
           </Button>
         </div>
       </div>
 
-      {status === 'SCAN_QR_CODE' ? <QrBox /> : null}
-
-      {status === 'STARTING' ? (
-        <p className="mt-5 text-[13px] text-[var(--color-fg-muted)]">
-          Iniciando sessão WAHA — pode levar até 30 segundos.
-        </p>
-      ) : null}
+      {status === 'SCAN_QR_CODE' || status === 'STARTING' ? <QrBox status={status} /> : null}
 
       {status === 'WORKING' ? (
         <div className="mt-6 rounded-2xl border border-[rgba(0,135,90,0.2)] bg-[var(--color-success-bg)] p-5">
@@ -225,26 +251,38 @@ function SessionCard({
       {status === 'FAILED' ? (
         <div className="mt-6 rounded-2xl border border-[rgba(194,38,26,0.18)] bg-[var(--color-danger-bg)] p-5">
           <p className="text-[13px] text-[var(--color-danger)] leading-[1.55]">
-            A sessão falhou ou foi removida do WAHA. Clique em <strong>Recomeçar</strong> para
-            apagar a sessão atual e criar uma nova com outro apelido.
+            A sessão falhou no WAHA. Clique em <strong>Tentar novamente</strong> para reiniciar
+            mantendo o mesmo apelido, ou <strong>Mudar nome</strong> para apagar e criar uma nova
+            com outro apelido.
           </p>
+          {retryError ? (
+            <p className="mt-2 font-mono text-[12px] text-[var(--color-danger)]">{retryError}</p>
+          ) : null}
         </div>
       ) : null}
 
       {status === 'STOPPED' ? (
-        <p className="mt-5 text-[13px] text-[var(--color-fg-muted)]">
-          Sessão parada. Clique em <strong>Recomeçar</strong> para conectar novamente.
-        </p>
+        <div className="mt-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
+          <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
+            Sessão parada. Clique em <strong>Tentar novamente</strong> para reconectar mantendo o
+            mesmo apelido.
+          </p>
+        </div>
       ) : null}
     </section>
   );
 }
 
-function QrBox() {
+function QrBox({ status }: { status: 'STARTING' | 'SCAN_QR_CODE' }) {
+  // Poll the QR endpoint even while WAHA reports STARTING — the
+  // backend returns `null` until the engine flips to SCAN_QR_CODE,
+  // and once it does we want the QR on screen on the next tick (3s)
+  // rather than waiting for the next 5s qr-tick.
   const qr = trpc.whatsapp.qr.useQuery(undefined, {
-    refetchInterval: 5_000,
-    retry: 1,
+    refetchInterval: 3_000,
+    retry: 2,
   });
+  const waiting = status === 'STARTING' || !qr.data?.value;
   return (
     <div className="mt-6 flex flex-col items-center gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/60 p-6">
       <p className="text-center text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
@@ -258,8 +296,10 @@ function QrBox() {
           className="h-72 w-72 rounded-xl bg-white p-3 shadow-sm"
         />
       ) : (
-        <div className="grid h-72 w-72 animate-pulse place-items-center rounded-xl bg-[var(--color-surface)] text-[12px] text-[var(--color-fg-subtle)]">
-          Carregando QR…
+        <div className="grid h-72 w-72 animate-pulse place-items-center rounded-xl bg-[var(--color-surface)] p-4 text-center text-[12px] text-[var(--color-fg-subtle)] leading-[1.6]">
+          {waiting
+            ? 'Aguardando o WAHA renderizar o QR — o motor WEBJS pode levar até 30s para iniciar.'
+            : 'Carregando QR…'}
         </div>
       )}
       <p className="text-[11px] text-[var(--color-fg-subtle)]">

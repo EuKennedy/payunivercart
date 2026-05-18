@@ -1,4 +1,5 @@
 import { schema, withWorkspace } from '@payunivercart/db';
+import type { WahaClient } from '@payunivercart/waha';
 import { TRPCError } from '@trpc/server';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -91,28 +92,7 @@ export const whatsappRouter = router({
         });
       }
 
-      // Create + auto-start on WAHA (engine WEBJS). 422 = already
-      // exists on WAHA side; we treat as success and let the status
-      // poll converge. Anything else is a genuine upstream rejection.
-      try {
-        await waha.createSession(input.name, { autoStart: true, engine: 'WEBJS' });
-      } catch (cause) {
-        const err = cause as { details?: { status?: number } };
-        if (err?.details?.status !== 422) {
-          throw new TRPCError({
-            code: 'BAD_GATEWAY',
-            message: 'WAHA recusou criar a sessão. Tente um nome diferente.',
-            cause,
-          });
-        }
-      }
-
-      let status: z.infer<typeof StatusEnum>;
-      try {
-        status = await waha.getSessionStatus(input.name);
-      } catch {
-        status = 'STARTING';
-      }
+      const status = await ensureWahaSessionStarted(waha, input.name);
 
       await withWorkspace(db.db, ctx.workspaceId, async (tx) => {
         await tx
@@ -129,6 +109,69 @@ export const whatsappRouter = router({
       });
 
       return { sessionName: input.name, status };
+    }),
+
+  /**
+   * Retry the existing session WITHOUT requiring the producer to retype
+   * the name. Used by the "Tentar novamente" CTA on the FAILED card.
+   *
+   * Sequence: delete WAHA session (clears WEBJS chromium state) →
+   * brief settle wait (WAHA Plus rate-limits delete→create cycles) →
+   * recreate with same name → update mirror status to STARTING.
+   *
+   * This is intentionally separate from `reset`: reset wipes the local
+   * row so the producer can change the session name. Retry keeps the
+   * name and the row, only the WAHA-side state is recycled.
+   */
+  retry: workspaceProcedure
+    .output(
+      z.object({
+        sessionName: z.string(),
+        status: StatusEnum,
+      }),
+    )
+    .mutation(async ({ ctx }) => {
+      const { waha, db } = ctx.services;
+      const [row] = await db.db
+        .select({ sessionName: schema.whatsappSessions.wahaSessionId })
+        .from(schema.whatsappSessions)
+        .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+        .limit(1);
+      if (!row) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Nenhuma sessão para retomar. Crie uma nova com "Conectar".',
+        });
+      }
+
+      // Hard-delete WAHA session — clears chromium state for WEBJS so
+      // the recreate gets a fresh QR. Tolerates 404 (already deleted).
+      await waha.deleteSession(row.sessionName).catch(() => {
+        /* noop: deleteSession already absorbs 404 */
+      });
+
+      // WAHA Plus needs ~1s after a WEBJS session DELETE before it
+      // accepts a fresh CREATE with the same name. Without the wait,
+      // we hit 422 "session exists" because the cleanup is still in
+      // flight. Empirically 1s clears the race on a hot WAHA process.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+
+      const status = await ensureWahaSessionStarted(waha, row.sessionName);
+
+      await withWorkspace(db.db, ctx.workspaceId, async (tx) => {
+        await tx
+          .update(schema.whatsappSessions)
+          .set({
+            status,
+            phoneNumber: null,
+            connectedAt: null,
+            disconnectedAt: null,
+            qrLastIssuedAt: null,
+          })
+          .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId));
+      });
+
+      return { sessionName: row.sessionName, status };
     }),
 
   /**
@@ -177,9 +220,15 @@ export const whatsappRouter = router({
   /**
    * Return the QR-code data for the producer to scan. Polled every
    * ~5s while the session is in SCAN_QR_CODE (WAHA rotates the QR).
+   *
+   * Returns `null` when WAHA hasn't rendered a QR yet (session is in
+   * STARTING or the engine is still booting Chromium). The dashboard
+   * shows a "Aguardando QR…" placeholder in that case and keeps
+   * polling — throwing here would make the QrBox flicker on each
+   * 5s tick during the 10-30s WEBJS boot window.
    */
   qr: workspaceProcedure
-    .output(z.object({ value: z.string(), mimetype: z.string().optional() }))
+    .output(z.object({ value: z.string(), mimetype: z.string().optional() }).nullable())
     .query(async ({ ctx }) => {
       const [row] = await ctx.services.db.db
         .select({ sessionName: schema.whatsappSessions.wahaSessionId })
@@ -192,7 +241,20 @@ export const whatsappRouter = router({
           message: 'Sessão não criada. Inicie a conexão primeiro.',
         });
       }
-      return ctx.services.waha.getQr(row.sessionName);
+      try {
+        const qr = await ctx.services.waha.getQr(row.sessionName);
+        if (!qr.value) return null;
+        return qr;
+      } catch (cause) {
+        const err = cause as { details?: { status?: number } };
+        // 404 / 422 / 425 = session not yet in SCAN_QR_CODE phase.
+        // Returning null lets the UI keep polling without flashing
+        // an error toast every 5 seconds.
+        if (err?.details?.status === 404 || err?.details?.status === 422) {
+          return null;
+        }
+        throw cause;
+      }
     }),
 
   /**
@@ -264,3 +326,52 @@ export const whatsappRouter = router({
     return { ok: true as const };
   }),
 });
+
+/**
+ * Idempotent WAHA session boot. Centralises the create → recover-on-422
+ * → settle pattern used by both `start` and `retry`.
+ *
+ * Behaviour:
+ *   - Try `POST /api/sessions` with `start: true` and engine WEBJS.
+ *   - On 422 (session exists in WAHA — race after delete, or our mirror
+ *     drifted), call `POST /api/sessions/{name}/start` to make sure the
+ *     existing session is actually running.
+ *   - On any other error, surface as BAD_GATEWAY so the dashboard can
+ *     suggest a different name.
+ *
+ * Returns the status WAHA reports right after; defaults to `STARTING`
+ * when WAHA hasn't yet decided (e.g. chromium still booting). The
+ * dashboard polls every 3s anyway, so we never block waiting here.
+ */
+async function ensureWahaSessionStarted(
+  waha: WahaClient,
+  name: string,
+): Promise<z.infer<typeof StatusEnum>> {
+  try {
+    await waha.createSession(name, { autoStart: true, engine: 'WEBJS' });
+  } catch (cause) {
+    const err = cause as { details?: { status?: number } };
+    if (err?.details?.status === 422) {
+      // Session already exists in WAHA — make sure it's started, not
+      // stuck in STOPPED from a previous container restart.
+      try {
+        await waha.startSession(name);
+      } catch {
+        /* startSession on a session WAHA refuses is a real upstream
+         * failure; let the caller surface it via the status query. */
+      }
+    } else {
+      throw new TRPCError({
+        code: 'BAD_GATEWAY',
+        message: 'WAHA recusou criar a sessão. Tente um nome diferente.',
+        cause,
+      });
+    }
+  }
+
+  try {
+    return await waha.getSessionStatus(name);
+  } catch {
+    return 'STARTING';
+  }
+}
