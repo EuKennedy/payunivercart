@@ -118,6 +118,23 @@ export class WahaClient {
     });
   }
 
+  /**
+   * Create AND auto-start a session in one round-trip. Use this when
+   * the session doesn't exist yet (startSession on a missing session
+   * returns 404 on WAHA Plus). Idempotent at the API level — calling
+   * twice yields 422 which the caller can swallow.
+   */
+  async createSession(session = this.defaultSession, autoStart = true): Promise<void> {
+    await this.request({
+      url: `${this.baseUrl}/api/sessions`,
+      init: {
+        method: 'POST',
+        body: JSON.stringify({ name: session, start: autoStart }),
+      },
+      timeoutMs: TIMEOUTS_MS.sessionWrite,
+    });
+  }
+
   async stopSession(session = this.defaultSession): Promise<void> {
     await this.request({
       url: `${this.baseUrl}/api/sessions/${encodeURIComponent(session)}/stop`,

@@ -43,14 +43,29 @@ export const whatsappRouter = router({
       const { waha, db } = ctx.services;
       const name = sessionNameFor(ctx.workspaceId);
 
-      // 1. Start (or no-op if already up) the WAHA session.
+      // 1. Create-or-start the WAHA session. WAHA Plus' /start endpoint
+      //    returns 404 when the session doesn't exist yet, so we try
+      //    /start first (works for repeat connects) and fall back to
+      //    POST /api/sessions on 404. 422 = already exists = success.
       try {
         await waha.startSession(name);
       } catch (cause) {
-        // WAHA returns 422 if the session already exists; we treat that
-        // as success and rely on the subsequent status read to confirm.
         const err = cause as { code?: string; details?: { status?: number } };
-        if (err?.details?.status !== 422) {
+        const status = err?.details?.status;
+        if (status === 404) {
+          try {
+            await waha.createSession(name, true);
+          } catch (createCause) {
+            const createErr = createCause as { details?: { status?: number } };
+            if (createErr?.details?.status !== 422) {
+              throw new TRPCError({
+                code: 'BAD_GATEWAY',
+                message: 'WAHA refused to create the session',
+                cause: createCause,
+              });
+            }
+          }
+        } else if (status !== 422) {
           throw new TRPCError({
             code: 'BAD_GATEWAY',
             message: 'WAHA refused to start the session',
