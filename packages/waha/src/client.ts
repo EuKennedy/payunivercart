@@ -144,12 +144,24 @@ export class WahaClient {
   }
 
   async getQr(session = this.defaultSession): Promise<{ value: string; mimetype?: string }> {
+    // No `?format=image` — that variant returns binary PNG (which the
+    // wrapper would corrupt through response.json()). The default
+    // response is JSON-encoded base64 image with shape
+    // `{ mimetype: 'image/png', data: '<base64>' }` on WAHA NOWEB and
+    // `{ value: '<base64>', mimetype: 'image/png' }` on older WPP/
+    // WEBJS. We accept either shape and normalize to `value`.
     const response = await this.request({
-      url: `${this.baseUrl}/api/${encodeURIComponent(session)}/auth/qr?format=image`,
+      url: `${this.baseUrl}/api/${encodeURIComponent(session)}/auth/qr`,
       init: { method: 'GET' },
       timeoutMs: TIMEOUTS_MS.qr,
     });
-    return (await response.json()) as { value: string; mimetype?: string };
+    const raw = (await response.json()) as {
+      value?: string;
+      data?: string;
+      mimetype?: string;
+    };
+    const value = raw.value ?? raw.data ?? '';
+    return { value, mimetype: raw.mimetype };
   }
 
   private async request(opts: RequestOptions): Promise<Response> {
