@@ -30,6 +30,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/dashboard', label: 'Visão geral', icon: <IconHome /> },
       { href: '/produtos', label: 'Meus produtos', icon: <IconGrid /> },
+      { href: '/pedidos', label: 'Pedidos', icon: <IconCard /> },
     ],
   },
   {

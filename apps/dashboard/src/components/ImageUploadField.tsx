@@ -95,7 +95,6 @@ export function ImageUploadField({
   );
 
   return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: hidden file input is the real control; the label wraps a custom drop zone.
     <label className="flex flex-col gap-2">
       <span className="font-medium text-[13px] text-[var(--color-fg-muted)]">{label}</span>
       <div className="flex items-center gap-4">

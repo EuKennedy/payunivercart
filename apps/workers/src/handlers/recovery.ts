@@ -1,5 +1,5 @@
 import { type DatabaseClient, schema } from '@payunivercart/db';
-import type { WahaClient } from '@payunivercart/waha';
+import type { WahaChatId, WahaClient } from '@payunivercart/waha';
 import { and, eq, lte } from 'drizzle-orm';
 
 /**
@@ -16,9 +16,22 @@ import { and, eq, lte } from 'drizzle-orm';
  * `status='failed'` with `failure_reason`. The producer's dashboard
  * surfaces these so they can re-queue manually after fixing the
  * WhatsApp session.
+ *
+ * WAHA WEBJS rate ceiling: the engine itself doesn't expose a rate
+ * limit but WhatsApp's anti-spam will ban a session that bursts dozens
+ * of messages per minute. We cap the per-sweep batch and sleep between
+ * sends so the producer's account stays healthy. Sequential — never
+ * parallel.
  */
 
-const BATCH_SIZE = 25;
+const BATCH_SIZE = 10;
+/**
+ * Sleep between successive `sendText` calls. WhatsApp's anti-spam
+ * heuristics flag bursts; an inter-message gap close to typical human
+ * cadence keeps the session out of the danger zone. Tuned empirically
+ * from BR funnel operations.
+ */
+const INTER_MESSAGE_DELAY_MS = 1_800;
 
 interface SweepResult {
   processed: number;
@@ -62,15 +75,21 @@ export async function runRecoverySweep(ctx: SweepCtx): Promise<SweepResult> {
   let skipped = 0;
   let failed = 0;
 
-  for (const attempt of due) {
+  for (const [index, attempt] of due.entries()) {
     const claimed = await claim(ctx.db, attempt.id);
     if (!claimed) continue;
 
     try {
       const status = await processAttempt(ctx, attempt);
-      if (status === 'sent') sent++;
-      else if (status === 'skipped') skipped++;
-      else failed++;
+      if (status === 'sent') {
+        sent++;
+        // Pace the next send so we don't burst WhatsApp's anti-spam.
+        if (index < due.length - 1) await sleep(INTER_MESSAGE_DELAY_MS);
+      } else if (status === 'skipped') {
+        skipped++;
+      } else {
+        failed++;
+      }
     } catch (cause) {
       const reason = cause instanceof Error ? cause.message : String(cause);
       await ctx.db
@@ -82,6 +101,10 @@ export async function runRecoverySweep(ctx: SweepCtx): Promise<SweepResult> {
   }
 
   return { processed: due.length, sent, skipped, failed };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function claim(db: DatabaseClient, attemptId: string): Promise<boolean> {
@@ -158,8 +181,22 @@ async function processAttempt(
     return 'failed';
   }
 
-  // 4. Make sure the workspace's WAHA session is up.
-  const sessionName = `ws_${attempt.workspaceId.replace(/-/g, '')}`;
+  // 4. Resolve the producer's WAHA session name. The old auto-derived
+  // `ws_<workspaceId>` scheme stopped working once producers got to
+  // pick their own session name (Block 24). Look it up from the
+  // mirror row instead — fail loud if it's missing so the dashboard
+  // can prompt the producer to reconnect.
+  const [sessionRow] = await ctx.db
+    .select({ sessionName: schema.whatsappSessions.wahaSessionId })
+    .from(schema.whatsappSessions)
+    .where(eq(schema.whatsappSessions.workspaceId, attempt.workspaceId))
+    .limit(1);
+  if (!sessionRow) {
+    await mark(ctx.db, attempt.id, 'failed', 'whatsapp_session_missing');
+    return 'failed';
+  }
+  const sessionName = sessionRow.sessionName;
+
   let sessionStatus: string;
   try {
     sessionStatus = await ctx.waha.getSessionStatus(sessionName);
@@ -177,7 +214,41 @@ async function processAttempt(
     return 'failed';
   }
 
-  // 5. Render template + dispatch.
+  // 5. Verify the cached chatId is still valid OR resolve it now. For
+  // BR pre-2012 mobile numbers the heuristic-only guess we did at
+  // checkout time can land on the wrong 10/11-digit variant; we
+  // canonicalise via WAHA `check-exists` and write back the value so
+  // every subsequent step uses the form WhatsApp actually accepts.
+  let chatId: WahaChatId = attempt.targetIdentifier as WahaChatId;
+  try {
+    const digits = chatId.split('@')[0]?.replace(/\D/g, '') ?? '';
+    if (digits.length >= 8) {
+      const probe = await ctx.waha.checkExists(digits, sessionName);
+      if (!probe.numberExists) {
+        await mark(ctx.db, attempt.id, 'skipped', 'number_does_not_have_whatsapp');
+        return 'skipped';
+      }
+      if (probe.chatId && probe.chatId !== chatId) {
+        chatId = probe.chatId;
+        // Persist the canonical form on the order so manual sends from
+        // the dashboard reuse it without paying the round-trip.
+        await ctx.db
+          .update(schema.orders)
+          .set({ customerWahaChatId: chatId })
+          .where(eq(schema.orders.id, order.id));
+      }
+    }
+  } catch (cause) {
+    await mark(
+      ctx.db,
+      attempt.id,
+      'failed',
+      `check_exists_failed:${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    return 'failed';
+  }
+
+  // 6. Render template + dispatch.
   const text = renderTemplate(step.template, {
     nome: firstName(order.customerName),
     produto: item?.name ?? '',
@@ -187,7 +258,7 @@ async function processAttempt(
 
   await ctx.waha.sendText({
     session: sessionName,
-    chatId: attempt.targetIdentifier,
+    chatId,
     text,
     linkPreview: false,
   });

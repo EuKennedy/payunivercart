@@ -3,6 +3,7 @@ import { checkoutRouter } from './checkout';
 import { gatewaysRouter } from './gateways';
 import { healthRouter } from './health';
 import { metricsRouter } from './metrics';
+import { ordersRouter } from './orders';
 import { productsRouter } from './products';
 import { recoveryRouter } from './recovery';
 import { whatsappRouter } from './whatsapp';
@@ -22,6 +23,7 @@ export const appRouter = router({
   gateways: gatewaysRouter,
   metrics: metricsRouter,
   recovery: recoveryRouter,
+  orders: ordersRouter,
 });
 
 export type AppRouter = typeof appRouter;
