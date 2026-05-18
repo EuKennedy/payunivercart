@@ -1,56 +1,76 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import { type ImageUpload, ImageUploadField } from '../../../../components/ImageUploadField';
 import { Button, Heading, Kicker } from '../../../../components/ui';
+import { API_URL, CHECKOUT_URL } from '../../../../lib/env';
 import { formatCents, parseCentsBRL } from '../../../../lib/money';
 import { trpc } from '../../../../lib/trpc';
 
 /**
- * Cadastrar produto — single-screen form.
+ * Editar produto — `/produtos/[id]`.
  *
- * Why one screen and not a multi-step wizard?
- *   The producer is paying R$ 99,90/month for this surface to NOT
- *   waste their time. Stripe's product create form is one screen.
- *   Shopify's is one screen. The platforms that turned product-create
- *   into a 5-step wizard (Hotmart, Eduzz) are who the founder is
- *   replacing — keep the screen flat.
+ * Same flat layout as `/produtos/novo`. We pre-load the product via
+ * `products.byId` and seed the form state once on first render so
+ * controlled inputs work the same way users expect on a fresh form.
  *
- * Fields:
- *   - Nome (required, 1-120 chars)
- *   - Descrição (optional, 0-2000 chars)
- *   - Tipo (one_time | subscription | course | physical)
- *   - Preço em R$ (parsed to cents on submit)
- *   - Parcelas máx (1-24, default 12)
+ * Cover image: the field's `initialPreviewUrl` points at the public
+ * api endpoint so the producer sees the current cover before deciding
+ * whether to replace it. Picking a new file replaces the bytes on
+ * submit; leaving it untouched leaves the column alone (the API patch
+ * omits `cover` when `undefined`).
  */
-const PRODUCT_TYPES = [
-  { value: 'one_time', label: 'Pagamento único' },
-  { value: 'subscription', label: 'Assinatura' },
-  { value: 'course', label: 'Curso' },
-  { value: 'physical', label: 'Produto físico' },
-] as const;
-
-export default function NovoProdutoPage() {
+export default function EditarProdutoPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const router = useRouter();
   const utils = trpc.useUtils();
-  const create = trpc.products.create.useMutation({
+  const product = trpc.products.byId.useQuery({ id });
+  const update = trpc.products.update.useMutation({
     onSuccess: async () => {
-      await utils.products.list.invalidate();
+      await Promise.all([utils.products.list.invalidate(), utils.products.byId.invalidate({ id })]);
       router.push('/produtos');
     },
   });
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [type, setType] = useState<(typeof PRODUCT_TYPES)[number]['value']>('one_time');
   const [priceInput, setPriceInput] = useState('');
   const [maxInstallments, setMaxInstallments] = useState(12);
+  const [isActive, setIsActive] = useState(true);
   const [cover, setCover] = useState<ImageUpload | null>(null);
+
+  // Hydrate state once the query resolves. We only seed on the leading
+  // edge so subsequent refetches from `invalidate()` don't clobber
+  // in-flight edits.
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    if (seeded || !product.data) return;
+    setName(product.data.name);
+    setDescription(product.data.description ?? '');
+    setPriceInput((product.data.priceCents / 100).toFixed(2).replace('.', ','));
+    setMaxInstallments(product.data.maxInstallments);
+    setIsActive(product.data.isActive);
+    setSeeded(true);
+  }, [product.data, seeded]);
 
   const priceCents = useMemo(() => parseCentsBRL(priceInput), [priceInput]);
   const previewFormatted =
     Number.isFinite(priceCents) && priceCents > 0 ? formatCents(priceCents, 'BRL') : null;
+
+  if (product.isPending) {
+    return <p className="text-[15px] text-[var(--color-fg-muted)]">Carregando…</p>;
+  }
+  if (product.error || !product.data) {
+    return (
+      <div className="flex flex-col gap-4">
+        <p className="text-[15px] text-[var(--color-danger)]">Produto não encontrado.</p>
+        <Button variant="ghost" onClick={() => router.push('/produtos')}>
+          Voltar
+        </Button>
+      </div>
+    );
+  }
 
   const trimmedName = name.trim();
   const validationError = (() => {
@@ -59,53 +79,64 @@ export default function NovoProdutoPage() {
     if (description.trim().length > 2000) return 'Descrição muito longa (máx 2000 caracteres).';
     if (!Number.isFinite(priceCents) || priceCents <= 0) return 'Informe um preço válido.';
     if (priceCents > 10_000_000) return 'Preço acima do limite (R$ 100.000,00).';
-    if (!cover) return 'Selecione uma capa para o produto.';
     return null;
   })();
-  const apiError = create.error?.message ?? null;
+  const apiError = update.error?.message ?? null;
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (validationError || !cover) return;
-    create.mutate({
+    if (validationError) return;
+    update.mutate({
+      id,
       name: trimmedName,
-      description: description.trim() || undefined,
-      type,
+      description: description.trim() || null,
       priceCents,
-      currency: 'BRL',
       maxInstallments,
-      cover,
+      isActive,
+      ...(cover ? { cover } : {}),
     });
   };
+
+  const publicUrl = `${CHECKOUT_URL}/c/${product.data.slug}`;
+  // Cache-bust the cover preview so a fresh upload doesn't get masked
+  // by the 5-min Cache-Control on the api endpoint.
+  const coverPreviewUrl = product.data.hasCover
+    ? `${API_URL}/img/product/${product.data.id}/cover?v=${new Date(product.data.updatedAt).getTime()}`
+    : null;
 
   return (
     <div className="flex flex-col gap-10">
       <header className="flex flex-col gap-3">
-        <Kicker>catálogo · novo produto</Kicker>
-        <Heading level={1}>Cadastre um produto.</Heading>
+        <Kicker>catálogo · editar produto</Kicker>
+        <Heading level={1}>Editar produto.</Heading>
         <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
-          Você define nome, preço e descrição. O link do checkout é gerado automaticamente — pronto
-          pra colar no seu funil.
+          Link público:{' '}
+          <a
+            href={publicUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[13px] underline decoration-[var(--color-border)] underline-offset-2 hover:text-[var(--color-brand-600)]"
+          >
+            {publicUrl.replace(/^https?:\/\//, '')}
+          </a>
         </p>
       </header>
 
       <form onSubmit={onSubmit} className="flex max-w-3xl flex-col gap-7">
-        <Field label="Nome do produto" hint="Aparece no checkout e no link público.">
+        <Field label="Nome do produto">
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex.: Curso de Tráfego — Edição 2026"
             className={fieldInputClass}
             maxLength={120}
           />
         </Field>
 
-        <Field label="Descrição" hint="Opcional. Texto mostrado abaixo do nome no checkout.">
+        <Field label="Descrição" hint="Opcional.">
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Descreva o que o cliente recebe ao comprar."
             rows={4}
             className={`${fieldInputClass} resize-none`}
             maxLength={2000}
@@ -114,32 +145,11 @@ export default function NovoProdutoPage() {
 
         <ImageUploadField
           label="Capa do produto"
-          hint="Obrigatória. Formato 1:1 — vai aparecer ao lado do nome no checkout. PNG, JPEG ou WEBP, até 2 MB."
+          hint="1:1, PNG/JPEG/WEBP, até 2 MB. Deixe como está para manter a capa atual."
+          initialPreviewUrl={coverPreviewUrl}
           enforceSquare
           onChange={setCover}
         />
-
-        <Field label="Tipo">
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            {PRODUCT_TYPES.map((option) => {
-              const active = type === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setType(option.value)}
-                  className={`rounded-xl border px-4 py-3 text-left font-medium text-[13px] transition ${
-                    active
-                      ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
-                      : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-        </Field>
 
         <div className="grid grid-cols-1 gap-7 md:grid-cols-2">
           <Field
@@ -159,16 +169,12 @@ export default function NovoProdutoPage() {
                 inputMode="decimal"
                 value={priceInput}
                 onChange={(e) => setPriceInput(e.target.value)}
-                placeholder="99,90"
                 className={`${fieldInputClass} pl-10`}
               />
             </div>
           </Field>
 
-          <Field
-            label="Parcelamento máximo"
-            hint="No cartão de crédito; PIX e boleto são à vista por padrão."
-          >
+          <Field label="Parcelamento máximo">
             <select
               value={maxInstallments}
               onChange={(e) => setMaxInstallments(Number.parseInt(e.target.value, 10))}
@@ -183,14 +189,29 @@ export default function NovoProdutoPage() {
           </Field>
         </div>
 
+        <label className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+          <input
+            type="checkbox"
+            checked={isActive}
+            onChange={(e) => setIsActive(e.target.checked)}
+            className="size-4"
+          />
+          <span className="flex flex-col">
+            <span className="font-medium text-[14px] text-[var(--color-fg)]">Produto ativo</span>
+            <span className="text-[12px] text-[var(--color-fg-subtle)]">
+              Quando desativado, o checkout público mostra "produto indisponível".
+            </span>
+          </span>
+        </label>
+
         {validationError ? (
           <p className="text-[13px] text-[var(--color-danger)]">{validationError}</p>
         ) : null}
         {apiError ? <p className="text-[13px] text-[var(--color-danger)]">{apiError}</p> : null}
 
         <div className="flex items-center gap-3 pt-2">
-          <Button type="submit" disabled={!!validationError || create.isPending}>
-            {create.isPending ? 'Salvando…' : 'Criar produto'}
+          <Button type="submit" disabled={!!validationError || update.isPending}>
+            {update.isPending ? 'Salvando…' : 'Salvar alterações'}
           </Button>
           <Button type="button" variant="ghost" onClick={() => router.push('/produtos')}>
             Cancelar

@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -22,6 +23,13 @@ import {
 } from './common';
 import { workspaces } from './workspaces';
 
+/** See `workspaces.ts` for the rationale on bytea-in-row image storage. */
+const bytea = customType<{ data: Uint8Array; default: false }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
 export const products = pgTable(
   'products',
   {
@@ -33,7 +41,14 @@ export const products = pgTable(
     name: text().notNull(),
     description: text(),
     type: productTypeEnum().notNull().default('one_time'),
+    /** Legacy external-URL cover. Kept for backwards-compat; the new
+     * upload pipeline stores bytes in `coverImage`/`coverImageMime`. */
     coverImageUrl: text(),
+    /** Cover image bytes (1:1 ratio enforced client-side, ≤2MB).
+     * Served by `GET /api/img/product/:id/cover`. */
+    coverImage: bytea(),
+    /** MIME of `coverImage` (e.g. `image/jpeg`). NULL iff bytes NULL. */
+    coverImageMime: text(),
     isActive: boolean().notNull().default(true),
     metadata: jsonb().notNull().default({}),
     createdAt: createdAt(),

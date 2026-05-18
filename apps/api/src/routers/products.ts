@@ -6,6 +6,47 @@ import { z } from 'zod';
 import { router, workspaceProcedure } from '../trpc';
 
 /**
+ * Cover image caps mirror the workspace logo policy. 2 MB is plenty
+ * for a 1:1 hero image at retina resolution once compressed; the
+ * client UI enforces JPEG ≤ 90 quality before encoding to base64.
+ */
+const MAX_COVER_BYTES = 2 * 1024 * 1024;
+const ACCEPTED_COVER_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+const CoverUploadInput = z.object({
+  base64: z.string().min(1),
+  mime: z.string(),
+});
+
+function decodeCover(input: z.infer<typeof CoverUploadInput>): {
+  bytes: Uint8Array;
+  mime: string;
+} {
+  if (!ACCEPTED_COVER_MIME.has(input.mime)) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Capa deve ser PNG, JPEG ou WEBP.',
+    });
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(Buffer.from(input.base64, 'base64'));
+  } catch {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Não foi possível decodificar a capa enviada.',
+    });
+  }
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_COVER_BYTES) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `Capa deve ter entre 1 byte e ${MAX_COVER_BYTES / 1024 / 1024} MB.`,
+    });
+  }
+  return { bytes, mime: input.mime };
+}
+
+/**
  * Product catalog router. Multi-tenant by construction: every read and
  * write runs inside `withWorkspace(...)` so the RLS policy on
  * `products` / `product_offers` filters to the caller's workspace.
@@ -27,6 +68,8 @@ const ProductRow = z.object({
   description: z.string().nullable(),
   type: ProductType,
   coverImageUrl: z.string().nullable(),
+  hasCover: z.boolean(),
+  coverMime: z.string().nullable(),
   isActive: z.boolean(),
   priceCents: z.number().int().nonnegative(),
   currency: Currency,
@@ -62,6 +105,7 @@ export const productsRouter = router({
           description: schema.products.description,
           type: schema.products.type,
           coverImageUrl: schema.products.coverImageUrl,
+          coverImageMime: schema.products.coverImageMime,
           isActive: schema.products.isActive,
           createdAt: schema.products.createdAt,
           updatedAt: schema.products.updatedAt,
@@ -89,6 +133,8 @@ export const productsRouter = router({
         description: r.description,
         type: r.type,
         coverImageUrl: r.coverImageUrl,
+        hasCover: r.coverImageMime != null,
+        coverMime: r.coverImageMime,
         isActive: r.isActive,
         priceCents: r.priceCents != null ? Number(r.priceCents) : 0,
         currency: r.currency ?? 'BRL',
@@ -100,9 +146,70 @@ export const productsRouter = router({
   }),
 
   /**
+   * Fetch one product (by id) with its default offer + cover metadata.
+   * Used by the edit page to pre-fill the form. The cover bytes are NOT
+   * returned here — the UI references them via the public
+   * `/api/img/product/:id/cover` route.
+   */
+  byId: workspaceProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .output(ProductRow.nullable())
+    .query(async ({ ctx, input }) => {
+      const [row] = await ctx.services.db.db
+        .select({
+          id: schema.products.id,
+          slug: schema.products.slug,
+          name: schema.products.name,
+          description: schema.products.description,
+          type: schema.products.type,
+          coverImageUrl: schema.products.coverImageUrl,
+          coverImageMime: schema.products.coverImageMime,
+          isActive: schema.products.isActive,
+          createdAt: schema.products.createdAt,
+          updatedAt: schema.products.updatedAt,
+          deletedAt: schema.products.deletedAt,
+          priceCents: schema.productOffers.amountCents,
+          currency: schema.productOffers.currency,
+          maxInstallments: schema.productOffers.maxInstallments,
+        })
+        .from(schema.products)
+        .leftJoin(
+          schema.productOffers,
+          and(
+            eq(schema.productOffers.productId, schema.products.id),
+            eq(schema.productOffers.isDefault, true),
+          ),
+        )
+        .where(
+          and(eq(schema.products.id, input.id), eq(schema.products.workspaceId, ctx.workspaceId)),
+        )
+        .limit(1);
+      if (!row || row.deletedAt) return null;
+      return {
+        id: row.id,
+        slug: row.slug,
+        name: row.name,
+        description: row.description,
+        type: row.type,
+        coverImageUrl: row.coverImageUrl,
+        hasCover: row.coverImageMime != null,
+        coverMime: row.coverImageMime,
+        isActive: row.isActive,
+        priceCents: row.priceCents != null ? Number(row.priceCents) : 0,
+        currency: row.currency ?? 'BRL',
+        maxInstallments: row.maxInstallments ?? 12,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      };
+    }),
+
+  /**
    * Create a product + default offer in a single transaction. Slug is
    * generated from the name; on the rare collision we retry with a
-   * fresh 4-hex suffix up to MAX_SLUG_RETRIES times.
+   * fresh 4-hex suffix up to MAX_SLUG_RETRIES times. The cover image
+   * is required so the public checkout never has to render a missing
+   * hero — producers see the upload field on the create form and the
+   * tRPC input enforces the same invariant on the wire.
    */
   create: workspaceProcedure
     .input(
@@ -113,10 +220,12 @@ export const productsRouter = router({
         priceCents: z.number().int().nonnegative().max(10_000_000),
         currency: Currency.default('BRL'),
         maxInstallments: z.number().int().min(1).max(24).default(12),
+        cover: CoverUploadInput,
       }),
     )
     .output(z.object({ id: z.string().uuid(), slug: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const { bytes: coverBytes, mime: coverMime } = decodeCover(input.cover);
       for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
         const candidateSlug =
           attempt === 0
@@ -132,6 +241,8 @@ export const productsRouter = router({
                 name: input.name,
                 description: input.description ?? null,
                 type: input.type,
+                coverImage: coverBytes,
+                coverImageMime: coverMime,
                 isActive: true,
               })
               .returning({ id: schema.products.id, slug: schema.products.slug });
@@ -181,6 +292,15 @@ export const productsRouter = router({
         isActive: z.boolean().optional(),
         priceCents: z.number().int().nonnegative().max(10_000_000).optional(),
         maxInstallments: z.number().int().min(1).max(24).optional(),
+        /**
+         * Cover image patch. `undefined` leaves the column untouched —
+         * the dashboard edit form omits this field when the producer
+         * didn't pick a new file. Pass an object to replace; the
+         * mandatory-on-create rule means we never need a clear-cover
+         * path (a product without a cover wouldn't be allowed to exist
+         * in the first place).
+         */
+        cover: CoverUploadInput.optional(),
       }),
     )
     .output(z.object({ ok: z.literal(true) }))
@@ -190,6 +310,11 @@ export const productsRouter = router({
         if (input.name !== undefined) patch.name = input.name;
         if (input.description !== undefined) patch.description = input.description;
         if (input.isActive !== undefined) patch.isActive = input.isActive;
+        if (input.cover !== undefined) {
+          const { bytes, mime } = decodeCover(input.cover);
+          patch.coverImage = bytes;
+          patch.coverImageMime = mime;
+        }
         // Tenant-scoped predicates on every write — defense-in-depth on
         // top of withWorkspace's RLS context (see list-query comment).
         if (Object.keys(patch).length > 0) {

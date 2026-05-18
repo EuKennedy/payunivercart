@@ -168,6 +168,10 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.univercart.com}
+      # Used by the dashboard's "Link de checkout" column + product
+      # edit page so the displayed URL points at the buyer-facing
+      # subdomain instead of the dashboard origin.
+      NEXT_PUBLIC_CHECKOUT_URL: ${NEXT_PUBLIC_CHECKOUT_URL:-https://check.univercart.com}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/').then(r => process.exit(r.ok || r.status === 404 ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 10s

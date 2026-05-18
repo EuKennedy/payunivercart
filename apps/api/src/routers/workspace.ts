@@ -1,7 +1,19 @@
+import { schema, withWorkspace } from '@payunivercart/db';
 import { TRPCError } from '@trpc/server';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { authedProcedure, router } from '../trpc';
+import { authedProcedure, router, workspaceProcedure } from '../trpc';
 import { listOrProvisionMemberships } from '../workspace-lookup';
+
+/**
+ * Logo upload caps. 2 MiB raw → roughly 2.7 MB base64 wire payload,
+ * which fits comfortably under Hono's default body limit. We accept
+ * the three formats every modern browser can both encode and decode:
+ * PNG (icons / sharp edges), JPEG (photo logos) and WEBP (everything
+ * else, smallest payload).
+ */
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+const ACCEPTED_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 /**
  * Workspace-discovery procedures. These run on `authedProcedure`
@@ -71,5 +83,133 @@ export const workspaceRouter = router({
         },
         role: selected.role,
       };
+    }),
+
+  /**
+   * Branding state for the current workspace. Used by the dashboard
+   * Configurações → Marca page and (via `displayName`) by the public
+   * checkout. We never return the logo bytes here — only the boolean
+   * "has logo" so the UI can render the right empty-state and the
+   * client can decide whether to render `<img src="/img/workspace/:id/logo">`.
+   */
+  branding: workspaceProcedure
+    .output(
+      z.object({
+        workspaceId: z.string().uuid(),
+        name: z.string(),
+        companyName: z.string().nullable(),
+        displayName: z.string(),
+        hasLogo: z.boolean(),
+        logoMime: z.string().nullable(),
+        brandPrimaryColor: z.string().nullable(),
+      }),
+    )
+    .query(async ({ ctx }) => {
+      const [row] = await ctx.services.db.db
+        .select({
+          id: schema.workspaces.id,
+          name: schema.workspaces.name,
+          companyName: schema.workspaces.companyName,
+          brandLogoMime: schema.workspaces.brandLogoMime,
+          brandPrimaryColor: schema.workspaces.brandPrimaryColor,
+        })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, ctx.workspaceId))
+        .limit(1);
+      if (!row) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace inexistente.' });
+      }
+      return {
+        workspaceId: row.id,
+        name: row.name,
+        companyName: row.companyName,
+        displayName: row.companyName?.trim() || row.name,
+        hasLogo: row.brandLogoMime != null,
+        logoMime: row.brandLogoMime,
+        brandPrimaryColor: row.brandPrimaryColor,
+      };
+    }),
+
+  /**
+   * Patch workspace branding. All fields optional and patched
+   * independently, so the UI can save "just the company name" or
+   * "just the logo" without round-tripping every field.
+   *
+   * Logo is a base64-encoded blob plus its MIME. We refuse anything
+   * outside PNG/JPEG/WEBP and anything above MAX_LOGO_BYTES so the
+   * column doesn't grow into an attack vector. Pass `logo: null` to
+   * clear the existing logo; omit the field to leave it untouched.
+   */
+  updateBranding: workspaceProcedure
+    .input(
+      z.object({
+        companyName: z.string().trim().min(1).max(120).nullable().optional(),
+        brandPrimaryColor: z
+          .string()
+          .trim()
+          .regex(/^#[0-9a-fA-F]{6}$/, 'Use cor hex no formato #RRGGBB.')
+          .nullable()
+          .optional(),
+        logo: z
+          .object({
+            base64: z.string().min(1),
+            mime: z.string(),
+          })
+          .nullable()
+          .optional(),
+      }),
+    )
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(async ({ ctx, input }) => {
+      const patch: Record<string, unknown> = {};
+      if (input.companyName !== undefined) {
+        // Empty string normalised to null so a producer can wipe the
+        // brand-name override and fall back to workspace.name.
+        patch.companyName = input.companyName ? input.companyName : null;
+      }
+      if (input.brandPrimaryColor !== undefined) {
+        patch.brandPrimaryColor = input.brandPrimaryColor;
+      }
+      if (input.logo !== undefined) {
+        if (input.logo === null) {
+          patch.brandLogo = null;
+          patch.brandLogoMime = null;
+        } else {
+          const { base64, mime } = input.logo;
+          if (!ACCEPTED_IMAGE_MIME.has(mime)) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Logo deve ser PNG, JPEG ou WEBP.',
+            });
+          }
+          let bytes: Uint8Array;
+          try {
+            bytes = Uint8Array.from(Buffer.from(base64, 'base64'));
+          } catch {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Não foi possível decodificar o arquivo enviado.',
+            });
+          }
+          if (bytes.byteLength === 0 || bytes.byteLength > MAX_LOGO_BYTES) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `Logo deve ter entre 1 byte e ${MAX_LOGO_BYTES / 1024 / 1024} MB.`,
+            });
+          }
+          patch.brandLogo = bytes;
+          patch.brandLogoMime = mime;
+        }
+      }
+      if (Object.keys(patch).length === 0) {
+        return { ok: true as const };
+      }
+      await withWorkspace(ctx.services.db.db, ctx.workspaceId, async (tx) => {
+        await tx
+          .update(schema.workspaces)
+          .set(patch)
+          .where(eq(schema.workspaces.id, ctx.workspaceId));
+      });
+      return { ok: true as const };
     }),
 });

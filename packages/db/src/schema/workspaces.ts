@@ -1,4 +1,4 @@
-import { boolean, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, customType, index, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 import {
   createdAt,
@@ -13,6 +13,18 @@ import {
 import { organizations } from './organizations';
 
 /**
+ * Postgres `bytea` mapped to `Uint8Array`. Used for the workspace brand
+ * logo blob — we store the raw image bytes in the row rather than push
+ * them to an external bucket so the deploy stays single-service.
+ * Producers upload PNG/JPEG/WEBP capped at 2 MB by the API surface.
+ */
+const bytea = customType<{ data: Uint8Array; default: false }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+/**
  * Each workspace is an isolated tenant inside an organization.
  * Workspaces are individually billed at R$ 99,90/month.
  */
@@ -25,7 +37,19 @@ export const workspaces = pgTable(
       .references(() => organizations.id, { onDelete: 'cascade' }),
     slug: text().notNull(),
     name: text().notNull(),
+    /**
+     * Producer-facing brand name shown on the public checkout. When NULL
+     * the checkout falls back to `workspaces.name`. Captured at signup
+     * ("Nome da empresa") and editable via Configurações → Marca.
+     */
+    companyName: text(),
+    /** Legacy external-URL logo. Kept for backwards-compat; the new
+     * upload pipeline stores bytes in `brandLogo`/`brandLogoMime`. */
     brandLogoUrl: text(),
+    /** Logo bytes — served by `GET /api/img/workspace/:id/logo`. */
+    brandLogo: bytea(),
+    /** MIME of `brandLogo` (e.g. `image/png`). NULL when `brandLogo` is NULL. */
+    brandLogoMime: text(),
     brandPrimaryColor: text(),
     locale: localeEnum().notNull().default('pt-BR'),
     timezone: text().notNull().default('America/Sao_Paulo'),

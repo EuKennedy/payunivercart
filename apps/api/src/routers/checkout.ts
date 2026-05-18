@@ -42,6 +42,13 @@ const ProductPublicShape = z.object({
   slug: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  /**
+   * Best-available cover URL for the checkout hero. The query returns
+   * either the API-served bytea endpoint (when the producer uploaded a
+   * cover) or the legacy `coverImageUrl` external URL. NULL only when
+   * neither exists — a transition state for products created before
+   * Block-26's mandatory-cover rule.
+   */
   coverImageUrl: z.string().nullable(),
   type: z.enum(['one_time', 'subscription', 'course', 'physical']),
   priceCents: z.number().int().nonnegative(),
@@ -52,6 +59,12 @@ const ProductPublicShape = z.object({
 const WorkspacePublicShape = z.object({
   id: z.string().uuid(),
   name: z.string(),
+  /**
+   * Brand-name shown to buyers on the checkout. Falls back to the
+   * internal `workspaces.name` when the producer hasn't set a
+   * company-facing name in Configurações → Marca yet.
+   */
+  displayName: z.string(),
   brandLogoUrl: z.string().nullable(),
   brandPrimaryColor: z.string().nullable(),
 });
@@ -89,12 +102,15 @@ export const checkoutRouter = router({
           name: schema.products.name,
           description: schema.products.description,
           coverImageUrl: schema.products.coverImageUrl,
+          coverImageMime: schema.products.coverImageMime,
           type: schema.products.type,
           isActive: schema.products.isActive,
           deletedAt: schema.products.deletedAt,
           workspaceId: schema.workspaces.id,
           workspaceName: schema.workspaces.name,
-          workspaceLogo: schema.workspaces.brandLogoUrl,
+          workspaceCompanyName: schema.workspaces.companyName,
+          workspaceLogoUrl: schema.workspaces.brandLogoUrl,
+          workspaceLogoMime: schema.workspaces.brandLogoMime,
           workspaceColor: schema.workspaces.brandPrimaryColor,
           priceCents: schema.productOffers.amountCents,
           currency: schema.productOffers.currency,
@@ -119,13 +135,25 @@ export const checkoutRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto indisponível.' });
       }
 
+      // Prefer the API-served uploaded image; fall back to the legacy
+      // external URL the producer may have pasted before the upload
+      // pipeline existed. The api host is `API_PUBLIC_URL`; the
+      // browser hits `/img/...` directly there.
+      const apiBase = (ctx.services.env.API_PUBLIC_URL ?? '').replace(/\/$/, '');
+      const productCoverUrl = row.coverImageMime
+        ? `${apiBase}/img/product/${row.productId}/cover`
+        : (row.coverImageUrl ?? null);
+      const workspaceLogoUrl = row.workspaceLogoMime
+        ? `${apiBase}/img/workspace/${row.workspaceId}/logo`
+        : (row.workspaceLogoUrl ?? null);
+
       return {
         product: {
           id: row.productId,
           slug: row.slug,
           name: row.name,
           description: row.description,
-          coverImageUrl: row.coverImageUrl ?? null,
+          coverImageUrl: productCoverUrl,
           type: row.type,
           priceCents: Number(row.priceCents),
           currency: row.currency ?? 'BRL',
@@ -134,7 +162,8 @@ export const checkoutRouter = router({
         workspace: {
           id: row.workspaceId,
           name: row.workspaceName,
-          brandLogoUrl: row.workspaceLogo,
+          displayName: row.workspaceCompanyName?.trim() || row.workspaceName,
+          brandLogoUrl: workspaceLogoUrl,
           brandPrimaryColor: row.workspaceColor,
         },
       };

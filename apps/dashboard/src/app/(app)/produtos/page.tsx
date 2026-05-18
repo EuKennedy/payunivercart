@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, EmptyState, Heading, Kicker } from '../../../components/ui';
+import { API_URL, CHECKOUT_URL } from '../../../lib/env';
 import { type Currency, formatCents } from '../../../lib/money';
 import { trpc } from '../../../lib/trpc';
 
@@ -66,58 +66,92 @@ export default function ProdutosPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--color-border)]">
-            {list.data.map((product) => (
-              <tr key={product.id} className="transition hover:bg-[var(--color-surface-muted)]/50">
-                <td className="px-5 py-4">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-medium text-[var(--color-fg)]">{product.name}</span>
-                    {product.description ? (
-                      <span className="line-clamp-1 text-[12px] text-[var(--color-fg-subtle)]">
-                        {product.description}
-                      </span>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="px-5 py-4 font-medium text-[var(--color-fg)]">
-                  {formatCents(product.priceCents, product.currency as Currency)}
-                  <span className="ml-1 text-[11px] text-[var(--color-fg-subtle)]">
-                    em até {product.maxInstallments}×
-                  </span>
-                </td>
-                <td className="px-5 py-4 text-[12px] text-[var(--color-fg-muted)]">
-                  <Link
-                    href={`/c/${product.slug}`}
-                    className="font-mono underline decoration-[var(--color-border)] underline-offset-2 hover:text-[var(--color-brand-600)]"
-                  >
-                    pay.univercart.com/c/{product.slug}
-                  </Link>
-                </td>
-                <td className="px-5 py-4">
-                  <span
-                    className={
-                      product.isActive
-                        ? 'rounded-full bg-[var(--color-success-bg)] px-2.5 py-0.5 font-medium text-[11px] text-[var(--color-success)] uppercase tracking-wider'
-                        : 'rounded-full bg-[var(--color-surface-muted)] px-2.5 py-0.5 font-medium text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider'
-                    }
-                  >
-                    {product.isActive ? 'Ativo' : 'Pausado'}
-                  </span>
-                </td>
-                <td className="px-5 py-4 text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      if (!confirm(`Arquivar "${product.name}"?`)) return;
-                      archive.mutate({ id: product.id });
-                    }}
-                    disabled={archive.isPending}
-                  >
-                    Arquivar
-                  </Button>
-                </td>
-              </tr>
-            ))}
+            {list.data.map((product) => {
+              const publicUrl = `${CHECKOUT_URL}/c/${product.slug}`;
+              const checkoutHostLabel = publicUrl.replace(/^https?:\/\//, '');
+              return (
+                <tr
+                  key={product.id}
+                  className="transition hover:bg-[var(--color-surface-muted)]/50"
+                >
+                  <td className="px-5 py-4">
+                    <div className="flex items-center gap-3">
+                      {product.hasCover ? (
+                        <img
+                          src={`${API_URL}/img/product/${product.id}/cover`}
+                          alt=""
+                          className="size-10 shrink-0 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div
+                          className="grid size-10 shrink-0 place-items-center rounded-lg bg-[var(--color-surface-muted)] text-[10px] text-[var(--color-fg-subtle)]"
+                          aria-hidden
+                        >
+                          1:1
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-[var(--color-fg)]">{product.name}</span>
+                        {product.description ? (
+                          <span className="line-clamp-1 text-[12px] text-[var(--color-fg-subtle)]">
+                            {product.description}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 font-medium text-[var(--color-fg)]">
+                    {formatCents(product.priceCents, product.currency as Currency)}
+                    <span className="ml-1 text-[11px] text-[var(--color-fg-subtle)]">
+                      em até {product.maxInstallments}×
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-[12px] text-[var(--color-fg-muted)]">
+                    <a
+                      href={publicUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono underline decoration-[var(--color-border)] underline-offset-2 hover:text-[var(--color-brand-600)]"
+                    >
+                      {checkoutHostLabel}
+                    </a>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span
+                      className={
+                        product.isActive
+                          ? 'rounded-full bg-[var(--color-success-bg)] px-2.5 py-0.5 font-medium text-[11px] text-[var(--color-success)] uppercase tracking-wider'
+                          : 'rounded-full bg-[var(--color-surface-muted)] px-2.5 py-0.5 font-medium text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider'
+                      }
+                    >
+                      {product.isActive ? 'Ativo' : 'Pausado'}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => router.push(`/produtos/${product.id}`)}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (!confirm(`Arquivar "${product.name}"?`)) return;
+                          archive.mutate({ id: product.id });
+                        }}
+                        disabled={archive.isPending}
+                      >
+                        Arquivar
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

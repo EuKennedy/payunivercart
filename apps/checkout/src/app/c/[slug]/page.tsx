@@ -81,6 +81,14 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvc, setCardCvc] = useState('');
+  /**
+   * Cardholder name shown on the card. BR-default convention is to
+   * collect this explicitly rather than reuse the identification name —
+   * many buyers pay with a card issued in someone else's name (a
+   * parent's, a partner's, the company's). Defaults to the identification
+   * name so the buyer doesn't have to retype when both match.
+   */
+  const [cardHolder, setCardHolder] = useState('');
 
   const createOrder = trpc.checkout.createOrder.useMutation();
 
@@ -105,9 +113,13 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
     (docDigits.length === 11 || docDigits.length === 14) &&
     phoneDigits.length >= 10;
 
+  const trimmedHolder = cardHolder.trim() || name.trim();
   const cardComplete =
     method !== 'credit_card' ||
-    (cardDigits.length >= 13 && expiryDigits.length === 4 && cardCvc.length >= 3);
+    (cardDigits.length >= 13 &&
+      expiryDigits.length === 4 &&
+      cardCvc.length >= 3 &&
+      trimmedHolder.length >= 2);
 
   const submitDisabled = !identifyComplete || !cardComplete || createOrder.isPending;
 
@@ -133,7 +145,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
               number: cardNumber,
               expiry: cardExpiry,
               cvc: cardCvc,
-              holderName: name.trim() || 'APRO',
+              holderName: trimmedHolder || 'APRO',
             }
           : undefined,
     });
@@ -269,6 +281,16 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 
                   {method === 'credit_card' ? (
                     <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-4">
+                      <Field label="Nome impresso no cartão">
+                        <input
+                          type="text"
+                          value={cardHolder}
+                          onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                          placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
+                          autoComplete="cc-name"
+                          maxLength={60}
+                        />
+                      </Field>
                       <Field label="Número do cartão">
                         <input
                           type="text"
@@ -459,7 +481,7 @@ function ProducerHeader({
           {workspace.brandLogoUrl ? (
             <img
               src={workspace.brandLogoUrl}
-              alt={workspace.name}
+              alt={workspace.displayName}
               className="h-9 w-9 rounded-xl object-cover"
             />
           ) : (
@@ -470,12 +492,12 @@ function ProducerHeader({
                   brandTone ?? 'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
               }}
             >
-              {(workspace.name[0] ?? 'p').toUpperCase()}
+              {(workspace.displayName[0] ?? 'p').toUpperCase()}
             </span>
           )}
           <div className="flex flex-col leading-tight">
             <span className="font-semibold text-[14px] text-[var(--ink-100)]">
-              {workspace.name}
+              {workspace.displayName}
             </span>
             <span className="flex items-center gap-1 text-[10px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
               <ShieldIcon size={10} /> Checkout seguro

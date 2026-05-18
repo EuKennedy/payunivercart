@@ -1,6 +1,8 @@
 import { serve } from '@hono/node-server';
 import { trpcServer } from '@hono/trpc-server';
+import { schema } from '@payunivercart/db';
 import 'dotenv/config';
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
@@ -92,6 +94,60 @@ app.get('/me/workspace', async (c) => {
     name: selected.name,
     slug: selected.slug,
     role: selected.role,
+  });
+});
+
+/**
+ * Public binary endpoints for branding + product cover. UUID-keyed so
+ * enumeration is infeasible; no auth because the checkout (and any
+ * shared link) needs to render the image without a session. We send a
+ * conservative Cache-Control: a stale logo for 5 minutes is fine, and
+ * the producer flushes by re-uploading (which the dashboard can do via
+ * `updateBranding` / `products.update`).
+ */
+app.get('/img/workspace/:id/logo', async (c) => {
+  const id = c.req.param('id');
+  // Validate id shape so a bogus path doesn't hit Postgres with a
+  // string Drizzle would refuse anyway.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return c.notFound();
+  }
+  const [row] = await services.db.db
+    .select({
+      logo: schema.workspaces.brandLogo,
+      mime: schema.workspaces.brandLogoMime,
+    })
+    .from(schema.workspaces)
+    .where(eq(schema.workspaces.id, id))
+    .limit(1);
+  if (!row?.logo || !row.mime) return c.notFound();
+  return new Response(Buffer.from(row.logo) as unknown as ArrayBuffer, {
+    headers: {
+      'Content-Type': row.mime,
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+});
+
+app.get('/img/product/:id/cover', async (c) => {
+  const id = c.req.param('id');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return c.notFound();
+  }
+  const [row] = await services.db.db
+    .select({
+      cover: schema.products.coverImage,
+      mime: schema.products.coverImageMime,
+    })
+    .from(schema.products)
+    .where(eq(schema.products.id, id))
+    .limit(1);
+  if (!row?.cover || !row.mime) return c.notFound();
+  return new Response(Buffer.from(row.cover) as unknown as ArrayBuffer, {
+    headers: {
+      'Content-Type': row.mime,
+      'Cache-Control': 'public, max-age=300',
+    },
   });
 });
 
