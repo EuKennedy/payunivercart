@@ -1,11 +1,7 @@
 import type { AuditService } from '@payunivercart/audit';
 import { type Auth, createAuth } from '@payunivercart/auth';
 import { CryptoService, loadKeyRegistryFromEnv } from '@payunivercart/crypto';
-import {
-  createDatabaseClient,
-  deleteUserById,
-  provisionWorkspaceForUser,
-} from '@payunivercart/db';
+import { createDatabaseClient, deleteUserById, provisionWorkspaceForUser } from '@payunivercart/db';
 import { WahaClient } from '@payunivercart/waha';
 import type { AppEnv } from './env';
 

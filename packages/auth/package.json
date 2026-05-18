@@ -18,7 +18,7 @@
     "@payunivercart/db": "workspace:*",
     "@payunivercart/shared": "workspace:*",
     "@payunivercart/waha": "workspace:*",
-    "better-auth": "1.3.7",
+    "better-auth": "1.6.11",
     "drizzle-orm": "0.45.2",
     "zod": "3.25.76"
   },

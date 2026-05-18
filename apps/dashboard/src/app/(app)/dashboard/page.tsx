@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, type ReactNode } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { Heading, Kicker, Surface } from '../../../components/ui';
 import { useSession } from '../../../lib/auth';
 import { formatCents } from '../../../lib/money';
@@ -43,14 +43,15 @@ export default function DashboardHome() {
   const yGmv = overview.data?.yesterday.gmvCents ?? 0;
   const yOrders = overview.data?.yesterday.orderCount ?? 0;
   const conversion = overview.data?.conversionRateLast30d ?? 0;
-  const hasAnyOrders = (overview.data?.allTime.paidCount ?? 0) > 0 || (recent.data?.length ?? 0) > 0;
+  const hasAnyOrders =
+    (overview.data?.allTime.paidCount ?? 0) > 0 || (recent.data?.length ?? 0) > 0;
 
   return (
     <div className="space-y-12">
       <header className="space-y-3">
         <Kicker>Visão geral</Kicker>
         <Heading level={1}>Olá, {firstName}.</Heading>
-        <p className="max-w-2xl text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+        <p className="max-w-2xl text-[16px] text-[var(--color-fg-muted)] leading-[1.55]">
           {hasAnyOrders
             ? 'Acompanhe sua operação em tempo real. Os números abaixo são do seu workspace, atualizados a cada 30 segundos.'
             : 'Sua operação aparece aqui assim que a primeira venda chegar. Comece conectando o WhatsApp e cadastrando seu produto.'}
@@ -80,19 +81,17 @@ export default function DashboardHome() {
         <section>
           <div className="mb-5 flex items-baseline justify-between">
             <Heading level={3}>Últimos pedidos</Heading>
-            <p className="text-[13px] text-[var(--color-fg-subtle)]">
-              Atualiza a cada 30s
-            </p>
+            <p className="text-[13px] text-[var(--color-fg-subtle)]">Atualiza a cada 30s</p>
           </div>
           <div className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
             <table className="w-full text-[14px]">
-              <thead className="bg-[var(--color-surface-muted)] text-left text-[11px] uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+              <thead className="bg-[var(--color-surface-muted)] text-left text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Pedido</th>
                   <th className="px-5 py-3 font-semibold">Cliente</th>
                   <th className="px-5 py-3 font-semibold">Valor</th>
                   <th className="px-5 py-3 font-semibold">Status</th>
-                  <th className="px-5 py-3 font-semibold text-right">Quando</th>
+                  <th className="px-5 py-3 text-right font-semibold">Quando</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border)]">
@@ -164,10 +163,10 @@ export default function DashboardHome() {
 function MetricCard({ label, value, trend }: { label: string; value: string; trend: string }) {
   return (
     <Surface className="space-y-3">
-      <p className="text-[12px] font-medium uppercase tracking-wider text-[var(--color-fg-subtle)]">
+      <p className="font-medium text-[12px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
         {label}
       </p>
-      <p className="display text-[36px] font-semibold leading-none tracking-tight text-[var(--color-fg)]">
+      <p className="display font-semibold text-[36px] text-[var(--color-fg)] leading-none tracking-tight">
         {value}
       </p>
       <p className="text-[13px] text-[var(--color-fg-muted)]">{trend}</p>
@@ -188,20 +187,34 @@ function NextStep({
 }) {
   return (
     <Link href={href} className="surface-interactive group flex flex-col gap-3 p-6">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-600)]">
+      <span className="font-semibold text-[11px] text-[var(--color-brand-600)] uppercase tracking-[0.18em]">
         {n}
       </span>
-      <p className="text-[16px] font-semibold tracking-tight text-[var(--color-fg)]">{title}</p>
-      <p className="text-[14px] leading-[1.5] text-[var(--color-fg-muted)]">{body}</p>
-      <span className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-[var(--color-fg)] transition group-hover:gap-2">
+      <p className="font-semibold text-[16px] text-[var(--color-fg)] tracking-tight">{title}</p>
+      <p className="text-[14px] text-[var(--color-fg-muted)] leading-[1.5]">{body}</p>
+      <span className="mt-1 inline-flex items-center gap-1 font-medium text-[13px] text-[var(--color-fg)] transition group-hover:gap-2">
         Abrir
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="size-3">
+        <svg
+          aria-hidden="true"
+          focusable="false"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          className="size-3"
+        >
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 8h10M9 4l4 4-4 4" />
         </svg>
       </span>
     </Link>
   );
 }
+
+const FALLBACK_STATUS_TONE = {
+  bg: 'bg-[var(--color-surface-muted)]',
+  fg: 'text-[var(--color-fg-subtle)]',
+  label: 'Desconhecido',
+} as const;
 
 function StatusPill({ status }: { status: string }) {
   const palette: Record<string, { bg: string; fg: string; label: string }> = {
@@ -237,10 +250,10 @@ function StatusPill({ status }: { status: string }) {
       label: 'Expirado',
     },
   };
-  const tone = palette[status] ?? palette.draft!;
+  const tone = palette[status] ?? palette.draft ?? FALLBACK_STATUS_TONE;
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider ${tone.bg} ${tone.fg}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 font-medium text-[11px] uppercase tracking-wider ${tone.bg} ${tone.fg}`}
     >
       {tone.label}
     </span>

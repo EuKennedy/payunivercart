@@ -76,10 +76,10 @@ export default function GatewaysPage() {
       <header className="flex flex-col gap-3">
         <Kicker>integrações · gateways</Kicker>
         <Heading level={1}>Conecte seu gateway de pagamento.</Heading>
-        <p className="max-w-2xl text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
+        <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
           Cadastre suas chaves do Mercado Pago para começar a receber via Pix no checkout. As
-          credenciais ficam criptografadas no banco — nem o time da plataforma vê a chave depois
-          de salva.
+          credenciais ficam criptografadas no banco — nem o time da plataforma vê a chave depois de
+          salva.
         </p>
       </header>
 
@@ -99,23 +99,23 @@ export default function GatewaysPage() {
             {list.data.map((row) => (
               <li
                 key={row.id}
-                className="flex items-center justify-between gap-4 border-b border-[var(--color-border)] px-5 py-4 last:border-b-0"
+                className="flex items-center justify-between gap-4 border-[var(--color-border)] border-b px-5 py-4 last:border-b-0"
               >
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-[15px] font-semibold text-[var(--color-fg)]">
+                    <span className="font-semibold text-[15px] text-[var(--color-fg)]">
                       {row.label}
                     </span>
-                    <span className="rounded-full bg-[var(--color-surface-muted)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-fg-subtle)]">
+                    <span className="rounded-full bg-[var(--color-surface-muted)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
                       {row.gatewayId}
                     </span>
                     {row.isSandbox ? (
-                      <span className="rounded-full bg-[var(--color-warning-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-warning)]">
+                      <span className="rounded-full bg-[var(--color-warning-bg)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-warning)] uppercase tracking-wider">
                         Sandbox
                       </span>
                     ) : null}
                     {row.isDefault ? (
-                      <span className="rounded-full bg-[var(--color-success-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-success)]">
+                      <span className="rounded-full bg-[var(--color-success-bg)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-success)] uppercase tracking-wider">
                         Padrão
                       </span>
                     ) : null}
@@ -124,8 +124,8 @@ export default function GatewaysPage() {
                     {row.lastValidatedAt
                       ? `Validado em ${new Date(row.lastValidatedAt).toLocaleString('pt-BR')}`
                       : row.validationError
-                      ? `Falha: ${row.validationError}`
-                      : 'Aguardando validação'}
+                        ? `Falha: ${row.validationError}`
+                        : 'Aguardando validação'}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -163,7 +163,7 @@ export default function GatewaysPage() {
             ))}
           </ul>
         ) : (
-          <div className="rounded-2xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-10 text-center">
+          <div className="rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-6 py-10 text-center">
             <p className="text-[14px] text-[var(--color-fg-muted)]">
               Nenhum gateway cadastrado. Conecte o Mercado Pago para liberar Pix no checkout.
             </p>
@@ -187,7 +187,7 @@ export default function GatewaysPage() {
               Cancelar
             </Button>
           </div>
-          <p className="mb-6 text-[13px] leading-[1.55] text-[var(--color-fg-muted)]">
+          <p className="mb-6 text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
             Pegue suas credenciais em{' '}
             <a
               href="https://www.mercadopago.com.br/developers/panel/app"
@@ -197,8 +197,8 @@ export default function GatewaysPage() {
             >
               mercadopago.com.br/developers
             </a>
-            . O Access Token começa com <code>APP_USR-</code> em produção ou{' '}
-            <code>TEST-</code> em sandbox.
+            . O Access Token começa com <code>APP_USR-</code> em produção ou <code>TEST-</code> em
+            sandbox.
           </p>
           <form onSubmit={onSubmit} className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <FormField label="Apelido" className="sm:col-span-2">
@@ -246,7 +246,7 @@ export default function GatewaysPage() {
                 autoComplete="off"
               />
             </FormField>
-            <label className="sm:col-span-2 flex items-center gap-3 text-[14px] text-[var(--color-fg-muted)]">
+            <label className="flex items-center gap-3 text-[14px] text-[var(--color-fg-muted)] sm:col-span-2">
               <input
                 type="checkbox"
                 checked={isSandbox}
@@ -257,12 +257,12 @@ export default function GatewaysPage() {
             </label>
 
             {upsert.error ? (
-              <p className="sm:col-span-2 rounded-xl border border-[var(--color-danger-bg)] bg-[var(--color-danger-bg)] px-4 py-3 text-[13px] text-[var(--color-danger)]">
+              <p className="rounded-xl border border-[var(--color-danger-bg)] bg-[var(--color-danger-bg)] px-4 py-3 text-[13px] text-[var(--color-danger)] sm:col-span-2">
                 {upsert.error.message}
               </p>
             ) : null}
 
-            <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-3 pt-2 sm:col-span-2">
               <Button type="submit" disabled={upsert.isPending}>
                 {upsert.isPending ? 'Validando…' : 'Salvar e validar'}
               </Button>
@@ -297,8 +297,9 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
+    // biome-ignore lint/a11y/noLabelWithoutControl: input rendered via {children}; biome can't trace into children, but HTML label semantics still focus the first descendant control on click.
     <label className={`flex flex-col gap-2 ${className ?? ''}`}>
-      <span className="text-[13px] font-medium text-[var(--color-fg-muted)]">{label}</span>
+      <span className="font-medium text-[13px] text-[var(--color-fg-muted)]">{label}</span>
       {children}
       {hint ? <span className="text-[12px] text-[var(--color-fg-subtle)]">{hint}</span> : null}
     </label>

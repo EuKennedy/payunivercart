@@ -23,7 +23,10 @@ const LEADING_OR_TRAILING_DASHES = /^-+|-+$/g;
  */
 export function slugifyEmailLocalPart(email: string): string {
   const local = (email.split('@')[0] ?? 'user').toLowerCase();
-  const cleaned = local.replace(NON_URL_SAFE, '-').replace(LEADING_OR_TRAILING_DASHES, '').slice(0, 32);
+  const cleaned = local
+    .replace(NON_URL_SAFE, '-')
+    .replace(LEADING_OR_TRAILING_DASHES, '')
+    .slice(0, 32);
   return cleaned.length > 0 ? cleaned : 'user';
 }
 
@@ -58,7 +61,7 @@ export function slugify(text: string): string {
   const cleaned = text
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // strip combining marks (accents)
+    .replace(/\p{M}/gu, '') // strip combining marks (accents)
     .replace(NON_URL_SAFE, '-')
     .replace(LEADING_OR_TRAILING_DASHES, '')
     .slice(0, 64);

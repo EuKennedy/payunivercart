@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, EmptyState, Heading, Kicker } from '../../../components/ui';
-import { formatCents, type Currency } from '../../../lib/money';
+import { type Currency, formatCents } from '../../../lib/money';
 import { trpc } from '../../../lib/trpc';
 
 /**
@@ -33,9 +33,7 @@ export default function ProdutosPage() {
         kicker="catálogo · pronto pra preencher"
         title="Cadastre seu primeiro produto."
         description="Nome, preço, descrição. O link do checkout é gerado automaticamente — pronto pra colar no seu funil de WhatsApp, anúncio ou bio."
-        action={
-          <Button onClick={() => router.push('/produtos/novo')}>Cadastrar produto</Button>
-        }
+        action={<Button onClick={() => router.push('/produtos/novo')}>Cadastrar produto</Button>}
       />
     );
   }
@@ -46,7 +44,7 @@ export default function ProdutosPage() {
         <div className="flex flex-col gap-3">
           <Kicker>catálogo</Kicker>
           <Heading level={1}>Seus produtos</Heading>
-          <p className="max-w-2xl text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
+          <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
             {list.data.length === 1
               ? '1 produto cadastrado.'
               : `${list.data.length} produtos cadastrados.`}{' '}
@@ -58,13 +56,13 @@ export default function ProdutosPage() {
 
       <div className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="w-full text-[14px]">
-          <thead className="bg-[var(--color-surface-muted)] text-left text-[11px] uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+          <thead className="bg-[var(--color-surface-muted)] text-left text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
             <tr>
               <th className="px-5 py-3 font-semibold">Produto</th>
               <th className="px-5 py-3 font-semibold">Preço</th>
               <th className="px-5 py-3 font-semibold">Link de checkout</th>
               <th className="px-5 py-3 font-semibold">Status</th>
-              <th className="px-5 py-3 font-semibold text-right">Ações</th>
+              <th className="px-5 py-3 text-right font-semibold">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--color-border)]">
@@ -98,8 +96,8 @@ export default function ProdutosPage() {
                   <span
                     className={
                       product.isActive
-                        ? 'rounded-full bg-[var(--color-success-bg)] px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-success)]'
-                        : 'rounded-full bg-[var(--color-surface-muted)] px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-fg-subtle)]'
+                        ? 'rounded-full bg-[var(--color-success-bg)] px-2.5 py-0.5 font-medium text-[11px] text-[var(--color-success)] uppercase tracking-wider'
+                        : 'rounded-full bg-[var(--color-surface-muted)] px-2.5 py-0.5 font-medium text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider'
                     }
                   >
                     {product.isActive ? 'Ativo' : 'Pausado'}

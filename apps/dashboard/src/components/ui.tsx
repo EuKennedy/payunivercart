@@ -64,8 +64,7 @@ export function Button({
     secondary:
       'bg-[var(--color-surface)] text-[var(--color-fg)] border border-[var(--color-border)] ' +
       'hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-border-strong)]',
-    ghost:
-      'bg-transparent text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]',
+    ghost: 'bg-transparent text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]',
     danger:
       'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-transparent ' +
       'hover:bg-[#ffd9d6]',
@@ -101,7 +100,7 @@ export function Input({
   return (
     <label className="block">
       {label && (
-        <span className="mb-2 block text-[13px] font-medium text-[var(--color-fg-muted)]">
+        <span className="mb-2 block font-medium text-[13px] text-[var(--color-fg-muted)]">
           {label}
         </span>
       )}
@@ -137,7 +136,7 @@ export function Heading({
     return (
       <h1
         className={clsx(
-          'display text-[34px] font-semibold text-[var(--color-fg)] md:text-[40px]',
+          'display font-semibold text-[34px] text-[var(--color-fg)] md:text-[40px]',
           className,
         )}
       >
@@ -149,7 +148,7 @@ export function Heading({
     return (
       <h2
         className={clsx(
-          'display text-2xl font-semibold text-[var(--color-fg)] md:text-3xl',
+          'display font-semibold text-2xl text-[var(--color-fg)] md:text-3xl',
           className,
         )}
       >
@@ -158,7 +157,7 @@ export function Heading({
     );
   }
   return (
-    <h3 className={clsx('text-lg font-semibold text-[var(--color-fg)]', className)}>{children}</h3>
+    <h3 className={clsx('font-semibold text-[var(--color-fg)] text-lg', className)}>{children}</h3>
   );
 }
 
@@ -170,7 +169,7 @@ export function Kicker({ children, className }: { children: ReactNode; className
   return (
     <span
       className={clsx(
-        'inline-block text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--color-brand-600)]',
+        'inline-block font-medium text-[11px] text-[var(--color-brand-600)] uppercase tracking-[0.18em]',
         className,
       )}
     >
@@ -201,7 +200,7 @@ export function EmptyState({
     <div className={clsx('mx-auto flex max-w-2xl flex-col items-start gap-5', className)}>
       {kicker && <Kicker>{kicker}</Kicker>}
       <Heading level={1}>{title}</Heading>
-      <p className="text-[17px] leading-[1.5] text-[var(--color-fg-muted)]">{description}</p>
+      <p className="text-[17px] text-[var(--color-fg-muted)] leading-[1.5]">{description}</p>
       {action && <div className="pt-2">{action}</div>}
     </div>
   );
@@ -217,8 +216,7 @@ export function StatusPill({ status }: { status: string }) {
       'bg-[var(--color-success-bg)] text-[var(--color-success)] border-[rgba(0,135,90,0.18)]',
     SCAN_QR_CODE:
       'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[rgba(183,110,0,0.18)]',
-    STARTING:
-      'bg-[var(--color-info-bg)] text-[var(--color-info)] border-[rgba(11,107,203,0.18)]',
+    STARTING: 'bg-[var(--color-info-bg)] text-[var(--color-info)] border-[rgba(11,107,203,0.18)]',
     FAILED: 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[rgba(194,38,26,0.18)]',
     STOPPED:
       'bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)] border-[var(--color-border)]',
@@ -229,7 +227,7 @@ export function StatusPill({ status }: { status: string }) {
   return (
     <span
       className={clsx(
-        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-wider',
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-medium text-[11px] uppercase tracking-wider',
         tone,
       )}
     >

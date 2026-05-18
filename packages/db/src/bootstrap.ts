@@ -1,4 +1,8 @@
-import { mintOrganizationSlug, slugifyEmailLocalPart, PayunivercartError } from '@payunivercart/shared';
+import {
+  PayunivercartError,
+  mintOrganizationSlug,
+  slugifyEmailLocalPart,
+} from '@payunivercart/shared';
 import { eq } from 'drizzle-orm';
 import type { WorkspaceDb, WorkspaceTx } from './rls';
 import * as schema from './schema/index';

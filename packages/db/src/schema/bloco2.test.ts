@@ -207,14 +207,19 @@ describe('Bloco 2 — product_category_mappings tenant scoping', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* accounts.password CHECK                                                     */
+/* accounts.password — no CHECK constraint                                     */
 /* -------------------------------------------------------------------------- */
 
-describe('Bloco 2 — accounts.password must look like argon2id', () => {
-  it('declares a CHECK constraint enforcing the $argon2id$ prefix when not null', () => {
+describe('Bloco 2 — accounts.password has NO format CHECK constraint', () => {
+  it('does NOT declare a CHECK on accounts.password (dropped in migration 0002)', () => {
+    // Better-Auth swaps hash algorithms between minor versions (scrypt in
+    // 1.3.x, argon2id in 1.6.x, each with different prefixes/separators).
+    // Pinning the schema to one format trades resilience for a defense-
+    // in-depth gain we don't need — the only writer to this column is
+    // Better-Auth itself. Migration 0002 dropped the argon2id CHECK.
     const cfg = getTableConfig(accounts);
-    const check = cfg.checks.find((c) => c.name === 'accounts_password_argon2id_format');
-    expect(check, 'CHECK constraint must exist on accounts.password').toBeDefined();
+    const check = cfg.checks.find((c) => c.name?.startsWith('accounts_password_'));
+    expect(check, 'No password format CHECK should be declared').toBeUndefined();
   });
 });
 

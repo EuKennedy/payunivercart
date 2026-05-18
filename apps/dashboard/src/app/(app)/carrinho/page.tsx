@@ -27,20 +27,20 @@ export default function CarrinhoPage() {
       <header className="flex flex-col gap-3">
         <Kicker>recuperação · carrinho abandonado</Kicker>
         <Heading level={1}>Não perca a venda no Pix.</Heading>
-        <p className="max-w-2xl text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
-          Toda vez que um cliente gera Pix mas não paga, a plataforma manda mensagens automáticas
-          do seu WhatsApp no melhor momento. Os intervalos abaixo são os padrões que melhor
-          converteram em testes em produtos digitais brasileiros.
+        <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
+          Toda vez que um cliente gera Pix mas não paga, a plataforma manda mensagens automáticas do
+          seu WhatsApp no melhor momento. Os intervalos abaixo são os padrões que melhor converteram
+          em testes em produtos digitais brasileiros.
         </p>
       </header>
 
       <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
+            <p className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.18em]">
               Campanha ativa
             </p>
-            <h2 className="text-[18px] font-semibold text-[var(--color-fg)]">
+            <h2 className="font-semibold text-[18px] text-[var(--color-fg)]">
               {campaign.data?.name ?? 'Padrão'}
             </h2>
             <p className="text-[12px] text-[var(--color-fg-subtle)]">
@@ -52,19 +52,20 @@ export default function CarrinhoPage() {
             <Button
               variant={campaign.data.isActive ? 'secondary' : 'primary'}
               size="sm"
-              onClick={() =>
+              onClick={() => {
+                if (!campaign.data) return;
                 toggle.mutate({
-                  campaignId: campaign.data!.id,
-                  isActive: !campaign.data!.isActive,
-                })
-              }
+                  campaignId: campaign.data.id,
+                  isActive: !campaign.data.isActive,
+                });
+              }}
               disabled={toggle.isPending}
             >
               {toggle.isPending
                 ? 'Atualizando…'
                 : campaign.data.isActive
-                ? 'Pausar campanha'
-                : 'Ativar campanha'}
+                  ? 'Pausar campanha'
+                  : 'Ativar campanha'}
             </Button>
           ) : null}
         </div>
@@ -72,20 +73,20 @@ export default function CarrinhoPage() {
         <div className="mt-5 flex flex-col gap-3">
           {(campaign.data?.steps ?? []).map((step, idx) => (
             <div
-              key={idx}
+              key={`${step.channel}-${step.delayMinutes}-${idx}`}
               className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/40 p-4"
             >
-              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--color-success-bg)] text-[12px] font-semibold text-[var(--color-success)]">
+              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--color-success-bg)] font-semibold text-[12px] text-[var(--color-success)]">
                 {idx + 1}
               </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold text-[var(--color-fg)]">
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-[13px] text-[var(--color-fg)]">
                   Depois de {formatDelay(step.delayMinutes)}
-                  <span className="ml-2 rounded-full bg-[var(--color-surface-muted)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-fg-subtle)]">
+                  <span className="ml-2 rounded-full bg-[var(--color-surface-muted)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
                     {step.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}
                   </span>
                 </p>
-                <p className="mt-1 text-[12px] leading-[1.55] text-[var(--color-fg-muted)]">
+                <p className="mt-1 text-[12px] text-[var(--color-fg-muted)] leading-[1.55]">
                   {step.template}
                 </p>
               </div>
@@ -102,7 +103,7 @@ export default function CarrinhoPage() {
         {recent.isPending ? (
           <p className="text-[14px] text-[var(--color-fg-muted)]">Carregando…</p>
         ) : !recent.data || recent.data.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-10 text-center">
+          <div className="rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-6 py-10 text-center">
             <p className="text-[14px] text-[var(--color-fg-muted)]">
               Nenhum disparo ainda. Assim que um cliente gerar Pix e não pagar, os toques aparecem
               aqui.
@@ -111,7 +112,7 @@ export default function CarrinhoPage() {
         ) : (
           <div className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
             <table className="w-full text-[14px]">
-              <thead className="bg-[var(--color-surface-muted)] text-left text-[11px] uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+              <thead className="bg-[var(--color-surface-muted)] text-left text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Pedido</th>
                   <th className="px-5 py-3 font-semibold">Cliente</th>
@@ -122,10 +123,7 @@ export default function CarrinhoPage() {
               </thead>
               <tbody className="divide-y divide-[var(--color-border)]">
                 {recent.data.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="transition hover:bg-[var(--color-surface-muted)]/50"
-                  >
+                  <tr key={row.id} className="transition hover:bg-[var(--color-surface-muted)]/50">
                     <td className="px-5 py-3">
                       <div className="flex flex-col">
                         <span className="font-mono text-[12px] text-[var(--color-fg)]">
@@ -150,7 +148,7 @@ export default function CarrinhoPage() {
                       <span className="font-medium text-[var(--color-fg)]">
                         Toque {row.stepIndex + 1}
                       </span>
-                      <span className="ml-1 text-[11px] uppercase tracking-wider text-[var(--color-fg-subtle)]">
+                      <span className="ml-1 text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
                         · {row.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}
                       </span>
                     </td>
@@ -174,6 +172,12 @@ export default function CarrinhoPage() {
     </div>
   );
 }
+
+const FALLBACK_ATTEMPT_TONE = {
+  bg: 'bg-[var(--color-surface-muted)]',
+  fg: 'text-[var(--color-fg-muted)]',
+  label: 'Aguardando',
+} as const;
 
 function StatusPill({
   status,
@@ -209,11 +213,11 @@ function StatusPill({
       label: 'Falhou',
     },
   };
-  const tone = palette[status] ?? palette.queued!;
+  const tone = palette[status] ?? palette.queued ?? FALLBACK_ATTEMPT_TONE;
   return (
     <span
       title={failureReason ?? undefined}
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider ${tone.bg} ${tone.fg}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 font-medium text-[11px] uppercase tracking-wider ${tone.bg} ${tone.fg}`}
     >
       {tone.label}
     </span>

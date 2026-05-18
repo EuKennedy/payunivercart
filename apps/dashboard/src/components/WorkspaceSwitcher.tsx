@@ -52,50 +52,56 @@ export function WorkspaceSwitcher() {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 transition hover:bg-[var(--color-surface-muted)]"
       >
-        <span className="grid size-9 place-items-center rounded-xl bg-[var(--color-fg)] text-[15px] font-semibold tracking-tight text-[var(--color-fg-inverse)]">
+        <span className="grid size-9 place-items-center rounded-xl bg-[var(--color-fg)] font-semibold text-[15px] text-[var(--color-fg-inverse)] tracking-tight">
           {initial}
         </span>
-        <span className="flex-1 truncate text-left text-[15px] font-semibold tracking-tight text-[var(--color-fg)]">
+        <span className="flex-1 truncate text-left font-semibold text-[15px] text-[var(--color-fg)] tracking-tight">
           {me.data.workspace.name}
         </span>
         <ChevronDown className="size-3.5 text-[var(--color-fg-subtle)]" />
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
+        <div className="absolute top-full right-0 left-0 z-10 mt-2 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
           <ul className="flex flex-col py-1">
-            {(list.data ?? [{ workspaceId: me.data.workspace.id, name: me.data.workspace.name, role: me.data.role }]).map(
-              (ws) => (
-                <li key={ws.workspaceId}>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className={clsx(
-                      'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition hover:bg-[var(--color-surface-muted)]',
-                      ws.workspaceId === me.data.workspace.id
-                        ? 'text-[var(--color-fg)]'
-                        : 'text-[var(--color-fg-muted)]',
-                    )}
-                  >
-                    <span className="grid size-6 place-items-center rounded-md bg-[var(--color-fg)] text-[10px] font-semibold text-[var(--color-fg-inverse)]">
-                      {(ws.name[0] ?? 'p').toLowerCase()}
-                    </span>
-                    <span className="flex-1 truncate font-medium">{ws.name}</span>
-                    <span className="text-[10px] uppercase tracking-wider text-[var(--color-fg-subtle)]">
-                      {ws.role}
-                    </span>
-                  </button>
-                </li>
-              ),
-            )}
+            {(
+              list.data ?? [
+                {
+                  workspaceId: me.data.workspace.id,
+                  name: me.data.workspace.name,
+                  role: me.data.role,
+                },
+              ]
+            ).map((ws) => (
+              <li key={ws.workspaceId}>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className={clsx(
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition hover:bg-[var(--color-surface-muted)]',
+                    ws.workspaceId === me.data.workspace.id
+                      ? 'text-[var(--color-fg)]'
+                      : 'text-[var(--color-fg-muted)]',
+                  )}
+                >
+                  <span className="grid size-6 place-items-center rounded-md bg-[var(--color-fg)] font-semibold text-[10px] text-[var(--color-fg-inverse)]">
+                    {(ws.name[0] ?? 'p').toLowerCase()}
+                  </span>
+                  <span className="flex-1 truncate font-medium">{ws.name}</span>
+                  <span className="text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
+                    {ws.role}
+                  </span>
+                </button>
+              </li>
+            ))}
           </ul>
-          <div className="border-t border-[var(--color-border)] px-3 py-2">
+          <div className="border-[var(--color-border)] border-t px-3 py-2">
             <button
               type="button"
               disabled
-              className="flex w-full items-center gap-2 text-left text-[12px] font-medium text-[var(--color-fg-subtle)]"
+              className="flex w-full items-center gap-2 text-left font-medium text-[12px] text-[var(--color-fg-subtle)]"
             >
-              <span className="grid size-5 place-items-center rounded-md border border-dashed border-[var(--color-border)] text-[12px] leading-none">
+              <span className="grid size-5 place-items-center rounded-md border border-[var(--color-border)] border-dashed text-[12px] leading-none">
                 +
               </span>
               <span className="flex-1">Criar workspace</span>
@@ -110,7 +116,15 @@ export function WorkspaceSwitcher() {
 
 function ChevronDown({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" className={className}>
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className={className}
+    >
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5L6 7.5L9 4.5" />
     </svg>
   );

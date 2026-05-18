@@ -78,10 +78,7 @@ export const productsRouter = router({
           ),
         )
         .where(
-          and(
-            eq(schema.products.workspaceId, ctx.workspaceId),
-            isNull(schema.products.deletedAt),
-          ),
+          and(eq(schema.products.workspaceId, ctx.workspaceId), isNull(schema.products.deletedAt)),
         )
         .orderBy(desc(schema.products.createdAt));
 
@@ -121,7 +118,10 @@ export const productsRouter = router({
     .output(z.object({ id: z.string().uuid(), slug: z.string() }))
     .mutation(async ({ ctx, input }) => {
       for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
-        const candidateSlug = attempt === 0 ? slugify(input.name) + '-' + randomHexSuffix() : mintProductSlug(input.name);
+        const candidateSlug =
+          attempt === 0
+            ? `${slugify(input.name)}-${randomHexSuffix()}`
+            : mintProductSlug(input.name);
         try {
           return await withWorkspace(ctx.services.db.db, ctx.workspaceId, async (tx) => {
             const [product] = await tx
@@ -206,7 +206,8 @@ export const productsRouter = router({
         if (input.priceCents !== undefined || input.maxInstallments !== undefined) {
           const offerPatch: Record<string, unknown> = {};
           if (input.priceCents !== undefined) offerPatch.amountCents = BigInt(input.priceCents);
-          if (input.maxInstallments !== undefined) offerPatch.maxInstallments = input.maxInstallments;
+          if (input.maxInstallments !== undefined)
+            offerPatch.maxInstallments = input.maxInstallments;
           await tx
             .update(schema.productOffers)
             .set(offerPatch)
@@ -236,10 +237,7 @@ export const productsRouter = router({
           .update(schema.products)
           .set({ deletedAt: new Date(), isActive: false })
           .where(
-            and(
-              eq(schema.products.id, input.id),
-              eq(schema.products.workspaceId, ctx.workspaceId),
-            ),
+            and(eq(schema.products.id, input.id), eq(schema.products.workspaceId, ctx.workspaceId)),
           );
       });
       return { ok: true as const };

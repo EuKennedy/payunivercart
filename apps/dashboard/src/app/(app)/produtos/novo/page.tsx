@@ -79,17 +79,14 @@ export default function NovoProdutoPage() {
       <header className="flex flex-col gap-3">
         <Kicker>catálogo · novo produto</Kicker>
         <Heading level={1}>Cadastre um produto.</Heading>
-        <p className="max-w-2xl text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
+        <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
           Você define nome, preço e descrição. O link do checkout é gerado automaticamente — pronto
           pra colar no seu funil.
         </p>
       </header>
 
       <form onSubmit={onSubmit} className="flex max-w-3xl flex-col gap-7">
-        <Field
-          label="Nome do produto"
-          hint="Aparece no checkout e no link público."
-        >
+        <Field label="Nome do produto" hint="Aparece no checkout e no link público.">
           <input
             type="text"
             value={name}
@@ -97,7 +94,6 @@ export default function NovoProdutoPage() {
             placeholder="Ex.: Curso de Tráfego — Edição 2026"
             className={fieldInputClass}
             maxLength={120}
-            autoFocus
           />
         </Field>
 
@@ -107,7 +103,7 @@ export default function NovoProdutoPage() {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Descreva o que o cliente recebe ao comprar."
             rows={4}
-            className={fieldInputClass + ' resize-none'}
+            className={`${fieldInputClass} resize-none`}
             maxLength={2000}
           />
         </Field>
@@ -121,12 +117,11 @@ export default function NovoProdutoPage() {
                   key={option.value}
                   type="button"
                   onClick={() => setType(option.value)}
-                  className={
-                    'rounded-xl border px-4 py-3 text-left text-[13px] font-medium transition ' +
-                    (active
+                  className={`rounded-xl border px-4 py-3 text-left font-medium text-[13px] transition ${
+                    active
                       ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
-                      : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]')
-                  }
+                      : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
+                  }`}
                 >
                   {option.label}
                 </button>
@@ -145,7 +140,7 @@ export default function NovoProdutoPage() {
             }
           >
             <div className="relative">
-              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[14px] font-medium text-[var(--color-fg-subtle)]">
+              <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
                 R$
               </span>
               <input
@@ -154,7 +149,7 @@ export default function NovoProdutoPage() {
                 value={priceInput}
                 onChange={(e) => setPriceInput(e.target.value)}
                 placeholder="99,90"
-                className={fieldInputClass + ' pl-10'}
+                className={`${fieldInputClass} pl-10`}
               />
             </div>
           </Field>
@@ -166,7 +161,7 @@ export default function NovoProdutoPage() {
             <select
               value={maxInstallments}
               onChange={(e) => setMaxInstallments(Number.parseInt(e.target.value, 10))}
-              className={fieldInputClass + ' appearance-none'}
+              className={`${fieldInputClass} appearance-none`}
             >
               {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
                 <option key={n} value={n}>
@@ -180,9 +175,7 @@ export default function NovoProdutoPage() {
         {validationError ? (
           <p className="text-[13px] text-[var(--color-danger)]">{validationError}</p>
         ) : null}
-        {apiError ? (
-          <p className="text-[13px] text-[var(--color-danger)]">{apiError}</p>
-        ) : null}
+        {apiError ? <p className="text-[13px] text-[var(--color-danger)]">{apiError}</p> : null}
 
         <div className="flex items-center gap-3 pt-2">
           <Button type="submit" disabled={!!validationError || create.isPending}>
@@ -214,12 +207,11 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
+    // biome-ignore lint/a11y/noLabelWithoutControl: input rendered via {children}; biome can't trace into children, but HTML label semantics still focus the first descendant control on click.
     <label className="flex flex-col gap-2">
-      <span className="text-[13px] font-medium text-[var(--color-fg-muted)]">{label}</span>
+      <span className="font-medium text-[13px] text-[var(--color-fg-muted)]">{label}</span>
       {children}
-      {hint ? (
-        <span className="text-[12px] text-[var(--color-fg-subtle)]">{hint}</span>
-      ) : null}
+      {hint ? <span className="text-[12px] text-[var(--color-fg-subtle)]">{hint}</span> : null}
     </label>
   );
 }

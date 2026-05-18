@@ -36,10 +36,10 @@ export default function LoginPage() {
         {/* Left — form */}
         <section className="flex flex-col px-6 py-8 lg:px-16 lg:py-12">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="grid size-9 place-items-center rounded-lg bg-[var(--color-fg)] text-[14px] font-semibold text-[var(--color-fg-inverse)]">
+            <span className="grid size-9 place-items-center rounded-lg bg-[var(--color-fg)] font-semibold text-[14px] text-[var(--color-fg-inverse)]">
               p
             </span>
-            <span className="text-[15px] font-semibold tracking-tight">payunivercart</span>
+            <span className="font-semibold text-[15px] tracking-tight">payunivercart</span>
           </Link>
 
           <div className="flex flex-1 flex-col justify-center py-10">
@@ -74,7 +74,7 @@ export default function LoginPage() {
                 {error && (
                   <div
                     role="alert"
-                    className="rounded-xl border border-[rgba(194,38,26,0.18)] bg-[var(--color-danger-bg)] px-4 py-3 text-[13px] font-medium text-[var(--color-danger)]"
+                    className="rounded-xl border border-[rgba(194,38,26,0.18)] bg-[var(--color-danger-bg)] px-4 py-3 font-medium text-[13px] text-[var(--color-danger)]"
                   >
                     {error}
                   </div>
@@ -102,7 +102,7 @@ export default function LoginPage() {
         </section>
 
         {/* Right — sales/social proof panel. Hidden on mobile. */}
-        <aside className="relative hidden overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface-muted)] p-16 lg:flex lg:flex-col lg:justify-between">
+        <aside className="relative hidden overflow-hidden border-[var(--color-border)] border-l bg-[var(--color-surface-muted)] p-16 lg:flex lg:flex-col lg:justify-between">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-x-0 top-[-15%] mx-auto h-[400px] max-w-md bg-[radial-gradient(closest-side,rgba(249,115,22,0.10),transparent_75%)] blur-3xl"
@@ -112,7 +112,7 @@ export default function LoginPage() {
             <Heading level={2} className="mt-3 text-balance">
               A plataforma que cresce com a sua operação.
             </Heading>
-            <p className="mt-4 text-[16px] leading-[1.55] text-[var(--color-fg-muted)]">
+            <p className="mt-4 text-[16px] text-[var(--color-fg-muted)] leading-[1.55]">
               Multi-tenant nativo, auditoria criptográfica em cada transação e checkout que aceita
               Pix, cartão, boleto e Stripe USD — pronto pra escalar de R$ 10k a R$ 10M por mês.
             </p>
@@ -138,10 +138,10 @@ export default function LoginPage() {
 function PullQuote({ quote, author }: { quote: string; author: string }) {
   return (
     <figure className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-      <blockquote className="text-[15px] leading-[1.55] text-[var(--color-fg)]">
+      <blockquote className="text-[15px] text-[var(--color-fg)] leading-[1.55]">
         “{quote}”
       </blockquote>
-      <figcaption className="mt-4 text-[12px] uppercase tracking-wider text-[var(--color-fg-subtle)]">
+      <figcaption className="mt-4 text-[12px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
         {author}
       </figcaption>
     </figure>
@@ -151,10 +151,10 @@ function PullQuote({ quote, author }: { quote: string; author: string }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+      <p className="font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
         {label}
       </p>
-      <p className="mt-1.5 text-[22px] font-semibold tracking-tight text-[var(--color-fg)]">
+      <p className="mt-1.5 font-semibold text-[22px] text-[var(--color-fg)] tracking-tight">
         {value}
       </p>
     </div>

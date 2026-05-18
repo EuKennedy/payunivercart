@@ -89,10 +89,7 @@ async function claim(db: DatabaseClient, attemptId: string): Promise<boolean> {
     .update(schema.recoveryAttempts)
     .set({ status: 'processing' })
     .where(
-      and(
-        eq(schema.recoveryAttempts.id, attemptId),
-        eq(schema.recoveryAttempts.status, 'queued'),
-      ),
+      and(eq(schema.recoveryAttempts.id, attemptId), eq(schema.recoveryAttempts.status, 'queued')),
     )
     .returning({ id: schema.recoveryAttempts.id });
   return rows.length > 0;
@@ -176,12 +173,7 @@ async function processAttempt(
     return 'failed';
   }
   if (sessionStatus !== 'WORKING') {
-    await mark(
-      ctx.db,
-      attempt.id,
-      'failed',
-      `whatsapp_session_status:${sessionStatus}`,
-    );
+    await mark(ctx.db, attempt.id, 'failed', `whatsapp_session_status:${sessionStatus}`);
     return 'failed';
   }
 

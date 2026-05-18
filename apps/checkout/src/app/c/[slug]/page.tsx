@@ -4,7 +4,6 @@ import type { AppRouter } from '@payunivercart/api/routers';
 import type { inferRouterOutputs } from '@trpc/server';
 import clsx from 'clsx';
 import { use, useMemo, useState } from 'react';
-import { formatCents } from '../../../lib/money';
 import {
   maskBrPhone,
   maskCardExpiry,
@@ -13,6 +12,7 @@ import {
   maskDigits,
   unmaskDigits,
 } from '../../../lib/masks';
+import { formatCents } from '../../../lib/money';
 import { trpc } from '../../../lib/trpc';
 
 type CheckoutData = inferRouterOutputs<AppRouter>['checkout']['getBySlug'];
@@ -44,7 +44,11 @@ export default function CheckoutPage({ params }: { params: Promise<{ slug: strin
   const product = trpc.checkout.getBySlug.useQuery({ slug });
 
   if (product.isPending) {
-    return <CenteredCard><Skeleton /></CenteredCard>;
+    return (
+      <CenteredCard>
+        <Skeleton />
+      </CenteredCard>
+    );
   }
   if (product.error) {
     return (
@@ -87,10 +91,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 
   const perInstallment = useMemo(() => {
     if (product.maxInstallments < 2) return null;
-    return formatCents(
-      Math.ceil(product.priceCents / product.maxInstallments),
-      product.currency,
-    );
+    return formatCents(Math.ceil(product.priceCents / product.maxInstallments), product.currency);
   }, [product.maxInstallments, product.currency, product.priceCents]);
 
   const docDigits = unmaskDigits(doc);
@@ -106,9 +107,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 
   const cardComplete =
     method !== 'credit_card' ||
-    (cardDigits.length >= 13 &&
-      expiryDigits.length === 4 &&
-      cardCvc.length >= 3);
+    (cardDigits.length >= 13 && expiryDigits.length === 4 && cardCvc.length >= 3);
 
   const submitDisabled = !identifyComplete || !cardComplete || createOrder.isPending;
 
@@ -164,10 +163,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
     <main className="min-h-screen">
       <ProducerHeader workspace={workspace} brandTone={brandTone} />
 
-      <form
-        onSubmit={onSubmit}
-        className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10"
-      >
+      <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr] lg:gap-7">
           {/* ---------- Left column: steps ---------- */}
           <div className="flex flex-col gap-4">
@@ -187,7 +183,6 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                       onChange={(e) => setName(e.target.value)}
                       placeholder="Como aparece no documento"
                       autoComplete="name"
-                      autoFocus
                     />
                   </Field>
                   <Field label="Email">
@@ -221,7 +216,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                       />
                     </Field>
                   </div>
-                  <p className="text-[11px] leading-[1.45] text-[var(--ink-50)]">
+                  <p className="text-[11px] text-[var(--ink-50)] leading-[1.45]">
                     Usaremos seu telefone para enviar o acesso por WhatsApp.
                   </p>
                   <button
@@ -252,7 +247,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
               locked={step !== 'pay'}
             >
               {step !== 'pay' ? (
-                <p className="text-[13px] leading-[1.55] text-[var(--ink-50)]">
+                <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
                   Complete seus dados de identificação para continuar.
                 </p>
               ) : (
@@ -260,14 +255,14 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                   <MethodTabs current={method} onChange={setMethod} />
 
                   {method === 'pix' ? (
-                    <p className="text-[13px] leading-[1.55] text-[var(--ink-70)]">
+                    <p className="text-[13px] text-[var(--ink-70)] leading-[1.55]">
                       Você vai receber um QR-code para pagar no app do seu banco. Aprovação em
                       segundos.
                     </p>
                   ) : null}
 
                   {method === 'boleto' ? (
-                    <p className="text-[13px] leading-[1.55] text-[var(--ink-70)]">
+                    <p className="text-[13px] text-[var(--ink-70)] leading-[1.55]">
                       O boleto leva até 2 dias úteis para compensar. Indicado para quem não usa Pix.
                     </p>
                   ) : null}
@@ -328,7 +323,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                   ) : null}
 
                   {createOrder.error ? (
-                    <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] leading-[1.5] text-[var(--danger-text)]">
+                    <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger-text)] leading-[1.5]">
                       {createOrder.error.message}
                     </p>
                   ) : null}
@@ -338,7 +333,9 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                     disabled={submitDisabled}
                     className="btn btn-primary mt-1 w-full text-[15px]"
                   >
-                    {createOrder.isPending ? 'Processando…' : `${METHOD_CTA[method]} · ${formattedTotal}`}
+                    {createOrder.isPending
+                      ? 'Processando…'
+                      : `${METHOD_CTA[method]} · ${formattedTotal}`}
                   </button>
 
                   <SecurityLine />
@@ -350,13 +347,12 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           {/* ---------- Right column: summary ---------- */}
           <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
             <div className="glass-card p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-50)]">
+              <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Resumo do pedido
               </p>
 
-              <div className="mt-4 flex items-start gap-3 border-b border-[var(--hairline)] pb-4">
+              <div className="mt-4 flex items-start gap-3 border-[var(--hairline)] border-b pb-4">
                 {product.coverImageUrl ? (
-                  // biome-ignore lint/performance/noImgElement: producer-supplied remote URL.
                   <img
                     src={product.coverImageUrl}
                     alt={product.name}
@@ -364,7 +360,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                   />
                 ) : (
                   <span
-                    className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl text-[18px] font-semibold text-white"
+                    className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl font-semibold text-[18px] text-white"
                     style={{
                       background:
                         brandTone ??
@@ -375,12 +371,12 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                   </span>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-semibold leading-tight text-[var(--ink-100)]">
+                  <p className="font-semibold text-[14px] text-[var(--ink-100)] leading-tight">
                     {product.name}
                   </p>
                   <p className="mt-1 text-[12px] text-[var(--ink-50)]">Quantidade: 1</p>
                 </div>
-                <p className="shrink-0 text-[14px] font-semibold tabular-nums text-[var(--ink-100)]">
+                <p className="shrink-0 font-semibold text-[14px] text-[var(--ink-100)] tabular-nums">
                   {formattedTotal}
                 </p>
               </div>
@@ -388,7 +384,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
               <dl className="mt-4 space-y-2 text-[13px]">
                 <div className="flex items-baseline justify-between">
                   <dt className="text-[var(--ink-70)]">Subtotal (1 produto)</dt>
-                  <dd className="tabular-nums text-[var(--ink-90)]">{formattedTotal}</dd>
+                  <dd className="text-[var(--ink-90)] tabular-nums">{formattedTotal}</dd>
                 </div>
                 <div className="flex items-baseline justify-between">
                   <dt className="text-[var(--ink-70)]">Frete</dt>
@@ -398,16 +394,16 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                 </div>
               </dl>
 
-              <div className="mt-4 flex items-end justify-between border-t border-[var(--hairline)] pt-4">
-                <span className="text-[13px] uppercase tracking-[0.16em] text-[var(--ink-50)]">
+              <div className="mt-4 flex items-end justify-between border-[var(--hairline)] border-t pt-4">
+                <span className="text-[13px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
                   Total
                 </span>
-                <span className="text-[28px] font-semibold leading-none tabular-nums tracking-tight text-[var(--ink-100)]">
+                <span className="font-semibold text-[28px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
                   {formattedTotal}
                 </span>
               </div>
               {product.maxInstallments > 1 && perInstallment ? (
-                <p className="mt-1 text-right text-[12px] font-medium text-[var(--dop-600)]">
+                <p className="mt-1 text-right font-medium text-[12px] text-[var(--dop-600)]">
                   até {product.maxInstallments}× de {perInstallment} sem juros
                 </p>
               ) : null}
@@ -422,7 +418,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-medium text-[var(--ink-50)]">Aceitamos:</span>
+                <span className="font-medium text-[11px] text-[var(--ink-50)]">Aceitamos:</span>
                 {['Pix', 'Visa', 'Master', 'Amex', 'Elo', 'Boleto'].map((b) => (
                   <PaymentBadge key={b}>{b}</PaymentBadge>
                 ))}
@@ -432,11 +428,11 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
         </div>
       </form>
 
-      <footer className="mt-6 border-t border-[var(--hairline)] bg-[var(--bg-elev-1)]/60">
+      <footer className="mt-6 border-[var(--hairline)] border-t bg-[var(--bg-elev-1)]/60">
         <div className="container-x mx-auto flex w-full max-w-[1180px] flex-col items-center gap-1 py-5 text-center text-[11px] text-[var(--ink-50)]">
           <p>
-            Pagamento processado por <strong className="text-[var(--ink-70)]">payunivercart</strong>.
-            Ao confirmar, você concorda com os termos e a política de privacidade do produtor.
+            Pagamento processado por <strong className="text-[var(--ink-70)]">payunivercart</strong>
+            . Ao confirmar, você concorda com os termos e a política de privacidade do produtor.
           </p>
           <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>
         </div>
@@ -457,11 +453,10 @@ function ProducerHeader({
   brandTone: string | null;
 }) {
   return (
-    <header className="border-b border-[var(--hairline)] bg-[var(--bg-elev-1)]/70 backdrop-blur">
+    <header className="border-[var(--hairline)] border-b bg-[var(--bg-elev-1)]/70 backdrop-blur">
       <div className="container-x mx-auto flex w-full max-w-[1180px] items-center justify-between py-4">
         <div className="flex items-center gap-3">
           {workspace.brandLogoUrl ? (
-            // biome-ignore lint/performance/noImgElement: producer logo, remote.
             <img
               src={workspace.brandLogoUrl}
               alt={workspace.name}
@@ -469,21 +464,20 @@ function ProducerHeader({
             />
           ) : (
             <span
-              className="grid h-9 w-9 place-items-center rounded-xl text-[14px] font-semibold text-white"
+              className="grid h-9 w-9 place-items-center rounded-xl font-semibold text-[14px] text-white"
               style={{
                 background:
-                  brandTone ??
-                  'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
+                  brandTone ?? 'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
               }}
             >
               {(workspace.name[0] ?? 'p').toUpperCase()}
             </span>
           )}
           <div className="flex flex-col leading-tight">
-            <span className="text-[14px] font-semibold text-[var(--ink-100)]">
+            <span className="font-semibold text-[14px] text-[var(--ink-100)]">
               {workspace.name}
             </span>
-            <span className="flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-[var(--ink-50)]">
+            <span className="flex items-center gap-1 text-[10px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
               <ShieldIcon size={10} /> Checkout seguro
             </span>
           </div>
@@ -519,29 +513,25 @@ function StepCard({
 }) {
   return (
     <section
-      className={clsx(
-        'glass-card p-5 transition',
-        active && 'dop-glow',
-        locked && 'opacity-90',
-      )}
+      className={clsx('glass-card p-5 transition', active && 'dop-glow', locked && 'opacity-90')}
     >
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span
             className={clsx(
-              'grid h-7 w-7 place-items-center rounded-full text-[13px] font-semibold transition',
+              'grid h-7 w-7 place-items-center rounded-full font-semibold text-[13px] transition',
               done
                 ? 'bg-[var(--dop-500)] text-white'
                 : active
-                ? 'bg-[var(--dop-500)] text-white shadow-[0_4px_14px_var(--dop-glow)]'
-                : 'bg-[var(--surface-2)] text-[var(--ink-50)]',
+                  ? 'bg-[var(--dop-500)] text-white shadow-[0_4px_14px_var(--dop-glow)]'
+                  : 'bg-[var(--surface-2)] text-[var(--ink-50)]',
             )}
           >
             {done ? '✓' : num}
           </span>
           <h2
             className={clsx(
-              'text-[15px] font-semibold',
+              'font-semibold text-[15px]',
               active || done ? 'text-[var(--ink-100)]' : 'text-[var(--ink-70)]',
             )}
           >
@@ -552,13 +542,13 @@ function StepCard({
           <button
             type="button"
             onClick={onEdit}
-            className="text-[12px] font-medium text-[var(--dop-600)] hover:text-[var(--dop-700)]"
+            className="font-medium text-[12px] text-[var(--dop-600)] hover:text-[var(--dop-700)]"
           >
             Editar
           </button>
         ) : null}
         {done && !onEdit ? (
-          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dop-600)]">
+          <span className="font-semibold text-[10px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
             Concluído
           </span>
         ) : null}
@@ -577,7 +567,7 @@ function MethodTabs({ current, onChange }: { current: Method; onChange: (m: Meth
           type="button"
           onClick={() => onChange(m)}
           className={clsx(
-            'rounded-full px-3 py-2 text-[13px] font-medium transition',
+            'rounded-full px-3 py-2 font-medium text-[13px] transition',
             current === m
               ? 'bg-white text-[var(--ink-100)] shadow-[0_1px_3px_rgba(15,23,42,0.10)]'
               : 'text-[var(--ink-70)] hover:text-[var(--ink-100)]',
@@ -592,6 +582,7 @@ function MethodTabs({ current, onChange }: { current: Method; onChange: (m: Meth
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
+    // biome-ignore lint/a11y/noLabelWithoutControl: input rendered via {children}; biome can't trace into children, but HTML label semantics still focus the first descendant control on click.
     <label className="field-glass block cursor-text">
       <span>{label}</span>
       {children}
@@ -609,7 +600,7 @@ function SecurityLine() {
 
 function PaymentBadge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-md border border-[var(--hairline)] bg-[var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-70)]">
+    <span className="rounded-md border border-[var(--hairline)] bg-[var(--surface-1)] px-2 py-0.5 font-semibold text-[10px] text-[var(--ink-70)] uppercase tracking-wider">
       {children}
     </span>
   );
@@ -664,11 +655,11 @@ function Skeleton() {
 function ErrorView({ title, body }: { title: string; body: string }) {
   return (
     <div className="text-center">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--danger-text)]">
+      <p className="font-semibold text-[11px] text-[var(--danger-text)] uppercase tracking-[0.18em]">
         Erro
       </p>
-      <h1 className="mt-3 text-[24px] font-semibold text-[var(--ink-100)]">{title}</h1>
-      <p className="mt-3 text-[14px] leading-[1.55] text-[var(--ink-70)]">{body}</p>
+      <h1 className="mt-3 font-semibold text-[24px] text-[var(--ink-100)]">{title}</h1>
+      <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">{body}</p>
     </div>
   );
 }
@@ -700,23 +691,23 @@ function SuccessView({
   const headline = isPaid
     ? 'Compra confirmada!'
     : hasPix
-    ? 'Pague em segundos.'
-    : 'Recebemos sua compra.';
+      ? 'Pague em segundos.'
+      : 'Recebemos sua compra.';
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--dop-600)]">
+      <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
         {kicker}
       </p>
-      <h1 className="mt-3 text-[26px] font-semibold text-[var(--ink-100)]">{headline}</h1>
+      <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)]">{headline}</h1>
 
       {isPaid ? (
-        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--ink-70)]">
+        <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
           Pagamento aprovado pelo {methodLabel.toLowerCase()}. Em alguns minutos você recebe os
           dados de acesso em <strong>{buyerEmail}</strong> e no seu WhatsApp.
         </p>
       ) : hasPix ? (
         <>
-          <p className="mt-3 text-[14px] leading-[1.55] text-[var(--ink-70)]">
+          <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
             Escaneie o QR-code com o app do seu banco ou copie o código abaixo. Quando recebermos a
             confirmação do Pix, mandamos o acesso em <strong>{buyerEmail}</strong> e no seu
             WhatsApp.
@@ -724,7 +715,6 @@ function SuccessView({
           {pixQrCodeImage ? (
             <div className="mt-6 flex justify-center">
               <div className="rounded-2xl border border-[var(--hairline)] bg-white p-3 shadow-[var(--sh-sm)]">
-                {/** biome-ignore lint/performance/noImgElement: data URI base64 from gateway. */}
                 <img
                   src={`data:image/png;base64,${pixQrCodeImage}`}
                   alt="QR-code Pix"
@@ -741,7 +731,7 @@ function SuccessView({
           ) : null}
         </>
       ) : (
-        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--ink-70)]">
+        <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
           {gatewayConfigured
             ? `Estamos gerando seu ${methodLabel.toLowerCase()} agora. Em instantes você recebe as instruções em ${buyerEmail} e no seu WhatsApp.`
             : `Seu pedido foi registrado. O produtor está finalizando a integração do gateway de pagamento — você receberá as instruções em ${buyerEmail} assim que estiver pronto.`}
@@ -795,11 +785,11 @@ function PixCopyButton({ code }: { code: string }) {
   };
   return (
     <div className="mt-5 flex flex-col gap-2">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ink-50)]">
+      <span className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
         Pix copia e cola
       </span>
       <div className="flex items-stretch gap-2">
-        <code className="flex-1 overflow-hidden truncate rounded-xl border border-[var(--hairline)] bg-[var(--surface-1)] px-4 py-3 text-[12px] font-mono text-[var(--ink-70)]">
+        <code className="flex-1 overflow-hidden truncate rounded-xl border border-[var(--hairline)] bg-[var(--surface-1)] px-4 py-3 font-mono text-[12px] text-[var(--ink-70)]">
           {code}
         </code>
         <button type="button" onClick={copy} className="btn btn-primary px-5 text-[13px]">

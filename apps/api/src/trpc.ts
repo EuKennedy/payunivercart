@@ -82,9 +82,7 @@ export const workspaceProcedure = authedProcedure.use(async ({ ctx, next }) => {
     })
     .from(schema.memberships)
     .where(eq(schema.memberships.userId, ctx.userId))
-    .orderBy(
-      asc(sql`coalesce(${schema.memberships.acceptedAt}, ${schema.memberships.createdAt})`),
-    );
+    .orderBy(asc(sql`coalesce(${schema.memberships.acceptedAt}, ${schema.memberships.createdAt})`));
 
   if (rows.length === 0) {
     throw new TRPCError({
@@ -93,9 +91,7 @@ export const workspaceProcedure = authedProcedure.use(async ({ ctx, next }) => {
     });
   }
 
-  const selected = headerWs
-    ? rows.find((r) => r.workspaceId === headerWs)
-    : rows[0];
+  const selected = headerWs ? rows.find((r) => r.workspaceId === headerWs) : rows[0];
 
   if (!selected) {
     throw new TRPCError({

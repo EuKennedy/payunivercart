@@ -112,9 +112,7 @@ export function createAuth(config: AuthServerConfig) {
                     event: 'auth.userCreated.cleanupFailed',
                     userId: user.id,
                     cleanupError:
-                      cleanupCause instanceof Error
-                        ? cleanupCause.message
-                        : String(cleanupCause),
+                      cleanupCause instanceof Error ? cleanupCause.message : String(cleanupCause),
                   })}\n`,
                 );
               }

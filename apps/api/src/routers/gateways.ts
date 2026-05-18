@@ -2,8 +2,8 @@ import { schema, withWorkspace } from '@payunivercart/db';
 import {
   getAdapter,
   mercadoPagoCredentialsSchema,
-  pagarmeCredentialsSchema,
   pagSeguroCredentialsSchema,
+  pagarmeCredentialsSchema,
   stripeCredentialsSchema,
 } from '@payunivercart/payments';
 import { TRPCError } from '@trpc/server';

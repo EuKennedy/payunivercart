@@ -1,5 +1,5 @@
 import { schema } from '@payunivercart/db';
-import { getAdapter } from '@payunivercart/payments';
+import { type WebhookEvent, getAdapter } from '@payunivercart/payments';
 import { type GatewayId, PayunivercartError } from '@payunivercart/shared';
 import { and, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
@@ -138,7 +138,7 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
     }
 
     // 4. Verify signature.
-    let event;
+    let event: WebhookEvent;
     try {
       event = adapter.verifyWebhook(credentials as never, {
         rawBody: raw,

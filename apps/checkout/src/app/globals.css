@@ -8,104 +8,107 @@
 
 :root {
   /* Surfaces — branco premium em camadas */
-  --bg:        #FFFFFF;
-  --bg-elev-1: #FAFBFC;
-  --bg-elev-2: #F4F5F7;
-  --bg-elev-3: #ECEEF1;
+  --bg: #ffffff;
+  --bg-elev-1: #fafbfc;
+  --bg-elev-2: #f4f5f7;
+  --bg-elev-3: #eceef1;
 
   /* Ink (foreground) — pretos com leve tom morno */
-  --ink-100: #0A0E13;
-  --ink-90:  #1B2229;
-  --ink-70:  #4F5760;
-  --ink-50:  #767E88;
-  --ink-30:  #ABB1B9;
-  --ink-10:  #DEE2E6;
+  --ink-100: #0a0e13;
+  --ink-90: #1b2229;
+  --ink-70: #4f5760;
+  --ink-50: #767e88;
+  --ink-30: #abb1b9;
+  --ink-10: #dee2e6;
 
   /* Dopamine — verde premium, contrast AA em fundo branco */
-  --dop-500: #16A34A;
-  --dop-400: #22C55E;
-  --dop-300: #4ADE80;
-  --dop-200: #BBF7D0;
-  --dop-600: #15803D;
+  --dop-500: #16a34a;
+  --dop-400: #22c55e;
+  --dop-300: #4ade80;
+  --dop-200: #bbf7d0;
+  --dop-600: #15803d;
   --dop-700: #166534;
-  --dop-glow:     rgba(22, 163, 74, 0.22);
-  --dop-soft:     rgba(22, 163, 74, 0.07);
+  --dop-glow: rgba(22, 163, 74, 0.22);
+  --dop-soft: rgba(22, 163, 74, 0.07);
   --dop-hairline: rgba(22, 163, 74, 0.22);
 
   /* Glass — vidro claro estilo Apple iOS light */
-  --glass-bg:     rgba(255, 255, 255, 0.62);
-  --glass-bg-2:   rgba(255, 255, 255, 0.85);
-  --glass-border:        rgba(15, 23, 42, 0.08);
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-2: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(15, 23, 42, 0.08);
   --glass-border-strong: rgba(15, 23, 42, 0.14);
-  --glass-shadow: 0 1px 0 rgba(255,255,255,0.6) inset, 0 24px 60px rgba(15, 23, 42, 0.08);
+  --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 24px 60px rgba(15, 23, 42, 0.08);
 
   /* Surface overlays semantic */
-  --surface-1:       rgba(15, 23, 42, 0.03);
-  --surface-2:       rgba(15, 23, 42, 0.05);
-  --surface-3:       rgba(15, 23, 42, 0.08);
-  --surface-strong:  rgba(15, 23, 42, 0.12);
-  --hairline:        rgba(15, 23, 42, 0.06);
-  --hairline-strong: rgba(15, 23, 42, 0.10);
+  --surface-1: rgba(15, 23, 42, 0.03);
+  --surface-2: rgba(15, 23, 42, 0.05);
+  --surface-3: rgba(15, 23, 42, 0.08);
+  --surface-strong: rgba(15, 23, 42, 0.12);
+  --hairline: rgba(15, 23, 42, 0.06);
+  --hairline-strong: rgba(15, 23, 42, 0.1);
 
   /* Danger + warning (raros no checkout, mas precisamos) */
-  --danger-bg:     rgba(220, 38, 38, 0.08);
-  --danger-text:   #B91C1C;
+  --danger-bg: rgba(220, 38, 38, 0.08);
+  --danger-text: #b91c1c;
   --danger-border: rgba(220, 38, 38, 0.18);
 
-  --warn-bg:       rgba(180, 83, 9, 0.08);
-  --warn-text:     #92400E;
+  --warn-bg: rgba(180, 83, 9, 0.08);
+  --warn-text: #92400e;
 
   /* Shadows premium */
   --sh-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.03);
   --sh-md: 0 4px 12px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
   --sh-lg: 0 16px 40px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.04);
-  --sh-xl: 0 32px 64px rgba(15, 23, 42, 0.10), 0 8px 16px rgba(15, 23, 42, 0.04);
+  --sh-xl: 0 32px 64px rgba(15, 23, 42, 0.1), 0 8px 16px rgba(15, 23, 42, 0.04);
 
   /* Type */
-  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display",
+    "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
   /* Radii */
-  --r-sm:  10px;
-  --r-md:  16px;
-  --r-lg:  22px;
-  --r-xl:  32px;
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-xl: 32px;
 
   /* Easings */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Selection */
   --select-bg: var(--dop-500);
-  --select-fg: #FFFFFF;
+  --select-fg: #ffffff;
 }
 
 /* Theme bridge — semantic colors callable as bg-[var(--color-foo)] */
 @theme inline {
-  --color-bg:         var(--bg);
-  --color-bg-elev-1:  var(--bg-elev-1);
-  --color-bg-elev-2:  var(--bg-elev-2);
-  --color-bg-elev-3:  var(--bg-elev-3);
+  --color-bg: var(--bg);
+  --color-bg-elev-1: var(--bg-elev-1);
+  --color-bg-elev-2: var(--bg-elev-2);
+  --color-bg-elev-3: var(--bg-elev-3);
 
-  --color-ink-100:    var(--ink-100);
-  --color-ink-90:     var(--ink-90);
-  --color-ink-70:     var(--ink-70);
-  --color-ink-50:     var(--ink-50);
-  --color-ink-30:     var(--ink-30);
-  --color-ink-10:     var(--ink-10);
+  --color-ink-100: var(--ink-100);
+  --color-ink-90: var(--ink-90);
+  --color-ink-70: var(--ink-70);
+  --color-ink-50: var(--ink-50);
+  --color-ink-30: var(--ink-30);
+  --color-ink-10: var(--ink-10);
 
-  --color-dop:        var(--dop-500);
-  --color-dop-400:    var(--dop-400);
-  --color-dop-600:    var(--dop-600);
-  --color-dop-soft:   var(--dop-soft);
+  --color-dop: var(--dop-500);
+  --color-dop-400: var(--dop-400);
+  --color-dop-600: var(--dop-600);
+  --color-dop-soft: var(--dop-soft);
 
-  --color-hairline:        var(--hairline);
+  --color-hairline: var(--hairline);
   --color-hairline-strong: var(--hairline-strong);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 html {
   background: var(--bg);
@@ -135,20 +138,28 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(22, 163, 74, 0.05), transparent 50%),
+  background: radial-gradient(1200px 600px at 80% -10%, rgba(22, 163, 74, 0.05), transparent 50%),
     radial-gradient(900px 500px at -10% 90%, rgba(22, 163, 74, 0.035), transparent 60%);
   z-index: 0;
 }
 
-main, section, header, footer { position: relative; z-index: 1; }
+main,
+section,
+header,
+footer {
+  position: relative;
+  z-index: 1;
+}
 
 ::selection {
   background: var(--select-bg);
   color: var(--select-fg);
 }
 
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   font-family: var(--font-sans);
   color: var(--ink-100);
   letter-spacing: -0.02em;
@@ -164,16 +175,15 @@ h1, h2, h3, h4 {
   backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
   box-shadow: var(--sh-md);
-  transition: border-color 200ms var(--ease-out-expo),
-              box-shadow 220ms var(--ease-out-expo),
-              background 200ms var(--ease-out-expo);
+  transition: border-color 200ms var(--ease-out-expo), box-shadow 220ms var(--ease-out-expo),
+    background 200ms var(--ease-out-expo);
 }
 .glass-card:hover {
   border-color: var(--glass-border-strong);
 }
 
 .dop-glow {
-  box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.30), 0 12px 48px var(--dop-glow);
+  box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.3), 0 12px 48px var(--dop-glow);
 }
 
 /* Primary CTA — dopamine gradient pill */
@@ -189,30 +199,30 @@ h1, h2, h3, h4 {
   border-radius: 9999px;
   cursor: pointer;
   border: 0;
-  transition: transform 150ms var(--ease-out-expo),
-              box-shadow 250ms var(--ease-out-expo),
-              background 200ms var(--ease-out-expo);
+  transition: transform 150ms var(--ease-out-expo), box-shadow 250ms var(--ease-out-expo),
+    background 200ms var(--ease-out-expo);
   text-decoration: none;
   white-space: nowrap;
   user-select: none;
 }
-.btn:active { transform: scale(0.98); }
-.btn:disabled { cursor: not-allowed; opacity: 0.5; }
+.btn:active {
+  transform: scale(0.98);
+}
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 
 .btn-primary {
   background: linear-gradient(135deg, var(--dop-400) 0%, var(--dop-500) 60%, var(--dop-600) 100%);
-  color: #FFFFFF;
+  color: #ffffff;
   font-weight: 600;
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.20) inset,
-    0 8px 28px rgba(22, 163, 74, 0.35),
-    0 0 0 1px rgba(22, 163, 74, 0.55);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 8px 28px rgba(22, 163, 74, 0.35), 0 0 0 1px
+    rgba(22, 163, 74, 0.55);
 }
 .btn-primary:hover:not(:disabled) {
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.30) inset,
-    0 14px 40px rgba(22, 163, 74, 0.45),
-    0 0 0 1px rgba(22, 163, 74, 0.70);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.3) inset, 0 14px 40px rgba(22, 163, 74, 0.45), 0 0 0 1px
+    rgba(22, 163, 74, 0.7);
   transform: translateY(-1px);
 }
 .btn-primary:disabled {
@@ -256,14 +266,13 @@ h1, h2, h3, h4 {
   border: 1px solid var(--glass-border);
   border-radius: var(--r-md);
   padding: 10px 14px 8px;
-  transition: border-color 150ms var(--ease-out-expo),
-              background 150ms var(--ease-out-expo),
-              box-shadow 150ms var(--ease-out-expo);
+  transition: border-color 150ms var(--ease-out-expo), background 150ms var(--ease-out-expo),
+    box-shadow 150ms var(--ease-out-expo);
 }
 .field-glass:focus-within {
   border-color: var(--dop-500);
-  background: #FFFFFF;
-  box-shadow: 0 0 0 4px rgba(22,163,74,0.10);
+  background: #ffffff;
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.1);
 }
 .field-glass > label {
   display: block;
@@ -295,10 +304,17 @@ h1, h2, h3, h4 {
 
 /* Mobile fixed-bottom CTA on small viewports */
 @media (max-width: 640px) {
-  .btn { padding-inline: 18px; }
+  .btn {
+    padding-inline: 18px;
+  }
 }
 
 /* Reduce motion */
 @media (prefers-reduced-motion: reduce) {
-  *, ::before, ::after { animation: none !important; transition: none !important; }
+  *,
+  ::before,
+  ::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

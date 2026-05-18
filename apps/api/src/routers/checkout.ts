@@ -1,6 +1,16 @@
 import { schema } from '@payunivercart/db';
-import { type MercadoPagoCredentials, MercadoPagoAdapter, getAdapter } from '@payunivercart/payments';
-import { normalizePhone, validateCnpj, validateCpf } from '@payunivercart/shared';
+import {
+  type MercadoPagoAdapter,
+  type MercadoPagoCredentials,
+  type PaymentResult,
+  getAdapter,
+} from '@payunivercart/payments';
+import {
+  type NormalizedPhone,
+  normalizePhone,
+  validateCnpj,
+  validateCpf,
+} from '@payunivercart/shared';
 import { TRPCError } from '@trpc/server';
 import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
@@ -184,7 +194,7 @@ export const checkoutRouter = router({
       }
 
       // 2. Validate phone.
-      let phone;
+      let phone: NormalizedPhone;
       try {
         phone = normalizePhone(input.buyer.phone);
       } catch (cause) {
@@ -371,7 +381,7 @@ export const checkoutRouter = router({
         ctx.services.crypto.unsealJson<MercadoPagoCredentials>(gatewayRow.credentialsEncrypted),
       );
 
-      let charge;
+      let charge: PaymentResult;
       try {
         if (input.method === 'pix') {
           charge = await adapter.createPix(credentials, {
@@ -394,9 +404,21 @@ export const checkoutRouter = router({
           });
         } else {
           // Server-side tokenization (sandbox path — see adapter docblock).
-          const card = input.card!;
-          const [mm, yyRaw] = card.expiry.split('/');
-          const yy = yyRaw!.length === 2 ? `20${yyRaw}` : yyRaw!;
+          const card = input.card;
+          if (!card) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Dados do cartão são obrigatórios para pagamento com cartão.',
+            });
+          }
+          const [mm, yyRawPart] = card.expiry.split('/');
+          if (!mm || !yyRawPart) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Validade do cartão inválida (use MM/AA ou MM/AAAA).',
+            });
+          }
+          const yy = yyRawPart.length === 2 ? `20${yyRawPart}` : yyRawPart;
           const token = await adapter.tokenizeCard(credentials, {
             cardNumber: card.number,
             expirationMonth: Number(mm),

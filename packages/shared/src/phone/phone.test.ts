@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  PhoneNormalizationError,
-  digitsToChatId,
-  isParseablePhone,
-  normalizePhone,
-} from './index';
+import { PhoneNormalizationError, digitsToChatId, isParseablePhone, normalizePhone } from './index';
 
 describe('normalizePhone — Brazilian mobile guess', () => {
   it('parses national format and produces stripped guess for post-2012 accounts', () => {

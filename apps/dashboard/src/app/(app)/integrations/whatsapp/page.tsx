@@ -54,9 +54,9 @@ export default function WhatsappIntegrationPage() {
       <header className="flex flex-col gap-3">
         <Kicker>integrações · whatsapp</Kicker>
         <Heading level={1}>Conecte seu WhatsApp.</Heading>
-        <p className="max-w-2xl text-[15px] leading-[1.55] text-[var(--color-fg-muted)]">
-          Cada workspace tem sua própria sessão. Escolha um apelido curto, escaneie o QR-code com
-          o seu celular e seus clientes começam a receber mensagens vindas do seu número — sem
+        <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
+          Cada workspace tem sua própria sessão. Escolha um apelido curto, escaneie o QR-code com o
+          seu celular e seus clientes começam a receber mensagens vindas do seu número — sem
           proxies, sem chip intermediário. Motor: <code className="font-mono">WEBJS</code>.
         </p>
       </header>
@@ -106,13 +106,13 @@ function ConnectForm({
 
   return (
     <section className="max-w-xl rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+      <p className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
         Nova sessão
       </p>
-      <h2 className="mt-2 text-[18px] font-semibold text-[var(--color-fg)]">
+      <h2 className="mt-2 font-semibold text-[18px] text-[var(--color-fg)]">
         Dê um apelido para esta sessão
       </h2>
-      <p className="mt-2 text-[13px] leading-[1.55] text-[var(--color-fg-muted)]">
+      <p className="mt-2 text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
         Esse nome identifica sua conexão no WAHA. Use algo memorável como{' '}
         <code className="font-mono text-[12px]">vendas-loja</code> ou{' '}
         <code className="font-mono text-[12px]">whatsapp-principal</code>. 3 a 40 caracteres, sem
@@ -127,7 +127,7 @@ function ConnectForm({
         }}
       >
         <label className="flex flex-col gap-2">
-          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+          <span className="font-medium text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
             Apelido
           </span>
           <input
@@ -136,7 +136,6 @@ function ConnectForm({
             onChange={(e) => setName(e.target.value)}
             placeholder="vendas-loja"
             className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 text-[15px] text-[var(--color-fg)] outline-none transition placeholder:text-[var(--color-fg-subtle)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand-500)] focus:ring-4 focus:ring-[var(--color-brand-500)]/15"
-            autoFocus
             spellCheck={false}
             autoCapitalize="off"
             autoComplete="off"
@@ -182,7 +181,7 @@ function SessionCard({
     <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-col gap-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+          <p className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
             Sessão · <span className="font-mono text-[var(--color-fg)]">{sessionName}</span>
           </p>
           <div className="flex items-center gap-3">
@@ -216,7 +215,7 @@ function SessionCard({
 
       {status === 'WORKING' ? (
         <div className="mt-6 rounded-2xl border border-[rgba(0,135,90,0.2)] bg-[var(--color-success-bg)] p-5">
-          <p className="text-[13px] leading-[1.55] text-[var(--color-success)]">
+          <p className="text-[13px] text-[var(--color-success)] leading-[1.55]">
             ✓ WhatsApp conectado. Confirmações de pedido + recuperação de carrinho vão sair
             automaticamente do seu número.
           </p>
@@ -225,7 +224,7 @@ function SessionCard({
 
       {status === 'FAILED' ? (
         <div className="mt-6 rounded-2xl border border-[rgba(194,38,26,0.18)] bg-[var(--color-danger-bg)] p-5">
-          <p className="text-[13px] leading-[1.55] text-[var(--color-danger)]">
+          <p className="text-[13px] text-[var(--color-danger)] leading-[1.55]">
             A sessão falhou ou foi removida do WAHA. Clique em <strong>Recomeçar</strong> para
             apagar a sessão atual e criar uma nova com outro apelido.
           </p>
@@ -248,12 +247,11 @@ function QrBox() {
   });
   return (
     <div className="mt-6 flex flex-col items-center gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/60 p-6">
-      <p className="text-center text-[13px] leading-[1.55] text-[var(--color-fg-muted)]">
+      <p className="text-center text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
         Abra o WhatsApp no seu celular → <strong>Aparelhos conectados</strong> →
         <strong> Conectar um aparelho</strong> e escaneie:
       </p>
       {qr.data?.value ? (
-        // biome-ignore lint/performance/noImgElement: WAHA returns base64 PNG.
         <img
           src={`data:${qr.data.mimetype ?? 'image/png'};base64,${qr.data.value}`}
           alt="QR Code WhatsApp"
@@ -270,6 +268,13 @@ function QrBox() {
     </div>
   );
 }
+
+const FALLBACK_BADGE_TONE = {
+  bg: 'bg-[var(--color-surface-muted)]',
+  fg: 'text-[var(--color-fg-subtle)]',
+  ring: 'ring-[var(--color-border)]',
+  label: 'Parada',
+} as const;
 
 function StatusBadge({
   status,
@@ -308,11 +313,11 @@ function StatusBadge({
       label: 'Parada',
     },
   };
-  const tone = palette[status ?? 'STOPPED'] ?? palette.STOPPED!;
+  const tone = palette[status ?? 'STOPPED'] ?? FALLBACK_BADGE_TONE;
   return (
     <span
       className={clsx(
-        'inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-medium uppercase tracking-wider ring-1',
+        'inline-flex items-center gap-2 rounded-full px-3 py-1 font-medium text-[12px] uppercase tracking-wider ring-1',
         tone.bg,
         tone.fg,
         tone.ring,
