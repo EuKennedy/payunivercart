@@ -5,152 +5,259 @@ import { z } from 'zod';
 import { router, workspaceProcedure } from '../trpc';
 
 /**
- * WhatsApp integration router. Multi-tenant by design:
+ * WhatsApp integration router. Multi-tenant: one workspace owns one
+ * WAHA session. The session NAME is now producer-chosen (instead of
+ * the previous auto-derived `ws_<workspaceId>`) so the WAHA backoffice
+ * shows a human-readable identifier and the producer can recreate a
+ * fresh session after a FAILED state.
  *
- *   one workspace ──> one WAHA session ──> one producer's WhatsApp number
- *
- * The session name is derived deterministically from the workspaceId
- * (`ws_<workspaceId-without-dashes>`). WAHA's session API accepts any
- * string `^[A-Za-z0-9_-]+$`; we strip the UUID's dashes so the name
- * stays inside that character class without further encoding.
- *
- * Every procedure here runs inside `withWorkspace(...)` so RLS scopes
- * every DB query to the caller's workspace automatically.
+ * Engine: WEBJS — the production WAHA instance runs WEBJS by default;
+ * it ships every feature we use (presence, ack receipts, typing).
  */
 
-const sessionNameSchema = z.string().regex(/^ws_[a-f0-9]{32}$/);
-type SessionName = z.infer<typeof sessionNameSchema>;
+/**
+ * Session name rules:
+ *   - WAHA accepts `^[A-Za-z0-9_-]+$` and trims to ≤ 60 chars.
+ *   - We tighten to 3-40 chars and BR-friendly characters so the
+ *     producer types something memorable (e.g. "vendas-loja-bh").
+ */
+const sessionNameInput = z
+  .string()
+  .trim()
+  .min(3, 'Mínimo 3 caracteres.')
+  .max(40, 'Máximo 40 caracteres.')
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Use apenas letras, números, hífen ou underline.');
 
-function sessionNameFor(workspaceId: string): SessionName {
-  const stripped = workspaceId.replace(/-/g, '').toLowerCase();
-  return `ws_${stripped}` as SessionName;
-}
+const StatusEnum = z.enum(['STARTING', 'SCAN_QR_CODE', 'WORKING', 'FAILED', 'STOPPED']);
 
 export const whatsappRouter = router({
   /**
-   * Create-or-resume the workspace's WAHA session and return its current
-   * status. Idempotent: calling this against an existing WORKING session
-   * is a no-op other than refreshing the local row's `updatedAt`.
+   * Current session record for the workspace. Returns `null` when the
+   * producer hasn't configured a session name yet — the dashboard
+   * shows the "name your session + connect" form in that case.
+   */
+  me: workspaceProcedure
+    .output(
+      z
+        .object({
+          sessionName: z.string(),
+          phoneNumber: z.string().nullable(),
+          createdAt: z.date(),
+        })
+        .nullable(),
+    )
+    .query(async ({ ctx }) => {
+      const [row] = await ctx.services.db.db
+        .select({
+          sessionName: schema.whatsappSessions.wahaSessionId,
+          phoneNumber: schema.whatsappSessions.phoneNumber,
+          createdAt: schema.whatsappSessions.createdAt,
+        })
+        .from(schema.whatsappSessions)
+        .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+        .limit(1);
+      return row ?? null;
+    }),
+
+  /**
+   * Create the session in WAHA AND in our local mirror.
+   *
+   * Refuses when the workspace already owns a session — producer must
+   * `reset` first. Refuses when the requested name collides with
+   * another workspace's session (unique index on `wahaSessionId`).
    */
   start: workspaceProcedure
+    .input(z.object({ name: sessionNameInput }))
     .output(
       z.object({
         sessionName: z.string(),
-        status: z.string(),
+        status: StatusEnum,
       }),
     )
-    .mutation(async ({ ctx }) => {
+    .mutation(async ({ ctx, input }) => {
       const { waha, db } = ctx.services;
-      const name = sessionNameFor(ctx.workspaceId);
 
-      // 1. Create-or-start the WAHA session. WAHA Plus' /start endpoint
-      //    returns 404 when the session doesn't exist yet, so we try
-      //    /start first (works for repeat connects) and fall back to
-      //    POST /api/sessions on 404. 422 = already exists = success.
+      // Block if the workspace already has a session — force explicit
+      // `reset` so we don't accidentally clobber a WORKING session.
+      const existing = await db.db
+        .select({ id: schema.whatsappSessions.id })
+        .from(schema.whatsappSessions)
+        .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+        .limit(1);
+      if (existing.length > 0) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Workspace já tem uma sessão. Use "Recomeçar" para criar outra.',
+        });
+      }
+
+      // Create + auto-start on WAHA (engine WEBJS). 422 = already
+      // exists on WAHA side; we treat as success and let the status
+      // poll converge. Anything else is a genuine upstream rejection.
       try {
-        await waha.startSession(name);
+        await waha.createSession(input.name, { autoStart: true, engine: 'WEBJS' });
       } catch (cause) {
-        const err = cause as { code?: string; details?: { status?: number } };
-        const status = err?.details?.status;
-        if (status === 404) {
-          try {
-            await waha.createSession(name, true);
-          } catch (createCause) {
-            const createErr = createCause as { details?: { status?: number } };
-            if (createErr?.details?.status !== 422) {
-              throw new TRPCError({
-                code: 'BAD_GATEWAY',
-                message: 'WAHA refused to create the session',
-                cause: createCause,
-              });
-            }
-          }
-        } else if (status !== 422) {
+        const err = cause as { details?: { status?: number } };
+        if (err?.details?.status !== 422) {
           throw new TRPCError({
             code: 'BAD_GATEWAY',
-            message: 'WAHA refused to start the session',
+            message: 'WAHA recusou criar a sessão. Tente um nome diferente.',
             cause,
           });
         }
       }
 
-      const status = await waha.getSessionStatus(name);
+      let status: z.infer<typeof StatusEnum>;
+      try {
+        status = await waha.getSessionStatus(input.name);
+      } catch {
+        status = 'STARTING';
+      }
 
-      // 2. Upsert the local mirror row inside the workspace's RLS scope.
       await withWorkspace(db.db, ctx.workspaceId, async (tx) => {
         await tx
           .insert(schema.whatsappSessions)
           .values({
             workspaceId: ctx.workspaceId,
-            wahaSessionId: name,
+            wahaSessionId: input.name,
             status,
           })
           .onConflictDoUpdate({
             target: schema.whatsappSessions.workspaceId,
-            set: { wahaSessionId: name, status },
+            set: { wahaSessionId: input.name, status },
           });
       });
 
-      return { sessionName: name, status };
+      return { sessionName: input.name, status };
     }),
 
   /**
-   * Return the QR-code data for the producer to scan with their phone.
-   * The endpoint is intended to be polled by the dashboard while the
-   * session is in `SCAN_QR_CODE` state.
+   * Cheap status read. Polled by the dashboard every ~3s while the
+   * session is transient (STARTING / SCAN_QR_CODE). Returns null when
+   * no session is configured (the dashboard renders the connect form).
+   */
+  status: workspaceProcedure
+    .output(
+      z
+        .object({
+          sessionName: z.string(),
+          status: StatusEnum,
+          phoneNumber: z.string().nullable(),
+        })
+        .nullable(),
+    )
+    .query(async ({ ctx }) => {
+      const [row] = await ctx.services.db.db
+        .select({
+          sessionName: schema.whatsappSessions.wahaSessionId,
+          phoneNumber: schema.whatsappSessions.phoneNumber,
+        })
+        .from(schema.whatsappSessions)
+        .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+        .limit(1);
+      if (!row) return null;
+
+      let status: z.infer<typeof StatusEnum>;
+      try {
+        status = await ctx.services.waha.getSessionStatus(row.sessionName);
+      } catch (cause) {
+        const err = cause as { details?: { status?: number } };
+        // WAHA returns 404 when the session was deleted from its side
+        // but we still have the mirror row. Treat as FAILED so the UI
+        // surfaces a "Recomeçar" button.
+        if (err?.details?.status === 404) {
+          return { sessionName: row.sessionName, status: 'FAILED', phoneNumber: row.phoneNumber };
+        }
+        throw cause;
+      }
+
+      return { sessionName: row.sessionName, status, phoneNumber: row.phoneNumber };
+    }),
+
+  /**
+   * Return the QR-code data for the producer to scan. Polled every
+   * ~5s while the session is in SCAN_QR_CODE (WAHA rotates the QR).
    */
   qr: workspaceProcedure
     .output(z.object({ value: z.string(), mimetype: z.string().optional() }))
     .query(async ({ ctx }) => {
-      const { waha } = ctx.services;
-      const name = sessionNameFor(ctx.workspaceId);
-      const qr = await waha.getQr(name);
-      return qr;
+      const [row] = await ctx.services.db.db
+        .select({ sessionName: schema.whatsappSessions.wahaSessionId })
+        .from(schema.whatsappSessions)
+        .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+        .limit(1);
+      if (!row) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Sessão não criada. Inicie a conexão primeiro.',
+        });
+      }
+      return ctx.services.waha.getQr(row.sessionName);
     }),
 
   /**
-   * Cheap status read. The dashboard polls this every ~3s while the
-   * session is in SCAN_QR_CODE / STARTING and stops polling once it
-   * reaches WORKING / FAILED / STOPPED.
-   */
-  status: workspaceProcedure
-    .output(
-      z.object({
-        sessionName: z.string(),
-        status: z.enum(['STARTING', 'SCAN_QR_CODE', 'WORKING', 'FAILED', 'STOPPED']),
-        phoneNumber: z.string().nullable(),
-      }),
-    )
-    .query(async ({ ctx }) => {
-      const { waha, db } = ctx.services;
-      const name = sessionNameFor(ctx.workspaceId);
-      const status = await waha.getSessionStatus(name);
-
-      const phoneNumber = await withWorkspace(db.db, ctx.workspaceId, async (tx) => {
-        const rows = await tx
-          .select({ phoneNumber: schema.whatsappSessions.phoneNumber })
-          .from(schema.whatsappSessions)
-          .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
-          .limit(1);
-        return rows[0]?.phoneNumber ?? null;
-      });
-
-      return { sessionName: name, status, phoneNumber };
-    }),
-
-  /**
-   * Disconnect the workspace's WhatsApp. WAHA wipes the local session
-   * store; the producer will need to scan the QR again to re-pair.
+   * Soft disconnect. Stops the WAHA session but keeps the local mirror
+   * row so the producer can re-scan QR without re-typing the name.
    */
   stop: workspaceProcedure.output(z.object({ ok: z.literal(true) })).mutation(async ({ ctx }) => {
     const { waha, db } = ctx.services;
-    const name = sessionNameFor(ctx.workspaceId);
+    const [row] = await db.db
+      .select({ sessionName: schema.whatsappSessions.wahaSessionId })
+      .from(schema.whatsappSessions)
+      .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+      .limit(1);
+    if (!row) return { ok: true as const };
 
-    await waha.stopSession(name);
+    try {
+      await waha.stopSession(row.sessionName);
+    } catch {
+      // Ignore — we still flag the row as STOPPED so the UI reflects intent.
+    }
     await withWorkspace(db.db, ctx.workspaceId, async (tx) => {
       await tx
         .update(schema.whatsappSessions)
         .set({ status: 'STOPPED', disconnectedAt: new Date() })
+        .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId));
+    });
+    return { ok: true as const };
+  }),
+
+  /**
+   * Hard reset. Deletes the WAHA session (clearing the cert/store) AND
+   * the local mirror row so the producer can start over with a new
+   * name. The "Recomeçar" button on the dashboard calls this whenever
+   * the session is FAILED or stuck in STARTING.
+   */
+  reset: workspaceProcedure.output(z.object({ ok: z.literal(true) })).mutation(async ({ ctx }) => {
+    const { waha, db } = ctx.services;
+    const [row] = await db.db
+      .select({ sessionName: schema.whatsappSessions.wahaSessionId })
+      .from(schema.whatsappSessions)
+      .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+      .limit(1);
+
+    if (row) {
+      try {
+        await waha.deleteSession(row.sessionName);
+      } catch (cause) {
+        // 404 already absorbed by deleteSession; anything else we let
+        // the row deletion proceed so the producer isn't blocked from
+        // recreating just because WAHA upstream choked.
+        process.stdout.write(
+          `${JSON.stringify({
+            level: 'warn',
+            event: 'whatsapp.reset.wahaDeleteFailed',
+            workspaceId: ctx.workspaceId,
+            sessionName: row.sessionName,
+            error: cause instanceof Error ? cause.message : String(cause),
+          })}\n`,
+        );
+      }
+    }
+
+    await withWorkspace(db.db, ctx.workspaceId, async (tx) => {
+      await tx
+        .delete(schema.whatsappSessions)
         .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId));
     });
 

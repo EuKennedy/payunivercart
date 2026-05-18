@@ -123,16 +123,48 @@ export class WahaClient {
    * the session doesn't exist yet (startSession on a missing session
    * returns 404 on WAHA Plus). Idempotent at the API level — calling
    * twice yields 422 which the caller can swallow.
+   *
+   * `engine` defaults to `WEBJS` because that's what the production
+   * WAHA instance runs and it's the most feature-complete engine for
+   * BR-default flows (typing indicators, presence, message ack).
    */
-  async createSession(session = this.defaultSession, autoStart = true): Promise<void> {
+  async createSession(
+    session = this.defaultSession,
+    options: { autoStart?: boolean; engine?: 'WEBJS' | 'NOWEB' | 'GOWS' } = {},
+  ): Promise<void> {
+    const { autoStart = true, engine = 'WEBJS' } = options;
     await this.request({
       url: `${this.baseUrl}/api/sessions`,
       init: {
         method: 'POST',
-        body: JSON.stringify({ name: session, start: autoStart }),
+        body: JSON.stringify({
+          name: session,
+          start: autoStart,
+          config: { engine },
+        }),
       },
       timeoutMs: TIMEOUTS_MS.sessionWrite,
     });
+  }
+
+  /**
+   * Hard-delete a WAHA session — clears its store, certificates and
+   * config. Used by the "Recomeçar" path after a FAILED state so the
+   * producer can scan a fresh QR without WAHA returning the stale one.
+   * Tolerates 404 silently (caller may not know the session exists).
+   */
+  async deleteSession(session = this.defaultSession): Promise<void> {
+    try {
+      await this.request({
+        url: `${this.baseUrl}/api/sessions/${encodeURIComponent(session)}`,
+        init: { method: 'DELETE' },
+        timeoutMs: TIMEOUTS_MS.sessionWrite,
+      });
+    } catch (cause) {
+      const err = cause as { details?: { status?: number } };
+      if (err?.details?.status === 404) return;
+      throw cause;
+    }
   }
 
   async stopSession(session = this.defaultSession): Promise<void> {
