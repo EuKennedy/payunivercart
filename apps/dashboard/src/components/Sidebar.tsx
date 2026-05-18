@@ -36,7 +36,7 @@ const NAV: NavGroup[] = [
   {
     label: 'Configurar',
     items: [
-      { href: '/configuracoes/marca', label: 'Minha marca', icon: <IconGrid /> },
+      { href: '/configuracoes', label: 'Configurações', icon: <IconGrid /> },
       { href: '/checkout', label: 'Meu checkout', icon: <IconCard /> },
       { href: '/carrinho', label: 'Recuperação', icon: <IconRefresh /> },
     ],

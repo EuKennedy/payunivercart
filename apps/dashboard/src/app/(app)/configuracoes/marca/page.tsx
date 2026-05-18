@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { type ImageUpload, ImageUploadField } from '../../../../components/ImageUploadField';
-import { Button, Heading, Kicker } from '../../../../components/ui';
+import { Button, Heading } from '../../../../components/ui';
 import { API_URL } from '../../../../lib/env';
 import { trpc } from '../../../../lib/trpc';
 
@@ -72,18 +72,15 @@ export default function MarcaSettingsPage() {
     : null;
 
   return (
-    <div className="flex flex-col gap-10">
-      <header className="flex flex-col gap-3">
-        <Kicker>configurações · minha marca</Kicker>
-        <Heading level={1}>Identidade da sua empresa.</Heading>
-        <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
-          O <strong>nome da empresa</strong> e o <strong>logo</strong> aparecem no topo do seu
-          checkout público — substituem o nome de usuário usado pra criar a conta. A cor primária
-          tinge botões e detalhes pra combinar com sua identidade visual.
-        </p>
-      </header>
+    <section className="flex flex-col gap-6">
+      <Heading level={2}>Marca</Heading>
+      <p className="text-[14px] text-[var(--color-fg-muted)] leading-[1.55]">
+        O <strong>nome da empresa</strong> e o <strong>logo</strong> aparecem no topo do seu
+        checkout público — substituem o nome de usuário usado pra criar a conta. A cor primária
+        tinge botões e detalhes pra combinar com a sua identidade visual.
+      </p>
 
-      <form onSubmit={onSubmit} className="flex max-w-3xl flex-col gap-7">
+      <form onSubmit={onSubmit} className="flex max-w-2xl flex-col gap-6">
         <Field label="Nome da empresa" hint="Aparece no cabeçalho do checkout que seu cliente vê.">
           <input
             type="text"
@@ -127,7 +124,7 @@ export default function MarcaSettingsPage() {
           </Button>
         </div>
       </form>
-    </div>
+    </section>
   );
 }
 

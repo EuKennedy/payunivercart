@@ -18,16 +18,20 @@
  */
 
 @theme {
-  /* Brand — laranja quente, mas usado em pequenas doses */
-  --color-brand-50: #fff7ed;
-  --color-brand-100: #ffedd5;
-  --color-brand-200: #fed7aa;
-  --color-brand-300: #fdba74;
-  --color-brand-400: #fb923c;
-  --color-brand-500: #f97316;
-  --color-brand-600: #ea580c;
-  --color-brand-700: #c2410c;
-  --color-brand-800: #9a3412;
+  /* Brand — dopamine green. Palette mirrors `apps/checkout/globals.css`
+   * so producer-facing and buyer-facing surfaces share one signal
+   * color. Stop scale follows Tailwind green-* for the extreme stops
+   * (50 / 100 / 800) plus the dopamine 300-700 set we already shipped
+   * on the checkout. */
+  --color-brand-50: #f0fdf4;
+  --color-brand-100: #dcfce7;
+  --color-brand-200: #bbf7d0;
+  --color-brand-300: #4ade80;
+  --color-brand-400: #22c55e;
+  --color-brand-500: #16a34a;
+  --color-brand-600: #15803d;
+  --color-brand-700: #166534;
+  --color-brand-800: #14532d;
 
   /* Backgrounds — tons de cinza puríssimos no estilo Apple */
   --color-bg: #fbfbfd;
@@ -93,7 +97,7 @@ body {
 
 /* Selection — sutil, brand-tinted */
 ::selection {
-  background: rgba(249, 115, 22, 0.18);
+  background: rgba(22, 163, 74, 0.22);
   color: var(--color-fg);
 }
 

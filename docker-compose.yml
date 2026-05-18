@@ -163,6 +163,12 @@ services:
       context: .
       dockerfile: Dockerfile
       target: dashboard-runtime
+      args:
+        # Next.js bakes NEXT_PUBLIC_* at build time; the runtime
+        # `environment:` block can't influence the client bundle.
+        # Pass-through so `coolify .env` overrides reach the build.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.univercart.com}
+        NEXT_PUBLIC_CHECKOUT_URL: ${NEXT_PUBLIC_CHECKOUT_URL:-https://check.univercart.com}
     restart: unless-stopped
     expose: ["3000"]
     environment:
@@ -191,6 +197,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: checkout-runtime
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.univercart.com}
     restart: unless-stopped
     expose: ["3001"]
     environment:

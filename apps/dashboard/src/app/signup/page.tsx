@@ -110,7 +110,7 @@ export default function SignupPage() {
         <aside className="relative hidden overflow-hidden border-[var(--color-border)] border-l bg-[var(--color-surface-muted)] p-16 lg:flex lg:flex-col lg:justify-between">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-[-15%] mx-auto h-[400px] max-w-md bg-[radial-gradient(closest-side,rgba(249,115,22,0.10),transparent_75%)] blur-3xl"
+            className="pointer-events-none absolute inset-x-0 top-[-15%] mx-auto h-[400px] max-w-md bg-[radial-gradient(closest-side,rgba(22,163,74,0.10),transparent_75%)] blur-3xl"
           />
           <div className="relative">
             <Kicker>O que vem a seguir</Kicker>

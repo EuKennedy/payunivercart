@@ -105,6 +105,29 @@ app.get('/me/workspace', async (c) => {
  * the producer flushes by re-uploading (which the dashboard can do via
  * `updateBranding` / `products.update`).
  */
+function bytesToImageResponse(bytes: Uint8Array, mime: string): Response {
+  // Drizzle hands the bytea back as a Uint8Array (or Node Buffer)
+  // which IS a typed-array view. Passing the view directly to
+  // `new Response(...)` worked under @hono/node-server in some
+  // versions but broke after the runtime upgrade — the browser
+  // received zero bytes. Slicing into a fresh, offset-zero
+  // ArrayBuffer is the safe path that works across every fetch
+  // backend we can plausibly land on.
+  const ab = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+  return new Response(ab, {
+    headers: {
+      'Content-Type': mime,
+      'Cache-Control': 'public, max-age=300',
+      // Browsers don't enforce CORS on plain <img>, but a permissive
+      // header lets a future `<canvas>` pipeline (e.g., admin avatar
+      // crop) consume the bytes without a separate proxy.
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
 app.get('/img/workspace/:id/logo', async (c) => {
   const id = c.req.param('id');
   // Validate id shape so a bogus path doesn't hit Postgres with a
@@ -121,12 +144,7 @@ app.get('/img/workspace/:id/logo', async (c) => {
     .where(eq(schema.workspaces.id, id))
     .limit(1);
   if (!row?.logo || !row.mime) return c.notFound();
-  return new Response(Buffer.from(row.logo) as unknown as ArrayBuffer, {
-    headers: {
-      'Content-Type': row.mime,
-      'Cache-Control': 'public, max-age=300',
-    },
-  });
+  return bytesToImageResponse(row.logo, row.mime);
 });
 
 app.get('/img/product/:id/cover', async (c) => {
@@ -143,12 +161,7 @@ app.get('/img/product/:id/cover', async (c) => {
     .where(eq(schema.products.id, id))
     .limit(1);
   if (!row?.cover || !row.mime) return c.notFound();
-  return new Response(Buffer.from(row.cover) as unknown as ArrayBuffer, {
-    headers: {
-      'Content-Type': row.mime,
-      'Cache-Control': 'public, max-age=300',
-    },
-  });
+  return bytesToImageResponse(row.cover, row.mime);
 });
 
 mountWahaWebhook(app, services);

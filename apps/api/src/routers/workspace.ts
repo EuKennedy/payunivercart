@@ -92,6 +92,97 @@ export const workspaceRouter = router({
    * "has logo" so the UI can render the right empty-state and the
    * client can decide whether to render `<img src="/img/workspace/:id/logo">`.
    */
+  /**
+   * Workspace profile — name + slug. Distinct from `branding` because
+   * `name` is the INTERNAL identifier shown in the sidebar workspace
+   * switcher; `companyName` (under branding) is the EXTERNAL identity
+   * the buyer sees on the checkout. Two writes, two surfaces, never
+   * one input that quietly clobbers both.
+   */
+  profile: workspaceProcedure
+    .output(
+      z.object({
+        workspaceId: z.string().uuid(),
+        name: z.string(),
+        slug: z.string(),
+        locale: z.string(),
+        timezone: z.string(),
+      }),
+    )
+    .query(async ({ ctx }) => {
+      const [row] = await ctx.services.db.db
+        .select({
+          id: schema.workspaces.id,
+          name: schema.workspaces.name,
+          slug: schema.workspaces.slug,
+          locale: schema.workspaces.locale,
+          timezone: schema.workspaces.timezone,
+        })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, ctx.workspaceId))
+        .limit(1);
+      if (!row) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace inexistente.' });
+      }
+      return {
+        workspaceId: row.id,
+        name: row.name,
+        slug: row.slug,
+        locale: row.locale,
+        timezone: row.timezone,
+      };
+    }),
+
+  /**
+   * Update workspace profile fields. Slug must stay URL-safe so
+   * existing checkout links (which embed it nowhere — we use product
+   * slugs for buyer-facing URLs) don't suddenly become invalid in a
+   * future deep-link feature.
+   */
+  updateProfile: workspaceProcedure
+    .input(
+      z.object({
+        name: z.string().trim().min(1).max(120).optional(),
+        slug: z
+          .string()
+          .trim()
+          .min(2)
+          .max(40)
+          .regex(
+            /^[a-z0-9][a-z0-9-]*[a-z0-9]$/,
+            'Slug: minúsculas, números e hífen (sem extremos).',
+          )
+          .optional(),
+      }),
+    )
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(async ({ ctx, input }) => {
+      const patch: Record<string, unknown> = {};
+      if (input.name !== undefined) patch.name = input.name;
+      if (input.slug !== undefined) patch.slug = input.slug;
+      if (Object.keys(patch).length === 0) {
+        return { ok: true as const };
+      }
+      try {
+        await withWorkspace(ctx.services.db.db, ctx.workspaceId, async (tx) => {
+          await tx
+            .update(schema.workspaces)
+            .set(patch)
+            .where(eq(schema.workspaces.id, ctx.workspaceId));
+        });
+      } catch (cause) {
+        const pgCode = (cause as { code?: string })?.code;
+        if (pgCode === '23505') {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Esse identificador já está em uso por outra workspace.',
+          });
+        }
+        throw cause;
+      }
+      return { ok: true as const };
+    }),
+
   branding: workspaceProcedure
     .output(
       z.object({

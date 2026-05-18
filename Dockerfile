@@ -117,12 +117,26 @@ RUN apt-get update \
 # so the rebuild cost is bounded.
 # -----------------------------------------------------------------------------
 FROM src AS dashboard-builder
+# Next.js bakes NEXT_PUBLIC_* envs into the client bundle at build
+# time. Coolify only sets compose `environment:` at run time, which is
+# too late for the static chunks. We accept them as build args here
+# and re-export them as ENV so `next build` sees them — production
+# domains live on `*.univercart.com` by default and can be overridden
+# from compose for staging.
+ARG NEXT_PUBLIC_API_URL=https://api.univercart.com
+ARG NEXT_PUBLIC_CHECKOUT_URL=https://check.univercart.com
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_CHECKOUT_URL=$NEXT_PUBLIC_CHECKOUT_URL
 RUN NODE_ENV=production pnpm --filter @payunivercart/dashboard exec next build
 
 FROM dashboard-builder AS checkout-builder
+ARG NEXT_PUBLIC_API_URL=https://api.univercart.com
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN NODE_ENV=production pnpm --filter @payunivercart/checkout exec next build
 
 FROM checkout-builder AS admin-builder
+ARG NEXT_PUBLIC_API_URL=https://api.univercart.com
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN NODE_ENV=production pnpm --filter @payunivercart/admin exec next build
 
 # -----------------------------------------------------------------------------
