@@ -102,19 +102,27 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------------
-# Stage: dashboard-builder, checkout-builder, admin-builder
-#   Each runs `next build` for its app. All three FROM the same `src` so
-#   BuildKit reuses the pnpm-installed node_modules. NODE_ENV is flipped
-#   back to production for the Next compile (App Router refuses to bundle
-#   for prod without it).
+# Stage: dashboard-builder → checkout-builder → admin-builder
+#
+# These three Next builds were originally fan-out from `src`, which let
+# BuildKit run them in parallel. On a 4-vCPU / 8-GB VPS this peaks at
+# ~3× the RAM of a single build, exceeding the headroom Coolify's
+# helper container has, and Buildx kills the process with an opaque
+# `internal load local bake definitions` error.
+#
+# Chaining them via FROM the previous-builder forces BuildKit's graph
+# to serialize. Each stage still hits the cache when ONLY downstream
+# source changed (the dashboard layer doesn't invalidate when only the
+# checkout app changes — BuildKit hashes per-stage COPY independently)
+# so the rebuild cost is bounded.
 # -----------------------------------------------------------------------------
 FROM src AS dashboard-builder
 RUN NODE_ENV=production pnpm --filter @payunivercart/dashboard exec next build
 
-FROM src AS checkout-builder
+FROM dashboard-builder AS checkout-builder
 RUN NODE_ENV=production pnpm --filter @payunivercart/checkout exec next build
 
-FROM src AS admin-builder
+FROM checkout-builder AS admin-builder
 RUN NODE_ENV=production pnpm --filter @payunivercart/admin exec next build
 
 # -----------------------------------------------------------------------------
