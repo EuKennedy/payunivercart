@@ -40,6 +40,17 @@ app.use(
     // HSTS only in production (local dev runs on http://).
     strictTransportSecurity:
       env.NODE_ENV === 'production' ? 'max-age=63072000; includeSubDomains; preload' : false,
+    // The `/img/*` endpoints intentionally serve PNG/JPEG/WEBP to the
+    // dashboard (`pay.univercart.com`) and the public checkout
+    // (`check.univercart.com`) — both are different origins from the api
+    // host. Hono's secureHeaders default `crossOriginResourcePolicy:
+    // 'same-origin'` lets `fetch()` succeed (it doesn't enforce CORP)
+    // but blocks `<img src=...>` embedding cross-origin, which is why
+    // bytes were arriving but the browser refused to decode them.
+    // Setting `cross-origin` re-enables `<img>` embedding for every
+    // route; the only binary response we expose is `/img/*` which is
+    // already public by design (UUID-keyed, no auth).
+    crossOriginResourcePolicy: 'cross-origin',
   }),
 );
 
