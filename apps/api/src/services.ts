@@ -2,6 +2,7 @@ import type { AuditService } from '@payunivercart/audit';
 import { type Auth, createAuth } from '@payunivercart/auth';
 import { CryptoService, loadKeyRegistryFromEnv } from '@payunivercart/crypto';
 import { createDatabaseClient, deleteUserById, provisionWorkspaceForUser } from '@payunivercart/db';
+import { type EmailSender, createEmailSender } from '@payunivercart/emails';
 import { WahaClient } from '@payunivercart/waha';
 import type { AppEnv } from './env';
 
@@ -21,6 +22,9 @@ export interface AppServices {
   crypto: CryptoService;
   waha: WahaClient;
   auth: Auth;
+  /** Resend wrapper. Falls back to stdout logs when `RESEND_API_KEY`
+   * is empty so local dev still works without a live key. */
+  emails: EmailSender;
   /**
    * AuditService is created lazily once the production Drizzle port is
    * wired. Calling `services.audit()` before that throws so misuse is
@@ -53,6 +57,11 @@ export function buildServices(env: AppEnv): AppServices {
     defaultSession: env.WAHA_DEFAULT_SESSION,
   });
 
+  const emails = createEmailSender({
+    apiKey: env.RESEND_API_KEY ?? null,
+    from: env.EMAIL_FROM ?? 'payunivercart <no-reply@payunivercart.com>',
+  });
+
   // Better-Auth's `baseURL` is the absolute origin of THIS api service.
   // Use `API_PUBLIC_URL` when set (production: `https://api.univercart.com`);
   // fall back to the first trusted origin (single-host dev with the api
@@ -72,17 +81,7 @@ export function buildServices(env: AppEnv): AppServices {
     wahaSessionName: env.WAHA_DEFAULT_SESSION,
     emailSender: {
       async sendEmailOtp({ to, code }) {
-        // Real Resend integration lands with `packages/emails`. Until then
-        // we log a structured event the operator can pick up from stdout
-        // so local dev still works end-to-end.
-        process.stdout.write(
-          `${JSON.stringify({
-            level: 'info',
-            event: 'auth.emailOtp.pending',
-            to,
-            code,
-          })}\n`,
-        );
+        await emails.sendOtp({ to, code });
       },
     },
     // Block 19: on every successful signup, provision the producer's
@@ -107,6 +106,7 @@ export function buildServices(env: AppEnv): AppServices {
     crypto,
     waha,
     auth,
+    emails,
     audit: () => {
       throw new Error(
         'AuditService not yet wired to the Drizzle port; will land with the first DB-writing endpoint.',

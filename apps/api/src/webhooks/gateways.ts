@@ -208,6 +208,53 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
           .update(schema.orders)
           .set({ status: 'paid', paidAt: nowDate })
           .where(eq(schema.orders.id, tx.orderId));
+        // Fire-and-log the transactional receipt. Failure is non-fatal
+        // — we never want a Resend hiccup to retry the webhook + risk
+        // double-marking the order as paid.
+        try {
+          const [row] = await services.db.db
+            .select({
+              email: schema.orders.customerEmail,
+              name: schema.orders.customerName,
+              ref: schema.orders.publicReference,
+              total: schema.orders.totalCents,
+              currency: schema.orders.currency,
+              workspaceName: schema.workspaces.name,
+              workspaceCompanyName: schema.workspaces.companyName,
+            })
+            .from(schema.orders)
+            .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.orders.workspaceId))
+            .where(eq(schema.orders.id, tx.orderId))
+            .limit(1);
+          if (row) {
+            const [item] = await services.db.db
+              .select({ name: schema.orderItems.name })
+              .from(schema.orderItems)
+              .where(eq(schema.orderItems.orderId, tx.orderId))
+              .limit(1);
+            await services.emails.sendOrderPaid({
+              to: row.email,
+              customerName: row.name,
+              publicReference: row.ref,
+              productName: item?.name ?? 'seu pedido',
+              amountFormatted: new Intl.NumberFormat(row.currency === 'BRL' ? 'pt-BR' : 'en-US', {
+                style: 'currency',
+                currency: row.currency,
+                minimumFractionDigits: 2,
+              }).format(Number(row.total) / 100),
+              brand: row.workspaceCompanyName?.trim() || row.workspaceName,
+            });
+          }
+        } catch (cause) {
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'warn',
+              event: 'orderPaid.email.failed',
+              orderId: tx.orderId,
+              error: cause instanceof Error ? cause.message : String(cause),
+            })}\n`,
+          );
+        }
       } else if (charge.status === 'refunded') {
         await services.db.db
           .update(schema.orders)

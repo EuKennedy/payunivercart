@@ -23,6 +23,7 @@
     "@payunivercart/auth": "workspace:*",
     "@payunivercart/crypto": "workspace:*",
     "@payunivercart/db": "workspace:*",
+    "@payunivercart/emails": "workspace:*",
     "@payunivercart/payments": "workspace:*",
     "@payunivercart/shared": "workspace:*",
     "@payunivercart/waha": "workspace:*",
