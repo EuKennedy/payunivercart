@@ -29,6 +29,10 @@ const schema = z.object({
 
   /** Worker concurrency per queue. */
   WORKERS_CONCURRENCY: z.coerce.number().int().positive().default(5),
+
+  /** Sentry DSN — no-op when empty. */
+  SENTRY_DSN: z.string().optional(),
+  SENTRY_RELEASE: z.string().optional(),
 });
 
 export type WorkersEnv = z.infer<typeof schema>;

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@payunivercart/audit": "workspace:*",
+    "@sentry/node": "8.51.0",
     "@payunivercart/crypto": "workspace:*",
     "@payunivercart/db": "workspace:*",
     "@payunivercart/payments": "workspace:*",

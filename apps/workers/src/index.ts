@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import 'dotenv/config';
 import { loadEnv } from './env';
 import { startWorkers } from './processors';
@@ -13,6 +14,19 @@ import { createQueues } from './queues';
 
 async function main() {
   const env = loadEnv();
+
+  // Init Sentry before any handler runs so a job that crashes during
+  // its first tick still reports. No-op when DSN missing.
+  if (env.SENTRY_DSN) {
+    Sentry.init({
+      dsn: env.SENTRY_DSN,
+      release: env.SENTRY_RELEASE,
+      environment: env.NODE_ENV,
+      serverName: 'payunivercart-workers',
+      tracesSampleRate: 0,
+    });
+  }
+
   const queues = createQueues(env);
 
   process.stdout.write(

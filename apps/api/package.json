@@ -19,6 +19,7 @@
   "dependencies": {
     "@hono/node-server": "2.0.2",
     "@hono/trpc-server": "0.4.2",
+    "@sentry/node": "8.51.0",
     "@payunivercart/audit": "workspace:*",
     "@payunivercart/auth": "workspace:*",
     "@payunivercart/crypto": "workspace:*",

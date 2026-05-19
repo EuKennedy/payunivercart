@@ -78,6 +78,12 @@ const envSchema = z.object({
   /** Resend (transactional email). Optional in dev. */
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
+
+  /** Sentry DSN. When empty, Sentry init is a no-op. */
+  SENTRY_DSN: z.string().optional(),
+  /** Service name surfaced as the Sentry `serverName`. Useful when api +
+   * workers share one project. */
+  SENTRY_RELEASE: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

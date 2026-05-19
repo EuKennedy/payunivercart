@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { trpcServer } from '@hono/trpc-server';
 import { schema } from '@payunivercart/db';
+import * as Sentry from '@sentry/node';
 import 'dotenv/config';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -26,6 +27,33 @@ import { listOrProvisionMemberships } from './workspace-lookup';
  */
 
 const env = loadEnv();
+
+// Initialise Sentry before any service builds so anything that throws
+// during boot also reports. No-op when `SENTRY_DSN` is empty — keeps
+// local + sandbox deploys silent without the SDK complaining.
+if (env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: env.SENTRY_DSN,
+    release: env.SENTRY_RELEASE,
+    environment: env.NODE_ENV,
+    serverName: 'payunivercart-api',
+    // Keep tracing off by default. We're optimising for crash visibility
+    // first; performance + replay can light up when we wire pino +
+    // workspace-level metrics in the same block.
+    tracesSampleRate: 0,
+    // Drop tRPC's input from breadcrumbs — buyer PII (CPF, phone) on
+    // checkout endpoints must not leak into the Sentry UI.
+    beforeBreadcrumb: (breadcrumb) => {
+      if (breadcrumb.category === 'fetch' || breadcrumb.category === 'xhr') {
+        if (breadcrumb.data && 'input' in breadcrumb.data) {
+          breadcrumb.data.input = undefined;
+        }
+      }
+      return breadcrumb;
+    },
+  });
+}
+
 const services = buildServices(env);
 
 const app = new Hono();
