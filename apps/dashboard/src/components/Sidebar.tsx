@@ -31,6 +31,7 @@ const NAV: NavGroup[] = [
       { href: '/dashboard', label: 'Visão geral', icon: <IconHome /> },
       { href: '/produtos', label: 'Meus produtos', icon: <IconGrid /> },
       { href: '/pedidos', label: 'Pedidos', icon: <IconCard /> },
+      { href: '/clientes', label: 'Clientes', icon: <IconChat /> },
     ],
   },
   {

@@ -64,3 +64,6 @@ docker/volumes/
 .cache/
 tmp/
 temp/
+
+# Claude session-local state — never commit
+.claude/

@@ -1,6 +1,7 @@
 import { router } from '../trpc';
 import { adminRouter } from './admin';
 import { checkoutRouter } from './checkout';
+import { customersRouter } from './customers';
 import { gatewaysRouter } from './gateways';
 import { healthRouter } from './health';
 import { metricsRouter } from './metrics';
@@ -25,6 +26,7 @@ export const appRouter = router({
   metrics: metricsRouter,
   recovery: recoveryRouter,
   orders: ordersRouter,
+  customers: customersRouter,
   admin: adminRouter,
 });
 

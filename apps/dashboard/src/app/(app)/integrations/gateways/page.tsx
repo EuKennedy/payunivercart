@@ -130,20 +130,16 @@ export default function GatewaysPage() {
         </p>
       </header>
 
-      {/* Tiles grid */}
+      {/* Tiles grid — clickable on the active provider, locked on others */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {TILES.map((tile) => {
           const isActive = tile.id === 'mercadopago';
           const isConfigured = isActive && !!mpConfigured;
-          return (
-            <article
-              key={tile.id}
-              className={
-                isActive
-                  ? 'relative flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 transition hover:border-[var(--color-border-strong)]'
-                  : 'relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6'
-              }
-            >
+          const cardClasses = isActive
+            ? 'group relative flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-left transition hover:border-[var(--color-brand-500)] hover:shadow-sm cursor-pointer'
+            : 'relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6';
+          const inner = (
+            <>
               <div className="flex h-20 items-center justify-center">
                 <img
                   src={tile.logo}
@@ -174,11 +170,14 @@ export default function GatewaysPage() {
                           Sandbox
                         </span>
                       ) : null}
+                      <span className="ml-auto text-[12px] text-[var(--color-brand-600)] group-hover:underline">
+                        Reconfigurar →
+                      </span>
                     </div>
                   ) : (
-                    <Button onClick={() => setShowForm(true)} size="sm">
-                      Configurar
-                    </Button>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-fg)] px-3 py-1.5 font-semibold text-[12px] text-[var(--color-fg-inverse)] uppercase tracking-wider transition group-hover:bg-[var(--color-fg-muted)]">
+                      Configurar agora →
+                    </span>
                   )
                 ) : (
                   <span
@@ -207,6 +206,35 @@ export default function GatewaysPage() {
                   </span>
                 </div>
               ) : null}
+            </>
+          );
+          if (isActive) {
+            return (
+              <button
+                key={tile.id}
+                type="button"
+                onClick={() => {
+                  setShowForm(true);
+                  // Bring the form into view — when the page is tall
+                  // and the producer scrolled past the tiles, opening
+                  // the panel below should follow the click.
+                  if (typeof window !== 'undefined') {
+                    setTimeout(() => {
+                      document
+                        .getElementById('mp-connect-form')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 50);
+                  }
+                }}
+                className={cardClasses}
+              >
+                {inner}
+              </button>
+            );
+          }
+          return (
+            <article key={tile.id} className={cardClasses}>
+              {inner}
             </article>
           );
         })}
@@ -275,7 +303,10 @@ export default function GatewaysPage() {
 
       {/* Connect MP form */}
       {showForm ? (
-        <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+        <section
+          id="mp-connect-form"
+          className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6"
+        >
           <div className="mb-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <img
