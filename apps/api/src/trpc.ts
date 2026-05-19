@@ -108,3 +108,37 @@ export const workspaceProcedure = authedProcedure.use(async ({ ctx, next }) => {
     },
   });
 });
+
+/**
+ * Super-admin procedure — `apps/admin` only.
+ *
+ * Gate: the authenticated user's email must appear in `ADMIN_EMAILS`
+ * (env). We resolve the email from the Better-Auth session table —
+ * never from cookies / headers the caller controls — so a producer
+ * can't escalate by spoofing a header.
+ *
+ * Why an env allowlist instead of a `users.role = 'platform_admin'`
+ * column: the column-based model is the right long-term shape, but
+ * launching the admin surface before any platform-admin users exist
+ * needs a bootstrap path. The env list is that bootstrap; a follow-up
+ * block migrates to a real role + invitation flow.
+ */
+export const superuserProcedure = authedProcedure.use(async ({ ctx, next }) => {
+  const allowed = ctx.services.env.ADMIN_EMAILS;
+  if (allowed.length === 0) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin surface disabled.' });
+  }
+  const [user] = await ctx.services.db.db
+    .select({ email: schema.users.email })
+    .from(schema.users)
+    .where(eq(schema.users.id, ctx.userId))
+    .limit(1);
+  const email = user?.email?.toLowerCase() ?? '';
+  if (!email || !allowed.includes(email)) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Not authorised to access the admin surface.',
+    });
+  }
+  return next({ ctx: { ...ctx, adminEmail: email } });
+});

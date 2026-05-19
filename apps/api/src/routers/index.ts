@@ -1,4 +1,5 @@
 import { router } from '../trpc';
+import { adminRouter } from './admin';
 import { checkoutRouter } from './checkout';
 import { gatewaysRouter } from './gateways';
 import { healthRouter } from './health';
@@ -24,6 +25,7 @@ export const appRouter = router({
   metrics: metricsRouter,
   recovery: recoveryRouter,
   orders: ordersRouter,
+  admin: adminRouter,
 });
 
 export type AppRouter = typeof appRouter;

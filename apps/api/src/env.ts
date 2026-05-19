@@ -84,6 +84,23 @@ const envSchema = z.object({
   /** Service name surfaced as the Sentry `serverName`. Useful when api +
    * workers share one project. */
   SENTRY_RELEASE: z.string().optional(),
+
+  /**
+   * Comma-separated list of emails authorised to use the super-admin
+   * surface (`apps/admin`). Validated against the Better-Auth session
+   * email by `superuserProcedure`. Empty list = the admin router
+   * refuses every request — safe default until the operator wires the
+   * first internal account.
+   */
+  ADMIN_EMAILS: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
