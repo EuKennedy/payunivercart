@@ -5,19 +5,65 @@ import { Button, Heading, Kicker } from '../../../../components/ui';
 import { trpc } from '../../../../lib/trpc';
 
 /**
- * Gateways de pagamento — produtor cadastra suas chaves de Mercado Pago,
- * Pagar.me, etc. Block 22 mostra apenas o caminho Mercado Pago (o mais
- * usado no BR para PIX); adicionar outros é uma extensão direta.
+ * Gateways de pagamento.
  *
- * Secrets:
- *   - Tudo digitado aqui vai criptografado via AES-256-GCM (KEK em
- *     packages/crypto) antes de chegar no DB.
- *   - O backend valida as credenciais com o gateway antes do INSERT —
- *     uma chave inválida é rejeitada na hora, sem deixar a primeira
- *     venda do produtor falhar.
- *   - Nunca exibimos secret armazenado de volta na tela; o produtor que
- *     perdeu a chave precisa cadastrar uma nova.
+ * Repaginated as a five-card grid that mirrors what producers see on
+ * Hotmart / Kiwify: each option is a brand tile with its real logo.
+ * Mercado Pago is the only one wired today (BR Pix-first launch),
+ * so its tile is in-color + actionable; the other four sit
+ * grayscale behind a lock overlay + "Em breve" pill — clear signal
+ * that they're coming without faking that they work.
+ *
+ * Asaas is intentionally tagged "Assinaturas" — when it lands it
+ * powers the platform's R$99,90/mês recurrence (B28), not the
+ * producer's transactional gateway list.
  */
+
+interface GatewayTile {
+  id: 'mercadopago' | 'pagarme' | 'pagseguro' | 'stripe' | 'asaas';
+  name: string;
+  logo: string;
+  tagline: string;
+  badge?: 'em-breve' | 'assinaturas';
+}
+
+const TILES: GatewayTile[] = [
+  {
+    id: 'mercadopago',
+    name: 'Mercado Pago',
+    logo: '/gateways/mercadopago.png',
+    tagline: 'Pix · Cartão · Boleto · Sandbox',
+  },
+  {
+    id: 'pagarme',
+    name: 'Pagar.me',
+    logo: '/gateways/pagarme.png',
+    tagline: 'Pix · Cartão · Boleto',
+    badge: 'em-breve',
+  },
+  {
+    id: 'pagseguro',
+    name: 'PagSeguro',
+    logo: '/gateways/pagseguro.png',
+    tagline: 'Pix · Cartão · Boleto',
+    badge: 'em-breve',
+  },
+  {
+    id: 'stripe',
+    name: 'Stripe',
+    logo: '/gateways/stripe.png',
+    tagline: 'Internacional · USD · Cartão',
+    badge: 'em-breve',
+  },
+  {
+    id: 'asaas',
+    name: 'Asaas',
+    logo: '/gateways/asaas.svg',
+    tagline: 'Assinaturas SaaS · Recorrência',
+    badge: 'assinaturas',
+  },
+];
+
 export default function GatewaysPage() {
   const list = trpc.gateways.list.useQuery();
   const utils = trpc.useUtils();
@@ -54,6 +100,8 @@ export default function GatewaysPage() {
     setIsSandbox(true);
   }
 
+  const mpConfigured = (list.data ?? []).find((g) => g.gatewayId === 'mercadopago');
+
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     upsert.mutate({
@@ -72,110 +120,171 @@ export default function GatewaysPage() {
   };
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-12">
       <header className="flex flex-col gap-3">
         <Kicker>integrações · gateways</Kicker>
-        <Heading level={1}>Conecte seu gateway de pagamento.</Heading>
+        <Heading level={1}>Receba pagamentos.</Heading>
         <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
-          Cadastre suas chaves do Mercado Pago para começar a receber via Pix no checkout. As
-          credenciais ficam criptografadas no banco — nem o time da plataforma vê a chave depois de
-          salva.
+          Você usa suas próprias chaves de cada gateway — a plataforma só orquestra. As credenciais
+          ficam criptografadas no banco e a chave nunca volta pra tela depois de salva.
         </p>
       </header>
 
-      {/* Existing gateways */}
-      <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <Heading level={3}>Gateways ativos</Heading>
-          {!showForm ? (
-            <Button onClick={() => setShowForm(true)}>Adicionar Mercado Pago</Button>
-          ) : null}
-        </div>
-
-        {list.isPending ? (
-          <p className="text-[14px] text-[var(--color-fg-muted)]">Carregando…</p>
-        ) : list.data && list.data.length > 0 ? (
-          <ul className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
-            {list.data.map((row) => (
-              <li
-                key={row.id}
-                className="flex items-center justify-between gap-4 border-[var(--color-border)] border-b px-5 py-4 last:border-b-0"
-              >
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-[15px] text-[var(--color-fg)]">
-                      {row.label}
-                    </span>
-                    <span className="rounded-full bg-[var(--color-surface-muted)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
-                      {row.gatewayId}
-                    </span>
-                    {row.isSandbox ? (
-                      <span className="rounded-full bg-[var(--color-warning-bg)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-warning)] uppercase tracking-wider">
-                        Sandbox
+      {/* Tiles grid */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {TILES.map((tile) => {
+          const isActive = tile.id === 'mercadopago';
+          const isConfigured = isActive && !!mpConfigured;
+          return (
+            <article
+              key={tile.id}
+              className={
+                isActive
+                  ? 'relative flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 transition hover:border-[var(--color-border-strong)]'
+                  : 'relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6'
+              }
+            >
+              <div className="flex h-20 items-center justify-center">
+                <img
+                  src={tile.logo}
+                  alt={tile.name}
+                  className={
+                    isActive
+                      ? 'max-h-14 max-w-[180px] object-contain'
+                      : 'max-h-14 max-w-[180px] object-contain opacity-50 grayscale'
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <h3 className="font-semibold text-[16px] text-[var(--color-fg)]">{tile.name}</h3>
+                <p className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
+                  {tile.tagline}
+                </p>
+              </div>
+              <div className="mt-auto">
+                {isActive ? (
+                  isConfigured ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-success-bg)] px-2.5 py-1 font-medium text-[11px] text-[var(--color-success)] uppercase tracking-wider">
+                        <span className="size-1.5 rounded-full bg-[var(--color-success)]" />
+                        Configurado
                       </span>
-                    ) : null}
-                    {row.isDefault ? (
-                      <span className="rounded-full bg-[var(--color-success-bg)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-success)] uppercase tracking-wider">
-                        Padrão
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="text-[12px] text-[var(--color-fg-subtle)]">
-                    {row.lastValidatedAt
-                      ? `Validado em ${new Date(row.lastValidatedAt).toLocaleString('pt-BR')}`
-                      : row.validationError
-                        ? `Falha: ${row.validationError}`
-                        : 'Aguardando validação'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => test.mutate({ id: row.id })}
-                    disabled={test.isPending}
-                  >
-                    Testar
-                  </Button>
-                  {!row.isDefault ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDefault.mutate({ id: row.id })}
-                      disabled={setDefault.isPending}
-                    >
-                      Tornar padrão
+                      {mpConfigured.isSandbox ? (
+                        <span className="rounded-full bg-[var(--color-warning-bg)] px-2.5 py-1 font-medium text-[11px] text-[var(--color-warning)] uppercase tracking-wider">
+                          Sandbox
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <Button onClick={() => setShowForm(true)} size="sm">
+                      Configurar
                     </Button>
-                  ) : null}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      if (!confirm(`Remover "${row.label}"?`)) return;
-                      remove.mutate({ id: row.id });
-                    }}
-                    disabled={remove.isPending}
+                  )
+                ) : (
+                  <span
+                    className={
+                      tile.badge === 'assinaturas'
+                        ? 'inline-flex items-center gap-1.5 rounded-full bg-[var(--color-brand-50)] px-2.5 py-1 font-medium text-[11px] text-[var(--color-brand-700)] uppercase tracking-wider'
+                        : 'inline-flex items-center gap-1.5 rounded-full bg-[var(--color-surface-muted)] px-2.5 py-1 font-medium text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider'
+                    }
                   >
-                    Remover
-                  </Button>
+                    {tile.badge === 'assinaturas' ? (
+                      <>
+                        <BadgeIcon /> Assinaturas SaaS
+                      </>
+                    ) : (
+                      <>
+                        <LockIcon /> Em breve
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
+              {!isActive ? (
+                <div className="pointer-events-none absolute inset-0 grid place-items-center bg-[var(--color-surface)]/40 backdrop-blur-[1px]">
+                  <span className="grid size-12 place-items-center rounded-full bg-[var(--color-surface)] shadow-sm ring-1 ring-[var(--color-border)]">
+                    <LockIcon size={18} />
+                  </span>
                 </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-6 py-10 text-center">
-            <p className="text-[14px] text-[var(--color-fg-muted)]">
-              Nenhum gateway cadastrado. Conecte o Mercado Pago para liberar Pix no checkout.
-            </p>
-          </div>
-        )}
+              ) : null}
+            </article>
+          );
+        })}
       </section>
 
-      {/* Add form */}
+      {/* Configured Mercado Pago row + action menu */}
+      {mpConfigured ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
+            Conexão ativa
+          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+            <div className="flex items-center gap-4">
+              <img
+                src="/gateways/mercadopago.png"
+                alt="Mercado Pago"
+                className="h-9 max-w-[120px] object-contain"
+              />
+              <div className="flex flex-col gap-1">
+                <span className="font-semibold text-[15px] text-[var(--color-fg)]">
+                  {mpConfigured.label}
+                </span>
+                <span className="text-[12px] text-[var(--color-fg-subtle)]">
+                  {mpConfigured.lastValidatedAt
+                    ? `Validado em ${new Date(mpConfigured.lastValidatedAt).toLocaleString('pt-BR')}`
+                    : mpConfigured.validationError
+                      ? `Falha: ${mpConfigured.validationError}`
+                      : 'Aguardando validação'}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => test.mutate({ id: mpConfigured.id })}
+                disabled={test.isPending}
+              >
+                Testar
+              </Button>
+              {!mpConfigured.isDefault ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDefault.mutate({ id: mpConfigured.id })}
+                  disabled={setDefault.isPending}
+                >
+                  Tornar padrão
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (!confirm(`Remover "${mpConfigured.label}"?`)) return;
+                  remove.mutate({ id: mpConfigured.id });
+                }}
+                disabled={remove.isPending}
+              >
+                Remover
+              </Button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {/* Connect MP form */}
       {showForm ? (
         <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
           <div className="mb-5 flex items-center justify-between">
-            <Heading level={3}>Conectar Mercado Pago</Heading>
+            <div className="flex items-center gap-3">
+              <img
+                src="/gateways/mercadopago.png"
+                alt="Mercado Pago"
+                className="h-8 max-w-[100px] object-contain"
+              />
+              <Heading level={3}>Conectar Mercado Pago</Heading>
+            </div>
             <Button
               variant="ghost"
               size="sm"
@@ -278,6 +387,46 @@ export default function GatewaysPage() {
   );
 }
 
+function LockIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+    >
+      <title>cadeado</title>
+      <rect x="4" y="11" width="16" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+
+function BadgeIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+    >
+      <title>selo</title>
+      <circle cx="12" cy="12" r="8" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  );
+}
+
 const inputClass =
   'w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] ' +
   'px-4 py-3 text-[15px] text-[var(--color-fg)] outline-none transition ' +
@@ -297,7 +446,7 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: input rendered via {children}; biome can't trace into children, but HTML label semantics still focus the first descendant control on click.
+    // biome-ignore lint/a11y/noLabelWithoutControl: input rendered via {children}; label wraps the control via React composition.
     <label className={`flex flex-col gap-2 ${className ?? ''}`}>
       <span className="font-medium text-[13px] text-[var(--color-fg-muted)]">{label}</span>
       {children}
