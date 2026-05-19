@@ -168,8 +168,10 @@ COPY --chown=worker:worker --from=src /repo /repo
 USER worker
 CMD ["apps/workers/node_modules/.bin/tsx", "apps/workers/src/index.ts"]
 
-# dashboard-runtime — `next start`. WORKDIR set to the app's package so the
-# .next directory and node_modules/.bin/next resolve.
+# dashboard-runtime — standalone Next.js output. Copies only the self-
+# contained bundle (~150 MB) instead of the full /repo tree (~1 GB).
+# `output: standalone` in next.config.ts writes apps/dashboard/.next/standalone/
+# which includes a pre-traced node_modules subset and server.js entry.
 FROM node:${NODE_VERSION}-bookworm-slim AS dashboard-runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -177,14 +179,15 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 RUN groupadd --system --gid 10001 next \
     && useradd  --system --uid 10001 --gid next --no-create-home next
-WORKDIR /repo
-COPY --chown=next:next --from=dashboard-builder /repo /repo
+WORKDIR /app
+COPY --chown=next:next --from=dashboard-builder /repo/apps/dashboard/.next/standalone ./
+COPY --chown=next:next --from=dashboard-builder /repo/apps/dashboard/.next/static ./apps/dashboard/.next/static
+COPY --chown=next:next --from=dashboard-builder /repo/apps/dashboard/public ./apps/dashboard/public
 USER next
-WORKDIR /repo/apps/dashboard
 EXPOSE 3000
-CMD ["node_modules/.bin/next", "start", "-p", "3000"]
+CMD ["node", "apps/dashboard/server.js"]
 
-# checkout-runtime — same as dashboard but for the buyer-facing checkout.
+# checkout-runtime — same standalone pattern, port 3001.
 FROM node:${NODE_VERSION}-bookworm-slim AS checkout-runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -192,14 +195,15 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 RUN groupadd --system --gid 10001 next \
     && useradd  --system --uid 10001 --gid next --no-create-home next
-WORKDIR /repo
-COPY --chown=next:next --from=checkout-builder /repo /repo
+WORKDIR /app
+COPY --chown=next:next --from=checkout-builder /repo/apps/checkout/.next/standalone ./
+COPY --chown=next:next --from=checkout-builder /repo/apps/checkout/.next/static ./apps/checkout/.next/static
+COPY --chown=next:next --from=checkout-builder /repo/apps/checkout/public ./apps/checkout/public
 USER next
-WORKDIR /repo/apps/checkout
 EXPOSE 3001
-CMD ["node_modules/.bin/next", "start", "-p", "3001"]
+CMD ["node", "apps/checkout/server.js"]
 
-# admin-runtime — internal staff panel.
+# admin-runtime — same standalone pattern, port 3002.
 FROM node:${NODE_VERSION}-bookworm-slim AS admin-runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -207,9 +211,10 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 RUN groupadd --system --gid 10001 next \
     && useradd  --system --uid 10001 --gid next --no-create-home next
-WORKDIR /repo
-COPY --chown=next:next --from=admin-builder /repo /repo
+WORKDIR /app
+COPY --chown=next:next --from=admin-builder /repo/apps/admin/.next/standalone ./
+COPY --chown=next:next --from=admin-builder /repo/apps/admin/.next/static ./apps/admin/.next/static
+COPY --chown=next:next --from=admin-builder /repo/apps/admin/public ./apps/admin/public
 USER next
-WORKDIR /repo/apps/admin
 EXPOSE 3002
-CMD ["node_modules/.bin/next", "start", "-p", "3002"]
+CMD ["node", "apps/admin/server.js"]

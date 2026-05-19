@@ -1,10 +1,17 @@
+import path from 'node:path';
 import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Standalone output: self-contained bundle with only required deps.
+  // Runtime image copies .next/standalone + .next/static + public —
+  // ~150 MB instead of the full 1 GB /repo tree.
+  output: 'standalone',
   experimental: {
     // Enable server actions for the auth flow forms.
     serverActions: { bodySizeLimit: '1mb' },
+    // Trace files from the monorepo root so workspace packages are included.
+    outputFileTracingRoot: path.resolve(__dirname, '../../'),
   },
   // Transpile workspace packages so Next.js can consume their `src/*.ts`
   // entry points without each one needing its own build step.
