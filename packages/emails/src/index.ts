@@ -38,6 +38,9 @@ export interface EmailSender {
     productName: string;
     amountFormatted: string;
     brand?: string;
+    /** Optional post-purchase delivery info from the product row. */
+    deliveryUrl?: string | null;
+    deliveryInstructions?: string | null;
   }): Promise<void>;
   sendCartRecovery(input: {
     to: string;
@@ -109,13 +112,37 @@ export function createEmailSender(config: EmailSenderConfig): EmailSender {
       productName,
       amountFormatted,
       brand,
+      deliveryUrl,
+      deliveryInstructions,
     }) {
       const product = brand ?? 'payunivercart';
       const firstName = customerName.split(/\s+/)[0] ?? customerName;
+      const hasDelivery = !!(deliveryUrl || deliveryInstructions);
+      const deliveryText = hasDelivery
+        ? `\n\nAcesso:\n${deliveryUrl ?? ''}${deliveryInstructions ? `\n${deliveryInstructions}` : ''}`
+        : '';
+      const deliveryHtml = hasDelivery
+        ? `
+            <div style="margin:24px 0;padding:20px;border-radius:12px;background:#ecfdf5;border:1px solid #a7f3d0;">
+              <p style="margin:0 0 8px 0;font-weight:600;color:#065f46;font-size:13px;letter-spacing:0.04em;text-transform:uppercase;">Seu acesso</p>
+              ${
+                deliveryUrl
+                  ? `<p style="margin:0 0 12px 0;"><a href="${escapeAttr(deliveryUrl)}" style="display:inline-block;background:#16a34a;color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;text-decoration:none;">Abrir agora</a></p>
+                     <p style="margin:0 0 12px 0;font-family:'SF Mono',Menlo,monospace;font-size:12px;color:#065f46;word-break:break-all;">${escapeHtml(deliveryUrl)}</p>`
+                  : ''
+              }
+              ${
+                deliveryInstructions
+                  ? `<p style="margin:0;color:#064e3b;font-size:13px;line-height:1.55;white-space:pre-wrap;">${escapeHtml(deliveryInstructions)}</p>`
+                  : ''
+              }
+            </div>
+          `
+        : '';
       await send({
         to,
         subject: `${product} — pagamento confirmado · ${publicReference}`,
-        text: `Oi ${firstName},\n\nRecebemos o pagamento do seu pedido ${publicReference} (${productName}, ${amountFormatted}).\n\nObrigado!`,
+        text: `Oi ${firstName},\n\nRecebemos o pagamento do seu pedido ${publicReference} (${productName}, ${amountFormatted}).${deliveryText}\n\nObrigado!`,
         html: shell(
           product,
           `
@@ -126,6 +153,7 @@ export function createEmailSender(config: EmailSenderConfig): EmailSender {
               <tr><td style="color:#86868b;font-size:12px;padding:4px 0;">Produto</td><td style="text-align:right;font-size:13px;">${escapeHtml(productName)}</td></tr>
               <tr><td style="color:#86868b;font-size:12px;padding:4px 0;">Valor</td><td style="text-align:right;font-size:13px;font-weight:600;">${escapeHtml(amountFormatted)}</td></tr>
             </table>
+            ${deliveryHtml}
             <p style="margin:0;color:#86868b;font-size:12px;">Guarde este email — use o número do pedido se precisar entrar em contato com o produtor.</p>
           `,
         ),

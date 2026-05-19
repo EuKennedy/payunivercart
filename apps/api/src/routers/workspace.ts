@@ -107,6 +107,7 @@ export const workspaceRouter = router({
         slug: z.string(),
         locale: z.string(),
         timezone: z.string(),
+        notificationPhoneE164: z.string().nullable(),
       }),
     )
     .query(async ({ ctx }) => {
@@ -117,6 +118,7 @@ export const workspaceRouter = router({
           slug: schema.workspaces.slug,
           locale: schema.workspaces.locale,
           timezone: schema.workspaces.timezone,
+          notificationPhoneE164: schema.workspaces.notificationPhoneE164,
         })
         .from(schema.workspaces)
         .where(eq(schema.workspaces.id, ctx.workspaceId))
@@ -130,6 +132,7 @@ export const workspaceRouter = router({
         slug: row.slug,
         locale: row.locale,
         timezone: row.timezone,
+        notificationPhoneE164: row.notificationPhoneE164,
       };
     }),
 
@@ -153,6 +156,18 @@ export const workspaceRouter = router({
             'Slug: minúsculas, números e hífen (sem extremos).',
           )
           .optional(),
+        /**
+         * Producer's own WhatsApp (E.164) for sale-alert pings.
+         * Validated as 10–15 digits prefixed with `+` so we don't
+         * later ship an empty string into WAHA. Pass `null` to opt
+         * out, `undefined` to leave untouched.
+         */
+        notificationPhoneE164: z
+          .string()
+          .trim()
+          .regex(/^\+\d{10,15}$/, 'Use formato internacional, ex: +5531984956383.')
+          .nullable()
+          .optional(),
       }),
     )
     .output(z.object({ ok: z.literal(true) }))
@@ -160,6 +175,8 @@ export const workspaceRouter = router({
       const patch: Record<string, unknown> = {};
       if (input.name !== undefined) patch.name = input.name;
       if (input.slug !== undefined) patch.slug = input.slug;
+      if (input.notificationPhoneE164 !== undefined)
+        patch.notificationPhoneE164 = input.notificationPhoneE164;
       if (Object.keys(patch).length === 0) {
         return { ok: true as const };
       }

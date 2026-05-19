@@ -212,53 +212,12 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
           .update(schema.orders)
           .set({ status: 'paid', paidAt: nowDate })
           .where(eq(schema.orders.id, tx.orderId));
-        // Fire-and-log the transactional receipt. Failure is non-fatal
-        // — we never want a Resend hiccup to retry the webhook + risk
-        // double-marking the order as paid.
-        try {
-          const [row] = await services.db.db
-            .select({
-              email: schema.orders.customerEmail,
-              name: schema.orders.customerName,
-              ref: schema.orders.publicReference,
-              total: schema.orders.totalCents,
-              currency: schema.orders.currency,
-              workspaceName: schema.workspaces.name,
-              workspaceCompanyName: schema.workspaces.companyName,
-            })
-            .from(schema.orders)
-            .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.orders.workspaceId))
-            .where(eq(schema.orders.id, tx.orderId))
-            .limit(1);
-          if (row) {
-            const [item] = await services.db.db
-              .select({ name: schema.orderItems.name })
-              .from(schema.orderItems)
-              .where(eq(schema.orderItems.orderId, tx.orderId))
-              .limit(1);
-            await services.emails.sendOrderPaid({
-              to: row.email,
-              customerName: row.name,
-              publicReference: row.ref,
-              productName: item?.name ?? 'seu pedido',
-              amountFormatted: new Intl.NumberFormat(row.currency === 'BRL' ? 'pt-BR' : 'en-US', {
-                style: 'currency',
-                currency: row.currency,
-                minimumFractionDigits: 2,
-              }).format(Number(row.total) / 100),
-              brand: row.workspaceCompanyName?.trim() || row.workspaceName,
-            });
-          }
-        } catch (cause) {
-          process.stdout.write(
-            `${JSON.stringify({
-              level: 'warn',
-              event: 'orderPaid.email.failed',
-              orderId: tx.orderId,
-              error: cause instanceof Error ? cause.message : String(cause),
-            })}\n`,
-          );
-        }
+        // Post-payment fan-out: receipt email + buyer WhatsApp w/
+        // delivery + producer WhatsApp alert. Each leg is wrapped
+        // independently — a Resend hiccup must not stop the WAHA
+        // dispatch, and a WAHA hiccup must not double-mark the order
+        // as paid by failing the webhook ack.
+        await dispatchPaidFanOut(services, tx.orderId);
       } else if (charge.status === 'refunded') {
         await services.db.db
           .update(schema.orders)
@@ -399,4 +358,152 @@ async function storeRaw(params: {
     signatureValid: params.signatureValid,
     error: params.error,
   });
+}
+
+/**
+ * Side-effects triggered when the gateway confirms payment:
+ *   1. Receipt email to the buyer (with optional delivery link).
+ *   2. WhatsApp message to the buyer w/ delivery instructions, when
+ *      a WAHA chatId is on file AND the workspace's session is up.
+ *   3. WhatsApp ping to the producer's own number (if they set one
+ *      under Configurações → Empresa).
+ *
+ * Every leg is wrapped in try/catch and logged. The webhook ack must
+ * not depend on any single side-effect: if Resend is down we still
+ * fire WAHA; if WAHA is down we still keep the order marked paid.
+ */
+async function dispatchPaidFanOut(services: AppServices, orderId: string): Promise<void> {
+  const [row] = await services.db.db
+    .select({
+      email: schema.orders.customerEmail,
+      name: schema.orders.customerName,
+      ref: schema.orders.publicReference,
+      total: schema.orders.totalCents,
+      currency: schema.orders.currency,
+      customerWahaChatId: schema.orders.customerWahaChatId,
+      workspaceId: schema.orders.workspaceId,
+      workspaceName: schema.workspaces.name,
+      workspaceCompanyName: schema.workspaces.companyName,
+      notificationPhoneE164: schema.workspaces.notificationPhoneE164,
+    })
+    .from(schema.orders)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.orders.workspaceId))
+    .where(eq(schema.orders.id, orderId))
+    .limit(1);
+  if (!row) return;
+
+  // Product is read via order_items → products. Order_items always
+  // has the snapshotted product name; we go to `products` only for
+  // the delivery fields the producer may have set on the catalogue.
+  const [item] = await services.db.db
+    .select({
+      name: schema.orderItems.name,
+      productId: schema.orderItems.productId,
+      deliveryUrl: schema.products.deliveryUrl,
+      deliveryInstructions: schema.products.deliveryInstructions,
+    })
+    .from(schema.orderItems)
+    .leftJoin(schema.products, eq(schema.products.id, schema.orderItems.productId))
+    .where(eq(schema.orderItems.orderId, orderId))
+    .limit(1);
+
+  const brand = row.workspaceCompanyName?.trim() || row.workspaceName;
+  const amountFormatted = new Intl.NumberFormat(row.currency === 'BRL' ? 'pt-BR' : 'en-US', {
+    style: 'currency',
+    currency: row.currency,
+    minimumFractionDigits: 2,
+  }).format(Number(row.total) / 100);
+  const productName = item?.name ?? 'seu pedido';
+  const deliveryUrl = item?.deliveryUrl ?? null;
+  const deliveryInstructions = item?.deliveryInstructions ?? null;
+
+  // -- 1. Receipt email -----------------------------------------------------
+  try {
+    await services.emails.sendOrderPaid({
+      to: row.email,
+      customerName: row.name,
+      publicReference: row.ref,
+      productName,
+      amountFormatted,
+      brand,
+      deliveryUrl,
+      deliveryInstructions,
+    });
+  } catch (cause) {
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'orderPaid.email.failed',
+        orderId,
+        error: cause instanceof Error ? cause.message : String(cause),
+      })}\n`,
+    );
+  }
+
+  // -- 2/3. WhatsApp dispatch ------------------------------------------------
+  // Both buyer + producer pings ride the same workspace WAHA session.
+  // If the workspace hasn't connected one we skip silently — the
+  // email still went out.
+  const [sessionRow] = await services.db.db
+    .select({ sessionName: schema.whatsappSessions.wahaSessionId })
+    .from(schema.whatsappSessions)
+    .where(eq(schema.whatsappSessions.workspaceId, row.workspaceId))
+    .limit(1);
+  if (!sessionRow) return;
+  const sessionName = sessionRow.sessionName;
+
+  const firstName = row.name.split(/\s+/)[0] ?? row.name;
+  const deliveryLine = deliveryUrl
+    ? `\n\n👉 Acesso: ${deliveryUrl}${deliveryInstructions ? `\n\n${deliveryInstructions}` : ''}`
+    : deliveryInstructions
+      ? `\n\n${deliveryInstructions}`
+      : '';
+  const buyerText =
+    `Oi ${firstName}! Pagamento de *${productName}* confirmado ✅\n` +
+    `Pedido ${row.ref} · ${amountFormatted}.${deliveryLine}\n\n— ${brand}`;
+
+  if (row.customerWahaChatId) {
+    try {
+      await services.waha.sendText({
+        session: sessionName,
+        chatId: row.customerWahaChatId as `${string}@c.us`,
+        text: buyerText,
+        linkPreview: !!deliveryUrl,
+      });
+    } catch (cause) {
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'warn',
+          event: 'orderPaid.buyerWhatsapp.failed',
+          orderId,
+          error: cause instanceof Error ? cause.message : String(cause),
+        })}\n`,
+      );
+    }
+  }
+
+  if (row.notificationPhoneE164) {
+    const producerChatId = `${row.notificationPhoneE164.replace(/\D+/g, '')}@c.us` as const;
+    const producerText =
+      `💰 Venda nova em *${brand}*\n` +
+      `${row.name} comprou *${productName}* por ${amountFormatted}.\n` +
+      `Pedido ${row.ref}.`;
+    try {
+      await services.waha.sendText({
+        session: sessionName,
+        chatId: producerChatId,
+        text: producerText,
+        linkPreview: false,
+      });
+    } catch (cause) {
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'warn',
+          event: 'orderPaid.producerWhatsapp.failed',
+          orderId,
+          error: cause instanceof Error ? cause.message : String(cause),
+        })}\n`,
+      );
+    }
+  }
 }

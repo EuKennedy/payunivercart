@@ -51,6 +51,13 @@ export const workspaces = pgTable(
     /** MIME of `brandLogo` (e.g. `image/png`). NULL when `brandLogo` is NULL. */
     brandLogoMime: text(),
     brandPrimaryColor: text(),
+    /**
+     * Producer's own WhatsApp number (E.164, e.g. `+5531984956383`).
+     * When set, the gateway-webhook handler dispatches a sale alert
+     * via the workspace's WAHA session every time an order flips to
+     * `paid`. NULL = silent (producer didn't opt in).
+     */
+    notificationPhoneE164: text(),
     locale: localeEnum().notNull().default('pt-BR'),
     timezone: text().notNull().default('America/Sao_Paulo'),
     settings: jsonb().notNull().default({}),

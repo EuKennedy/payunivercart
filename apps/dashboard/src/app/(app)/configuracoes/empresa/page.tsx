@@ -26,12 +26,14 @@ export default function EmpresaSettingsPage() {
 
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
+  const [notificationPhone, setNotificationPhone] = useState('');
   const [seeded, setSeeded] = useState(false);
 
   useEffect(() => {
     if (seeded || !profile.data) return;
     setName(profile.data.name);
     setSlug(profile.data.slug);
+    setNotificationPhone(profile.data.notificationPhoneE164 ?? '');
     setSeeded(true);
   }, [profile.data, seeded]);
 
@@ -44,6 +46,7 @@ export default function EmpresaSettingsPage() {
 
   const trimmedName = name.trim();
   const trimmedSlug = slug.trim();
+  const trimmedPhone = notificationPhone.trim();
   const validationError = (() => {
     if (trimmedName.length === 0) return 'Informe o nome da workspace.';
     if (trimmedName.length > 120) return 'Nome muito longo (máx 120).';
@@ -51,6 +54,8 @@ export default function EmpresaSettingsPage() {
     if (trimmedSlug.length > 40) return 'Identificador muito longo (máx 40).';
     if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(trimmedSlug))
       return 'Identificador: minúsculas, números e hífen (sem extremos).';
+    if (trimmedPhone.length > 0 && !/^\+\d{10,15}$/.test(trimmedPhone))
+      return 'WhatsApp: use formato internacional, ex: +5531984956383.';
     return null;
   })();
   const apiError = update.error?.message ?? null;
@@ -58,7 +63,11 @@ export default function EmpresaSettingsPage() {
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (validationError) return;
-    update.mutate({ name: trimmedName, slug: trimmedSlug });
+    update.mutate({
+      name: trimmedName,
+      slug: trimmedSlug,
+      notificationPhoneE164: trimmedPhone.length > 0 ? trimmedPhone : null,
+    });
   };
 
   return (
@@ -85,6 +94,22 @@ export default function EmpresaSettingsPage() {
             onChange={(e) => setSlug(e.target.value.toLowerCase())}
             className={`${fieldInputClass} font-mono`}
             maxLength={40}
+          />
+        </Field>
+
+        <Field
+          label="WhatsApp pra alerta de venda"
+          hint="Opcional. Quando alguém comprar, mandamos um ping pro seu WhatsApp via WAHA. Formato internacional, ex: +5531984956383."
+        >
+          <input
+            type="tel"
+            value={notificationPhone}
+            onChange={(e) => setNotificationPhone(e.target.value.replace(/[^+\d]/g, ''))}
+            className={`${fieldInputClass} font-mono`}
+            placeholder="+5531984956383"
+            maxLength={20}
+            inputMode="tel"
+            autoComplete="tel"
           />
         </Field>
 

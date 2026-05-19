@@ -49,6 +49,24 @@ export const products = pgTable(
     coverImage: bytea(),
     /** MIME of `coverImage` (e.g. `image/jpeg`). NULL iff bytes NULL. */
     coverImageMime: text(),
+    /**
+     * Optional post-purchase delivery link. Producer sets this on the
+     * product edit page; the buyer receives it by email AND WhatsApp
+     * the moment the gateway flips the transaction to `paid`.
+     *
+     * Use cases: course platform login URL, Drive/Notion link, signed
+     * download URL, Discord invite, etc. We don't validate the scheme
+     * beyond "looks like a URL" so producers can ship unusual links
+     * (`mailto:`, `tel:`, custom-protocol app URIs) without us
+     * gatekeeping their delivery.
+     */
+    deliveryUrl: text(),
+    /**
+     * Optional free-text instructions rendered alongside `deliveryUrl`
+     * on the buyer's confirmation. Markdown is NOT parsed; newlines
+     * preserved on render. Keep short — the receipt has limited room.
+     */
+    deliveryInstructions: text(),
     isActive: boolean().notNull().default(true),
     metadata: jsonb().notNull().default({}),
     createdAt: createdAt(),

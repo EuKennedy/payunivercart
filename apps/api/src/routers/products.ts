@@ -74,6 +74,8 @@ const ProductRow = z.object({
   priceCents: z.number().int().nonnegative(),
   currency: Currency,
   maxInstallments: z.number().int().min(1).max(24),
+  deliveryUrl: z.string().nullable(),
+  deliveryInstructions: z.string().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -106,6 +108,8 @@ export const productsRouter = router({
           type: schema.products.type,
           coverImageUrl: schema.products.coverImageUrl,
           coverImageMime: schema.products.coverImageMime,
+          deliveryUrl: schema.products.deliveryUrl,
+          deliveryInstructions: schema.products.deliveryInstructions,
           isActive: schema.products.isActive,
           createdAt: schema.products.createdAt,
           updatedAt: schema.products.updatedAt,
@@ -139,6 +143,8 @@ export const productsRouter = router({
         priceCents: r.priceCents != null ? Number(r.priceCents) : 0,
         currency: r.currency ?? 'BRL',
         maxInstallments: r.maxInstallments ?? 12,
+        deliveryUrl: r.deliveryUrl,
+        deliveryInstructions: r.deliveryInstructions,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
       }));
@@ -164,6 +170,8 @@ export const productsRouter = router({
           type: schema.products.type,
           coverImageUrl: schema.products.coverImageUrl,
           coverImageMime: schema.products.coverImageMime,
+          deliveryUrl: schema.products.deliveryUrl,
+          deliveryInstructions: schema.products.deliveryInstructions,
           isActive: schema.products.isActive,
           createdAt: schema.products.createdAt,
           updatedAt: schema.products.updatedAt,
@@ -198,6 +206,8 @@ export const productsRouter = router({
         priceCents: row.priceCents != null ? Number(row.priceCents) : 0,
         currency: row.currency ?? 'BRL',
         maxInstallments: row.maxInstallments ?? 12,
+        deliveryUrl: row.deliveryUrl,
+        deliveryInstructions: row.deliveryInstructions,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -301,6 +311,14 @@ export const productsRouter = router({
          * in the first place).
          */
         cover: CoverUploadInput.optional(),
+        /**
+         * Post-purchase delivery. URL is the link the buyer receives by
+         * email + WhatsApp the moment the gateway confirms payment;
+         * instructions render alongside it. Pass `null` to clear the
+         * column, `undefined` to leave it untouched.
+         */
+        deliveryUrl: z.string().trim().max(500).nullable().optional(),
+        deliveryInstructions: z.string().trim().max(1000).nullable().optional(),
       }),
     )
     .output(z.object({ ok: z.literal(true) }))
@@ -310,6 +328,9 @@ export const productsRouter = router({
         if (input.name !== undefined) patch.name = input.name;
         if (input.description !== undefined) patch.description = input.description;
         if (input.isActive !== undefined) patch.isActive = input.isActive;
+        if (input.deliveryUrl !== undefined) patch.deliveryUrl = input.deliveryUrl;
+        if (input.deliveryInstructions !== undefined)
+          patch.deliveryInstructions = input.deliveryInstructions;
         if (input.cover !== undefined) {
           const { bytes, mime } = decodeCover(input.cover);
           patch.coverImage = bytes;

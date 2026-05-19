@@ -39,6 +39,8 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
   const [maxInstallments, setMaxInstallments] = useState(12);
   const [isActive, setIsActive] = useState(true);
   const [cover, setCover] = useState<ImageUpload | null>(null);
+  const [deliveryUrl, setDeliveryUrl] = useState('');
+  const [deliveryInstructions, setDeliveryInstructions] = useState('');
 
   // Hydrate state once the query resolves. We only seed on the leading
   // edge so subsequent refetches from `invalidate()` don't clobber
@@ -51,6 +53,8 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
     setPriceInput((product.data.priceCents / 100).toFixed(2).replace('.', ','));
     setMaxInstallments(product.data.maxInstallments);
     setIsActive(product.data.isActive);
+    setDeliveryUrl(product.data.deliveryUrl ?? '');
+    setDeliveryInstructions(product.data.deliveryInstructions ?? '');
     setSeeded(true);
   }, [product.data, seeded]);
 
@@ -93,6 +97,8 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
       priceCents,
       maxInstallments,
       isActive,
+      deliveryUrl: deliveryUrl.trim() || null,
+      deliveryInstructions: deliveryInstructions.trim() || null,
       ...(cover ? { cover } : {}),
     });
   };
@@ -203,6 +209,43 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
             </span>
           </span>
         </label>
+
+        <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
+          <header className="flex flex-col gap-1">
+            <span className="font-medium text-[13px] text-[var(--color-fg)]">
+              Entrega pós-compra
+            </span>
+            <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
+              Quando o pagamento for confirmado, mandamos esses dados pro comprador por email e
+              WhatsApp. Use o link da área de membros, do grupo, do Drive — o que servir como
+              entrega.
+            </span>
+          </header>
+          <Field label="Link de entrega" hint="Opcional. Pode ser área de membros, Drive, Discord…">
+            <input
+              type="url"
+              value={deliveryUrl}
+              onChange={(e) => setDeliveryUrl(e.target.value)}
+              className={fieldInputClass}
+              placeholder="https://"
+              maxLength={500}
+              inputMode="url"
+            />
+          </Field>
+          <Field
+            label="Instruções"
+            hint="Opcional. Texto curto que aparece junto ao link no email + WhatsApp."
+          >
+            <textarea
+              value={deliveryInstructions}
+              onChange={(e) => setDeliveryInstructions(e.target.value)}
+              rows={3}
+              className={`${fieldInputClass} resize-none`}
+              placeholder="Ex.: acesse com o mesmo email que você usou na compra…"
+              maxLength={1000}
+            />
+          </Field>
+        </section>
 
         {validationError ? (
           <p className="text-[13px] text-[var(--color-danger)]">{validationError}</p>
