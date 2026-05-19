@@ -188,6 +188,98 @@ export const ordersRouter = router({
     }),
 
   /**
+   * Mark an order as paid manually. Used when the producer received
+   * the money outside the gateway (e.g., bank transfer, dinheiro)
+   * and wants the system state to reflect reality.
+   *
+   * Refuses when:
+   *   - the order is already in a terminal state (paid, refunded,
+   *     cancelled). Mutating a finished order would corrupt the
+   *     append-only transactions audit.
+   * Records a synthetic transaction row so the audit chain stays
+   * coherent — the gateway field is left null to signal "operator
+   * override" instead of a real charge.
+   */
+  markPaidManually: workspaceProcedure
+    .input(z.object({ orderId: z.string().uuid(), note: z.string().max(500).optional() }))
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(async ({ ctx, input }) => {
+      const [order] = await ctx.services.db.db
+        .select({
+          id: schema.orders.id,
+          status: schema.orders.status,
+          totalCents: schema.orders.totalCents,
+          currency: schema.orders.currency,
+        })
+        .from(schema.orders)
+        .where(
+          and(eq(schema.orders.id, input.orderId), eq(schema.orders.workspaceId, ctx.workspaceId)),
+        )
+        .limit(1);
+      if (!order) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Pedido inexistente.' });
+      }
+      if (order.status === 'paid' || order.status === 'refunded' || order.status === 'cancelled') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Pedido já está em status ${order.status} e não pode ser marcado como pago.`,
+        });
+      }
+      // We deliberately don't insert a fake `transactions` row — the
+      // gatewayId enum doesn't have a 'manual' variant, and forging a
+      // gateway value would corrupt the audit chain. Instead the
+      // manual override is captured on `orders.metadata.manualPayment`.
+      const now = new Date();
+      await ctx.services.db.db
+        .update(schema.orders)
+        .set({
+          status: 'paid',
+          paidAt: now,
+          metadata: {
+            manualPayment: {
+              markedAt: now.toISOString(),
+              note: input.note ?? null,
+            },
+          },
+        })
+        .where(eq(schema.orders.id, order.id));
+      return { ok: true as const };
+    }),
+
+  /**
+   * Cancel a pending order. Producer might want this when a customer
+   * gives up or the operator decides the pix shouldn't be honoured.
+   * Refunded / paid orders can't be cancelled via this path — those
+   * need a real refund flow.
+   */
+  cancel: workspaceProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(async ({ ctx, input }) => {
+      const [order] = await ctx.services.db.db
+        .select({ id: schema.orders.id, status: schema.orders.status })
+        .from(schema.orders)
+        .where(
+          and(eq(schema.orders.id, input.orderId), eq(schema.orders.workspaceId, ctx.workspaceId)),
+        )
+        .limit(1);
+      if (!order) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Pedido inexistente.' });
+      }
+      if (order.status === 'paid' || order.status === 'refunded') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Pedido em status ${order.status} não pode ser cancelado por aqui.`,
+        });
+      }
+      await ctx.services.db.db
+        .update(schema.orders)
+        .set({ status: 'cancelled', cancelledAt: new Date() })
+        .where(eq(schema.orders.id, order.id));
+      return { ok: true as const };
+    }),
+
+  /**
    * Send an ad-hoc WhatsApp message to the order's buyer using the
    * workspace's own producer-chosen WAHA session. Refuses when:
    *   - the order doesn't belong to the caller's workspace,

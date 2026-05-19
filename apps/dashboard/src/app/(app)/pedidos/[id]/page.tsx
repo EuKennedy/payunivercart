@@ -41,6 +41,7 @@ const STATUS_TONE: Record<string, string> = {
 export default function PedidoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const utils = trpc.useUtils();
   const order = trpc.orders.byId.useQuery({ id });
   const [composerOpen, setComposerOpen] = useState(false);
   const [message, setMessage] = useState('');
@@ -48,6 +49,18 @@ export default function PedidoDetailPage({ params }: { params: Promise<{ id: str
     onSuccess: () => {
       setComposerOpen(false);
       setMessage('');
+    },
+  });
+  const markPaid = trpc.orders.markPaidManually.useMutation({
+    onSuccess: () => {
+      utils.orders.byId.invalidate({ id });
+      utils.orders.list.invalidate();
+    },
+  });
+  const cancel = trpc.orders.cancel.useMutation({
+    onSuccess: () => {
+      utils.orders.byId.invalidate({ id });
+      utils.orders.list.invalidate();
     },
   });
 
@@ -92,10 +105,34 @@ export default function PedidoDetailPage({ params }: { params: Promise<{ id: str
             ) : null}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="ghost" onClick={() => router.push('/pedidos')}>
             Voltar
           </Button>
+          {o.status === 'pending_payment' ? (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (!confirm('Marcar este pedido como pago manualmente?')) return;
+                  markPaid.mutate({ orderId: o.id });
+                }}
+                disabled={markPaid.isPending}
+              >
+                {markPaid.isPending ? 'Marcando…' : 'Marcar como pago'}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (!confirm('Cancelar este pedido?')) return;
+                  cancel.mutate({ orderId: o.id });
+                }}
+                disabled={cancel.isPending}
+              >
+                {cancel.isPending ? 'Cancelando…' : 'Cancelar pedido'}
+              </Button>
+            </>
+          ) : null}
           <Button onClick={() => setComposerOpen(true)}>Disparar mensagem no WhatsApp</Button>
         </div>
       </header>
