@@ -48,9 +48,13 @@ const STATUS_TONE: Record<string, string> = {
 export default function PedidosPage() {
   const router = useRouter();
   const [filter, setFilter] = useState<StatusFilter>('all');
+  // Polls every 5s so the producer sees the pending → paid flip
+  // arrive in close-to-real-time after a buyer pays. The webhook
+  // is the source of truth — this just shortens the discovery
+  // window on the dashboard surface.
   const list = trpc.orders.list.useQuery(
     { limit: 100, ...(filter !== 'all' ? { status: filter } : {}) },
-    { staleTime: 10_000 },
+    { staleTime: 4_000, refetchInterval: 5_000, refetchIntervalInBackground: false },
   );
 
   if (list.isPending) {

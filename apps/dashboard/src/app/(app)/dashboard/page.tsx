@@ -48,13 +48,23 @@ export default function DashboardHome() {
     if (!session.isPending && !session.data) router.replace('/login');
   }, [session.isPending, session.data, router]);
 
+  // 5s polling on the activity feed so a freshly-paid order shows
+  // up near-instantly after the gateway webhook fires. Aggregate
+  // KPIs (GMV, conversion) churn less and stay on 30s.
   const overview = trpc.metrics.overview.useQuery(undefined, {
     staleTime: 30_000,
     enabled: !!session.data,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
   const recent = trpc.metrics.recentOrders.useQuery(
     { limit: 10 },
-    { staleTime: 30_000, enabled: !!session.data },
+    {
+      staleTime: 4_000,
+      enabled: !!session.data,
+      refetchInterval: 5_000,
+      refetchIntervalInBackground: false,
+    },
   );
 
   if (session.isPending) {
@@ -121,7 +131,7 @@ export default function DashboardHome() {
         <section>
           <div className="mb-5 flex items-baseline justify-between">
             <Heading level={3}>Últimos pedidos</Heading>
-            <p className="text-[13px] text-[var(--color-fg-subtle)]">Atualiza a cada 30s</p>
+            <p className="text-[13px] text-[var(--color-fg-subtle)]">Atualiza a cada 5s</p>
           </div>
           <div className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
             <table className="w-full text-[14px]">
