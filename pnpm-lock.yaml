@@ -150,8 +150,8 @@ importers:
         specifier: 22.10.5
         version: 22.10.5
       dotenv:
-        specifier: 16.4.7
-        version: 16.4.7
+        specifier: 17.4.2
+        version: 17.4.2
       typescript:
         specifier: 5.7.2
         version: 5.7.2
@@ -333,8 +333,8 @@ importers:
         specifier: 22.10.5
         version: 22.10.5
       dotenv:
-        specifier: 16.4.7
-        version: 16.4.7
+        specifier: 17.4.2
+        version: 17.4.2
       typescript:
         specifier: 5.7.2
         version: 5.7.2
@@ -421,8 +421,8 @@ importers:
         specifier: 22.10.5
         version: 22.10.5
       dotenv:
-        specifier: 16.4.7
-        version: 16.4.7
+        specifier: 17.4.2
+        version: 17.4.2
       drizzle-kit:
         specifier: 0.31.10
         version: 0.31.10
@@ -1630,8 +1630,8 @@ packages:
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
 
-  dotenv@16.4.7:
-    resolution: {integrity: sha512-47qPchRCykZC03FhkYAhrvwU4xDBFIj1QPqaarj6mdM/hgUzfPHcpkHJOn3mJAufFeeAxAzeGsr5X0M4k6fLZQ==}
+  dotenv@17.4.2:
+    resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
     engines: {node: '>=12'}
 
   drizzle-kit@0.31.10:
@@ -3271,7 +3271,7 @@ snapshots:
       domelementtype: 2.3.0
       domhandler: 5.0.3
 
-  dotenv@16.4.7: {}
+  dotenv@17.4.2: {}
 
   drizzle-kit@0.31.10:
     dependencies:
