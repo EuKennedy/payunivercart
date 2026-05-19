@@ -97,7 +97,7 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
         identification: documentTo(input.customer.document),
       },
       external_reference: input.orderId,
-      notification_url: NOTIFICATION_URL_PLACEHOLDER,
+      notification_url: input.webhookUrl ?? NOTIFICATION_URL_PLACEHOLDER,
       metadata: {
         ...input.metadata,
         workspace_id: input.workspaceId,
@@ -177,7 +177,7 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
         identification: documentTo(input.customer.document),
       },
       external_reference: input.orderId,
-      notification_url: NOTIFICATION_URL_PLACEHOLDER,
+      notification_url: input.webhookUrl ?? NOTIFICATION_URL_PLACEHOLDER,
       metadata: {
         ...input.metadata,
         workspace_id: input.workspaceId,
@@ -225,7 +225,7 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
         },
       },
       external_reference: input.orderId,
-      notification_url: NOTIFICATION_URL_PLACEHOLDER,
+      notification_url: input.webhookUrl ?? NOTIFICATION_URL_PLACEHOLDER,
       metadata: {
         ...input.metadata,
         workspace_id: input.workspaceId,

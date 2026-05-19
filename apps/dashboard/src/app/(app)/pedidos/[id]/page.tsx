@@ -63,6 +63,12 @@ export default function PedidoDetailPage({ params }: { params: Promise<{ id: str
       utils.orders.list.invalidate();
     },
   });
+  const sync = trpc.orders.syncWithGateway.useMutation({
+    onSuccess: () => {
+      utils.orders.byId.invalidate({ id });
+      utils.orders.list.invalidate();
+    },
+  });
 
   if (order.isPending) {
     return <p className="text-[15px] text-[var(--color-fg-muted)]">Carregando…</p>;
@@ -113,6 +119,14 @@ export default function PedidoDetailPage({ params }: { params: Promise<{ id: str
             <>
               <Button
                 variant="secondary"
+                onClick={() => sync.mutate({ orderId: o.id })}
+                disabled={sync.isPending}
+                title="Consulta o gateway agora pra ver se já caiu o pagamento."
+              >
+                {sync.isPending ? 'Consultando gateway…' : 'Verificar pagamento'}
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => {
                   if (!confirm('Marcar este pedido como pago manualmente?')) return;
                   markPaid.mutate({ orderId: o.id });
@@ -136,6 +150,25 @@ export default function PedidoDetailPage({ params }: { params: Promise<{ id: str
           <Button onClick={() => setComposerOpen(true)}>Disparar mensagem no WhatsApp</Button>
         </div>
       </header>
+
+      {sync.data && !sync.isPending ? (
+        <p
+          className={`rounded-xl border px-4 py-3 text-[13px] ${
+            sync.data.changed
+              ? 'border-[var(--color-success-bg)] bg-[var(--color-success-bg)] text-[var(--color-success)]'
+              : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-muted)]'
+          }`}
+        >
+          {sync.data.changed
+            ? `Status atualizado: ${sync.data.previousStatus} → ${sync.data.status}.`
+            : `Sem mudança no gateway — pedido segue ${sync.data.status}.`}
+        </p>
+      ) : null}
+      {sync.error ? (
+        <p className="rounded-xl border border-[var(--color-danger-bg)] bg-[var(--color-danger-bg)] px-4 py-3 text-[13px] text-[var(--color-danger)]">
+          {sync.error.message}
+        </p>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card title="Cliente">

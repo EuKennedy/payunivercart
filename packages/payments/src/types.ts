@@ -43,6 +43,14 @@ export interface CreatePixInput {
   expiresInSeconds?: number;
   metadata?: Record<string, string | number | boolean>;
   idempotencyKey: string;
+  /**
+   * Absolute URL the gateway will POST status updates to. The api
+   * layer computes this per request from `API_PUBLIC_URL` so the
+   * adapter doesn't have to know where it's deployed. Adapters that
+   * register the URL globally in a producer dashboard (Pagar.me,
+   * Stripe) can ignore this field.
+   */
+  webhookUrl?: string;
 }
 
 export interface CreateCardInput {
@@ -56,6 +64,7 @@ export interface CreateCardInput {
   billingAddress?: BillingAddress;
   metadata?: Record<string, string | number | boolean>;
   idempotencyKey: string;
+  webhookUrl?: string;
 }
 
 export interface CreateBoletoInput {
@@ -68,6 +77,7 @@ export interface CreateBoletoInput {
   dueDate: Date;
   metadata?: Record<string, string | number | boolean>;
   idempotencyKey: string;
+  webhookUrl?: string;
 }
 
 export interface RefundInput {

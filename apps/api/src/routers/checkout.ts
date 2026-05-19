@@ -538,6 +538,14 @@ export const checkoutRouter = router({
         public_reference: publicReference,
         product_slug: input.slug,
       } as const;
+      // Per-payment webhook URL fed to the gateway so its IPN lands on
+      // the right host. Without this MP/PagSeguro fall back to the
+      // baked-in placeholder which 404s in production. `null` when
+      // `API_PUBLIC_URL` isn't configured — adapters then keep using
+      // whatever URL the producer set globally in their dashboard.
+      const webhookUrl = ctx.services.env.API_PUBLIC_URL
+        ? `${ctx.services.env.API_PUBLIC_URL.replace(/\/$/, '')}/webhooks/gateway/${desiredGatewayId}`
+        : undefined;
 
       let charge: PaymentResult;
       try {
@@ -557,6 +565,7 @@ export const checkoutRouter = router({
             expiresInSeconds: PIX_EXPIRY_SECONDS,
             idempotencyKey,
             metadata: sharedMetadata,
+            webhookUrl,
           };
           charge = await adapter.createPix(credentials as never, pixInput);
         } else if (input.method === 'boleto') {
@@ -595,6 +604,7 @@ export const checkoutRouter = router({
             dueDate,
             idempotencyKey,
             metadata: sharedMetadata,
+            webhookUrl,
           };
           charge = await adapter.createBoleto(credentials as never, boletoInput);
         } else {
@@ -629,6 +639,7 @@ export const checkoutRouter = router({
             description: productRow.description ?? productRow.name,
             idempotencyKey,
             metadata: sharedMetadata,
+            webhookUrl,
           };
           charge = await adapter.createCard(credentials as never, cardInput);
         }

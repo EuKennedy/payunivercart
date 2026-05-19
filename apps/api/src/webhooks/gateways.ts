@@ -371,8 +371,13 @@ async function storeRaw(params: {
  * Every leg is wrapped in try/catch and logged. The webhook ack must
  * not depend on any single side-effect: if Resend is down we still
  * fire WAHA; if WAHA is down we still keep the order marked paid.
+ *
+ * Exported so the manual `orders.syncWithGateway` path can reuse the
+ * same fan-out — buyers must receive the same email + WhatsApp
+ * regardless of whether the webhook fired or the producer clicked
+ * "Verificar pagamento" by hand.
  */
-async function dispatchPaidFanOut(services: AppServices, orderId: string): Promise<void> {
+export async function dispatchPaidFanOut(services: AppServices, orderId: string): Promise<void> {
   const [row] = await services.db.db
     .select({
       email: schema.orders.customerEmail,

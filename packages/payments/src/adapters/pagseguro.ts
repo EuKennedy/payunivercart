@@ -96,7 +96,7 @@ export class PagSeguroAdapter implements PaymentGateway<PagSeguroCredentials> {
           ).toISOString(),
         },
       ],
-      notification_urls: ['https://pay.univercart.com/webhooks/pagseguro'],
+      notification_urls: [input.webhookUrl ?? 'https://pay.univercart.com/webhooks/pagseguro'],
       metadata: { workspace_id: input.workspaceId, order_id: input.orderId },
     };
     const res = await this.request(credentials, 'POST', '/orders', body, {
@@ -142,7 +142,7 @@ export class PagSeguroAdapter implements PaymentGateway<PagSeguroCredentials> {
           },
         },
       ],
-      notification_urls: ['https://pay.univercart.com/webhooks/pagseguro'],
+      notification_urls: [input.webhookUrl ?? 'https://pay.univercart.com/webhooks/pagseguro'],
       metadata: { workspace_id: input.workspaceId, order_id: input.orderId },
     };
     const res = await this.request(credentials, 'POST', '/orders', body, {
@@ -195,7 +195,7 @@ export class PagSeguroAdapter implements PaymentGateway<PagSeguroCredentials> {
           },
         },
       ],
-      notification_urls: ['https://pay.univercart.com/webhooks/pagseguro'],
+      notification_urls: [input.webhookUrl ?? 'https://pay.univercart.com/webhooks/pagseguro'],
       metadata: { workspace_id: input.workspaceId, order_id: input.orderId },
     };
     const res = await this.request(credentials, 'POST', '/orders', body, {

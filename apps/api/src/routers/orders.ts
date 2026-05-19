@@ -1,8 +1,11 @@
 import { schema } from '@payunivercart/db';
+import { getAdapter } from '@payunivercart/payments';
+import type { GatewayId } from '@payunivercart/shared';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { router, workspaceProcedure } from '../trpc';
+import { dispatchPaidFanOut } from '../webhooks/gateways';
 
 /**
  * Pedidos — producer-facing read surface + ad-hoc WhatsApp dispatch.
@@ -277,6 +280,151 @@ export const ordersRouter = router({
         .set({ status: 'cancelled', cancelledAt: new Date() })
         .where(eq(schema.orders.id, order.id));
       return { ok: true as const };
+    }),
+
+  /**
+   * Force-pull the latest charge state from the gateway and reconcile
+   * the local order. The webhook is the primary signal — this is the
+   * fallback for when:
+   *   - the gateway's webhook hasn't arrived (DNS, firewall, IPN URL
+   *     misconfigured),
+   *   - the producer just rotated credentials and wants to confirm
+   *     the previous payment landed,
+   *   - the order has been sitting in `pending_payment` longer than
+   *     the producer's patience.
+   *
+   * Calls `adapter.getCharge` against the gatewayChargeId stored on
+   * the most recent transaction; if the gateway reports `paid` we
+   * flip the order + transaction and trigger the same fan-out the
+   * webhook handler runs (email + buyer WhatsApp + producer ping).
+   */
+  syncWithGateway: workspaceProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .output(
+      z.object({
+        status: OrderStatusEnum,
+        changed: z.boolean(),
+        previousStatus: OrderStatusEnum,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [order] = await ctx.services.db.db
+        .select({
+          id: schema.orders.id,
+          status: schema.orders.status,
+          workspaceId: schema.orders.workspaceId,
+        })
+        .from(schema.orders)
+        .where(
+          and(eq(schema.orders.id, input.orderId), eq(schema.orders.workspaceId, ctx.workspaceId)),
+        )
+        .limit(1);
+      if (!order) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Pedido inexistente.' });
+      }
+
+      // Most recent transaction wins. A failed first attempt followed
+      // by a successful retry must reconcile against the latter; the
+      // sort order is `createdAt DESC, id DESC` for stable tie-break.
+      const [tx] = await ctx.services.db.db
+        .select({
+          id: schema.transactions.id,
+          gatewayId: schema.transactions.gatewayId,
+          gatewayChargeId: schema.transactions.gatewayChargeId,
+        })
+        .from(schema.transactions)
+        .where(eq(schema.transactions.orderId, order.id))
+        .orderBy(desc(schema.transactions.createdAt))
+        .limit(1);
+      if (!tx?.gatewayChargeId || !tx.gatewayId) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Pedido sem cobrança ativa no gateway.',
+        });
+      }
+
+      const [credRow] = await ctx.services.db.db
+        .select({ credentialsEncrypted: schema.gatewayCredentials.credentialsEncrypted })
+        .from(schema.gatewayCredentials)
+        .where(
+          and(
+            eq(schema.gatewayCredentials.workspaceId, order.workspaceId),
+            eq(schema.gatewayCredentials.gatewayId, tx.gatewayId),
+            eq(schema.gatewayCredentials.isDefault, true),
+          ),
+        )
+        .limit(1);
+      if (!credRow) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Credenciais do gateway removidas — reconecte em Integrações.',
+        });
+      }
+
+      const adapter = getAdapter(tx.gatewayId as GatewayId);
+      const credentials = adapter.parseCredentials(
+        ctx.services.crypto.unsealJson<Record<string, unknown>>(credRow.credentialsEncrypted),
+      );
+
+      let charge: Awaited<ReturnType<typeof adapter.getCharge>>;
+      try {
+        charge = await adapter.getCharge(credentials as never, tx.gatewayChargeId);
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        throw new TRPCError({
+          code: 'BAD_GATEWAY',
+          message: `Gateway recusou consulta: ${message}`,
+          cause,
+        });
+      }
+
+      const previousStatus = order.status;
+      if (charge.status === order.status) {
+        return { status: order.status, changed: false, previousStatus };
+      }
+
+      const now = new Date();
+      await ctx.services.db.db
+        .update(schema.transactions)
+        .set({
+          status: charge.status,
+          paidAt: charge.status === 'paid' ? now : undefined,
+          authorizedAt: charge.status === 'authorized' ? now : undefined,
+          refundedAt: charge.status === 'refunded' ? now : undefined,
+          chargedbackAt: charge.status === 'chargedback' ? now : undefined,
+          rawResponse: charge.raw as object,
+        })
+        .where(eq(schema.transactions.id, tx.id));
+
+      if (charge.status === 'paid') {
+        await ctx.services.db.db
+          .update(schema.orders)
+          .set({ status: 'paid', paidAt: now })
+          .where(eq(schema.orders.id, order.id));
+        // Same fan-out the webhook fires — receipt email + buyer
+        // WhatsApp w/ delivery + producer ping. Fire-and-log; we
+        // don't want a Resend hiccup to fail the producer's sync UI.
+        await dispatchPaidFanOut(ctx.services, order.id);
+        return { status: 'paid', changed: true, previousStatus };
+      }
+      if (charge.status === 'refunded') {
+        await ctx.services.db.db
+          .update(schema.orders)
+          .set({ status: 'refunded' })
+          .where(eq(schema.orders.id, order.id));
+        return { status: 'refunded', changed: true, previousStatus };
+      }
+      if (charge.status === 'failed' || charge.status === 'cancelled') {
+        await ctx.services.db.db
+          .update(schema.orders)
+          .set({ status: 'cancelled', cancelledAt: now })
+          .where(eq(schema.orders.id, order.id));
+        return { status: 'cancelled', changed: true, previousStatus };
+      }
+      // Any other status (pending / authorized / processing) leaves
+      // the order row untouched — only the transaction tracks
+      // intermediate states.
+      return { status: order.status, changed: false, previousStatus };
     }),
 
   /**
