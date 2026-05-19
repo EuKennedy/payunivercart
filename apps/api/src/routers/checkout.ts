@@ -92,6 +92,66 @@ const BOLETO_DUE_DAYS = 3;
 
 export const checkoutRouter = router({
   /**
+   * Live order status — polled by the buyer's SuccessView while it
+   * waits for the gateway webhook to flip `pending_payment` → `paid`.
+   * The orderId is a UUID returned only to the buyer who placed the
+   * order, so we can keep the procedure public without exposing
+   * other tenants' orders. Delivery info ships in the same payload
+   * so the page can render "Acesso liberado" the second status turns
+   * `paid` without a second round-trip.
+   */
+  orderStatus: publicProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .output(
+      z.object({
+        status: z.enum([
+          'draft',
+          'pending_payment',
+          'paid',
+          'cancelled',
+          'expired',
+          'refunded',
+          'partially_refunded',
+        ]),
+        paidAt: z.date().nullable(),
+        publicReference: z.string(),
+        productName: z.string().nullable(),
+        deliveryUrl: z.string().nullable(),
+        deliveryInstructions: z.string().nullable(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const [row] = await ctx.services.db.db
+        .select({
+          status: schema.orders.status,
+          paidAt: schema.orders.paidAt,
+          publicReference: schema.orders.publicReference,
+          itemName: schema.orderItems.name,
+          deliveryUrl: schema.products.deliveryUrl,
+          deliveryInstructions: schema.products.deliveryInstructions,
+        })
+        .from(schema.orders)
+        .leftJoin(schema.orderItems, eq(schema.orderItems.orderId, schema.orders.id))
+        .leftJoin(schema.products, eq(schema.products.id, schema.orderItems.productId))
+        .where(eq(schema.orders.id, input.orderId))
+        .limit(1);
+      if (!row) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Pedido não encontrado.' });
+      }
+      return {
+        status: row.status,
+        paidAt: row.paidAt,
+        publicReference: row.publicReference,
+        productName: row.itemName,
+        // Only expose delivery info AFTER payment is confirmed.
+        // Before that, the buyer hasn't earned access yet — and a
+        // forged orderId guess shouldn't leak the producer's link.
+        deliveryUrl: row.status === 'paid' ? row.deliveryUrl : null,
+        deliveryInstructions: row.status === 'paid' ? row.deliveryInstructions : null,
+      };
+    }),
+
+  /**
    * Public product lookup. Returns product + default offer + workspace
    * branding so the page can render the producer's identity above the
    * form.

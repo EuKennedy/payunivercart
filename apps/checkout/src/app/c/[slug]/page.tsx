@@ -228,6 +228,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
     return (
       <CenteredCard wide>
         <SuccessView
+          orderId={createOrder.data.orderId}
           reference={createOrder.data.publicReference}
           methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
           formattedTotal={formattedTotal}
@@ -238,7 +239,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           boletoUrl={createOrder.data.boletoUrl}
           boletoBarcode={createOrder.data.boletoBarcode}
           gatewayConfigured={createOrder.data.gatewayConfigured}
-          status={createOrder.data.status}
+          initialStatus={createOrder.data.status}
         />
       </CenteredCard>
     );
@@ -877,6 +878,7 @@ function ErrorView({ title, body }: { title: string; body: string }) {
 }
 
 function SuccessView({
+  orderId,
   reference,
   methodLabel,
   formattedTotal,
@@ -887,8 +889,9 @@ function SuccessView({
   boletoUrl,
   boletoBarcode,
   gatewayConfigured,
-  status,
+  initialStatus,
 }: {
+  orderId: string;
   reference: string;
   methodLabel: string;
   formattedTotal: string;
@@ -899,8 +902,31 @@ function SuccessView({
   boletoUrl: string | null;
   boletoBarcode: string | null;
   gatewayConfigured: boolean;
-  status: string;
+  initialStatus: string;
 }) {
+  // Poll the order until the gateway webhook flips status → `paid`.
+  // 3 s cadence is the sweet spot: fast enough that the buyer sees
+  // the confirmation the moment they tab back from the bank app,
+  // slow enough that we don't hammer the api or trip rate limits.
+  // Stop polling once we hit a terminal state (paid / cancelled /
+  // expired / refunded) — there's nothing left to wait for.
+  const live = trpc.checkout.orderStatus.useQuery(
+    { orderId },
+    {
+      refetchInterval: (query) => {
+        const s = query.state.data?.status;
+        if (s === 'paid' || s === 'cancelled' || s === 'expired' || s === 'refunded') {
+          return false;
+        }
+        return 3_000;
+      },
+      refetchOnWindowFocus: true,
+    },
+  );
+
+  const status = live.data?.status ?? initialStatus;
+  const deliveryUrl = live.data?.deliveryUrl ?? null;
+  const deliveryInstructions = live.data?.deliveryInstructions ?? null;
   const isPaid = status === 'paid';
   const hasPix = !!(pixQrCodeImage || pixCopyPaste);
   const hasBoleto = !!(boletoUrl || boletoBarcode);
@@ -912,7 +938,7 @@ function SuccessView({
         ? 'Boleto gerado'
         : 'Pedido criado';
   const headline = isPaid
-    ? 'Compra confirmada!'
+    ? 'Compra confirmada! 🎉'
     : hasPix
       ? 'Pague em segundos.'
       : hasBoleto
@@ -926,10 +952,34 @@ function SuccessView({
       <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)]">{headline}</h1>
 
       {isPaid ? (
-        <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
-          Pagamento aprovado pelo {methodLabel.toLowerCase()}. Em alguns minutos você recebe os
-          dados de acesso em <strong>{buyerEmail}</strong> e no seu WhatsApp.
-        </p>
+        <>
+          <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
+            Recebemos o pagamento pelo {methodLabel.toLowerCase()}. Mandamos a confirmação em{' '}
+            <strong>{buyerEmail}</strong> e no seu WhatsApp.
+          </p>
+          {deliveryUrl || deliveryInstructions ? (
+            <div className="mt-6 rounded-2xl border border-[var(--dop-hairline)] bg-[var(--dop-soft)] p-5">
+              <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
+                Seu acesso
+              </p>
+              {deliveryUrl ? (
+                <a
+                  href={deliveryUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary mt-3 w-full text-[15px]"
+                >
+                  Abrir agora →
+                </a>
+              ) : null}
+              {deliveryInstructions ? (
+                <p className="mt-4 whitespace-pre-wrap text-[13px] text-[var(--ink-90)] leading-[1.55]">
+                  {deliveryInstructions}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </>
       ) : hasPix ? (
         <>
           <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
