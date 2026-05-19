@@ -1,11 +1,14 @@
 import { schema } from '@payunivercart/db';
 import {
+  type CreateBoletoInput,
+  type CreateCardInput,
+  type CreatePixInput,
   type MercadoPagoAdapter,
-  type MercadoPagoCredentials,
   type PaymentResult,
   getAdapter,
 } from '@payunivercart/payments';
 import {
+  type GatewayId,
   type NormalizedPhone,
   normalizePhone,
   validateCnpj,
@@ -79,6 +82,13 @@ const BuyerInput = z.object({
 const PaymentMethod = z.enum(['pix', 'credit_card', 'boleto']);
 
 const PIX_EXPIRY_SECONDS = 60 * 60; // 1 hour — better conversion than MP's 30-day default.
+
+/**
+ * Default boleto due window. BR boletos accept anything from 1 to 90
+ * days; 3 days converts well without giving distracted buyers a week to
+ * forget. Producer-tunable in a follow-up block alongside Pix expiry.
+ */
+const BOLETO_DUE_DAYS = 3;
 
 export const checkoutRouter = router({
   /**
@@ -173,6 +183,13 @@ export const checkoutRouter = router({
    * Place an order + open a transaction. Calls the configured gateway
    * inline so the buyer's "Gerar QR-code" click returns the real PIX
    * payload in a single round-trip.
+   *
+   * Gateway resolution: uses the workspace's `isDefault=true` credential,
+   * regardless of which of the 4 gateways (MP / Pagar.me / PagSeguro /
+   * Stripe) the producer picked. All four expose `createPix` and
+   * `createBoleto`; for `createCard`, MP supports server-side
+   * tokenization (sandbox path), while the other three require the
+   * caller to supply a `cardToken` minted by the gateway's browser SDK.
    */
   createOrder: publicProcedure
     .input(
@@ -182,18 +199,42 @@ export const checkoutRouter = router({
         method: PaymentMethod,
         installments: z.number().int().min(1).max(24).optional(),
         /**
-         * Required when method=credit_card. PCI-DSS note: production
-         * deploys MUST switch to client-side tokenization via the MP
-         * browser SDK so raw PANs never reach our servers. This
-         * inline-card path is for sandbox + single-merchant setups
-         * only and is documented as such on the adapter.
+         * Card payload. PCI-DSS note: production deploys MUST switch
+         * to client-side tokenization via each gateway's browser SDK so
+         * raw PANs never reach our servers. The inline `number/cvc`
+         * path is for sandbox + single-merchant MP setups only. For
+         * Pagar.me / PagSeguro / Stripe the caller MUST send
+         * `card.token` (gateway-issued single-use token) instead.
          */
         card: z
           .object({
-            number: z.string().min(13).max(19),
-            expiry: z.string().regex(/^\d{2}\/\d{2,4}$/, 'Validade no formato MM/AA'),
-            cvc: z.string().min(3).max(4),
+            number: z.string().min(13).max(19).optional(),
+            expiry: z
+              .string()
+              .regex(/^\d{2}\/\d{2,4}$/, 'Validade no formato MM/AA')
+              .optional(),
+            cvc: z.string().min(3).max(4).optional(),
             holderName: z.string().trim().min(1).max(60),
+            /** Pre-tokenized card from the gateway's browser SDK. */
+            token: z.string().min(8).optional(),
+          })
+          .optional(),
+        /**
+         * Required when method=boleto. BR boleto registration enforces
+         * a billing address; the issuing gateway echoes it onto the
+         * voucher. ViaCEP-driven lookup on the frontend keeps the form
+         * to two manual fields (zip + number).
+         */
+        address: z
+          .object({
+            zipCode: z.string().min(8).max(10),
+            street: z.string().trim().min(2).max(160),
+            number: z.string().trim().min(1).max(20),
+            complement: z.string().trim().max(80).optional(),
+            neighborhood: z.string().trim().min(2).max(80),
+            city: z.string().trim().min(2).max(80),
+            state: z.string().trim().length(2),
+            country: z.string().trim().length(2).default('BR'),
           })
           .optional(),
       }),
@@ -270,10 +311,10 @@ export const checkoutRouter = router({
           ? Math.min(input.installments ?? 1, productRow.maxInstallments ?? 1)
           : 1;
 
-      // 4. Look up the workspace's default gateway for this method.
-      //    PIX is supported by every adapter — we hard-code mercadopago for
-      //    Block 22's MVP and add provider selection in a follow-up block.
-      const desiredGatewayId = 'mercadopago';
+      // 4. Look up the workspace's default gateway — could be any of
+      //    the 4 (MP / Pagar.me / PagSeguro / Stripe). Producer picks
+      //    one as default in `/integrations/gateways`; that one
+      //    handles all 3 payment methods on this checkout.
       const [gatewayRow] = await ctx.services.db.db
         .select({
           id: schema.gatewayCredentials.id,
@@ -284,11 +325,12 @@ export const checkoutRouter = router({
         .where(
           and(
             eq(schema.gatewayCredentials.workspaceId, productRow.workspaceId),
-            eq(schema.gatewayCredentials.gatewayId, desiredGatewayId),
             eq(schema.gatewayCredentials.isDefault, true),
           ),
         )
         .limit(1);
+      const desiredGatewayId: GatewayId =
+        (gatewayRow?.gatewayId as GatewayId | undefined) ?? 'mercadopago';
 
       // 5. Create order + items + transaction in pending state. Done
       //    BEFORE the gateway call so we have a stable orderId to pass
@@ -376,21 +418,7 @@ export const checkoutRouter = router({
         };
       }
 
-      // 7. Call the gateway. PIX + Cartão wired in Block 22; boleto
-      //    needs a full billing address the form doesn't yet collect.
-      if (input.method === 'boleto') {
-        await failTransactionAndOrder(
-          ctx.services.db.db,
-          created.transactionId,
-          created.orderId,
-          'METHOD_NOT_YET_SUPPORTED',
-          'Boleto entra no próximo bloco. Use Pix ou cartão por enquanto.',
-        );
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Boleto entra no próximo bloco. Use Pix ou cartão por enquanto.',
-        });
-      }
+      // 7. Pre-flight per-method preconditions.
       if (input.method === 'credit_card' && !input.card) {
         await failTransactionAndOrder(
           ctx.services.db.db,
@@ -404,77 +432,145 @@ export const checkoutRouter = router({
           message: 'Dados do cartão obrigatórios.',
         });
       }
+      if (input.method === 'boleto' && !input.address) {
+        await failTransactionAndOrder(
+          ctx.services.db.db,
+          created.transactionId,
+          created.orderId,
+          'ADDRESS_MISSING',
+          'Endereço de cobrança obrigatório para boleto.',
+        );
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Endereço de cobrança obrigatório para boleto.',
+        });
+      }
 
-      const adapter = getAdapter('mercadopago') as unknown as MercadoPagoAdapter;
-      const credentials = adapter.parseCredentials(
-        ctx.services.crypto.unsealJson<MercadoPagoCredentials>(gatewayRow.credentialsEncrypted),
-      );
+      // 8. Resolve adapter + decrypt credentials for the chosen gateway.
+      const adapter = getAdapter(desiredGatewayId);
+      let credentials: unknown;
+      try {
+        credentials = adapter.parseCredentials(
+          ctx.services.crypto.unsealJson<Record<string, unknown>>(gatewayRow.credentialsEncrypted),
+        );
+      } catch (cause) {
+        await failTransactionAndOrder(
+          ctx.services.db.db,
+          created.transactionId,
+          created.orderId,
+          'CREDENTIALS_INVALID',
+          'Credenciais do gateway corrompidas — peça ao produtor pra reconectar.',
+        );
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Credenciais do gateway corrompidas — peça ao produtor pra reconectar.',
+          cause,
+        });
+      }
+
+      const buyerCustomer = {
+        name: input.buyer.name,
+        email: input.buyer.email.toLowerCase(),
+        document: docDigits,
+        phoneE164: phone.e164,
+      } as const;
+      const sharedMetadata = {
+        public_reference: publicReference,
+        product_slug: input.slug,
+      } as const;
 
       let charge: PaymentResult;
       try {
         if (input.method === 'pix') {
-          charge = await adapter.createPix(credentials, {
+          if (!adapter.createPix) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `Gateway ${desiredGatewayId} não suporta Pix.`,
+            });
+          }
+          const pixInput: CreatePixInput = {
             workspaceId: productRow.workspaceId,
             orderId: created.orderId,
             amount: { amount: Number(totalCents), currency },
-            customer: {
-              name: input.buyer.name,
-              email: input.buyer.email.toLowerCase(),
-              document: docDigits,
-              phoneE164: phone.e164,
-            },
+            customer: buyerCustomer,
             description: productRow.description ?? productRow.name,
             expiresInSeconds: PIX_EXPIRY_SECONDS,
             idempotencyKey,
-            metadata: {
-              public_reference: publicReference,
-              product_slug: input.slug,
+            metadata: sharedMetadata,
+          };
+          charge = await adapter.createPix(credentials as never, pixInput);
+        } else if (input.method === 'boleto') {
+          if (!adapter.createBoleto) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `Gateway ${desiredGatewayId} não suporta boleto.`,
+            });
+          }
+          // Address presence asserted earlier in step 7; narrow the
+          // optional away without a non-null bang the linter forbids.
+          const address = input.address;
+          if (!address) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Endereço de cobrança obrigatório para boleto.',
+            });
+          }
+          const dueDate = new Date(Date.now() + BOLETO_DUE_DAYS * 86_400_000);
+          const boletoInput: CreateBoletoInput = {
+            workspaceId: productRow.workspaceId,
+            orderId: created.orderId,
+            amount: { amount: Number(totalCents), currency },
+            customer: buyerCustomer,
+            billingAddress: {
+              street: address.street,
+              number: address.number,
+              complement: address.complement,
+              neighborhood: address.neighborhood,
+              city: address.city,
+              state: address.state,
+              zipCode: address.zipCode,
+              country: address.country,
             },
-          });
+            description: productRow.description ?? productRow.name,
+            dueDate,
+            idempotencyKey,
+            metadata: sharedMetadata,
+          };
+          charge = await adapter.createBoleto(credentials as never, boletoInput);
         } else {
-          // Server-side tokenization (sandbox path — see adapter docblock).
+          // credit_card
+          if (!adapter.createCard) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `Gateway ${desiredGatewayId} não suporta cartão.`,
+            });
+          }
           const card = input.card;
           if (!card) {
             throw new TRPCError({
               code: 'BAD_REQUEST',
-              message: 'Dados do cartão são obrigatórios para pagamento com cartão.',
+              message: 'Dados do cartão obrigatórios.',
             });
           }
-          const [mm, yyRawPart] = card.expiry.split('/');
-          if (!mm || !yyRawPart) {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: 'Validade do cartão inválida (use MM/AA ou MM/AAAA).',
-            });
-          }
-          const yy = yyRawPart.length === 2 ? `20${yyRawPart}` : yyRawPart;
-          const token = await adapter.tokenizeCard(credentials, {
-            cardNumber: card.number,
-            expirationMonth: Number(mm),
-            expirationYear: Number(yy),
-            securityCode: card.cvc,
-            holderName: card.holderName,
+          const cardToken = await resolveCardToken({
+            adapter,
+            credentials,
+            gatewayId: desiredGatewayId,
+            card,
             holderDocument: docDigits,
           });
-          charge = await adapter.createCard(credentials, {
+          const cardInput: CreateCardInput = {
             workspaceId: productRow.workspaceId,
             orderId: created.orderId,
             amount: { amount: Number(totalCents), currency },
-            customer: {
-              name: input.buyer.name,
-              email: input.buyer.email.toLowerCase(),
-              document: docDigits,
-              phoneE164: phone.e164,
-            },
-            card: { token, holderName: card.holderName },
+            customer: buyerCustomer,
+            card: { token: cardToken, holderName: card.holderName },
             installments,
             description: productRow.description ?? productRow.name,
             idempotencyKey,
-            metadata: {
-              public_reference: publicReference,
-              product_slug: input.slug,
-            },
-          });
+            metadata: sharedMetadata,
+          };
+          charge = await adapter.createCard(credentials as never, cardInput);
         }
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
@@ -554,6 +650,62 @@ export const checkoutRouter = router({
       };
     }),
 });
+
+/**
+ * Resolve a single-use card token. Two paths:
+ *   1. Caller supplied `card.token` already — gateway browser SDK
+ *      tokenized client-side; we just pass it through (production
+ *      PCI-safe path).
+ *   2. Caller supplied raw PAN. ONLY Mercado Pago's server-side
+ *      `tokenizeCard` is supported here — sandbox / single-merchant
+ *      path. For the other gateways the request fails loud so we
+ *      never silently downgrade the PCI posture.
+ */
+async function resolveCardToken(args: {
+  adapter: ReturnType<typeof getAdapter>;
+  credentials: unknown;
+  gatewayId: GatewayId;
+  card: {
+    token?: string;
+    number?: string;
+    expiry?: string;
+    cvc?: string;
+    holderName: string;
+  };
+  holderDocument: string;
+}): Promise<string> {
+  if (args.card.token) return args.card.token;
+
+  if (args.gatewayId !== 'mercadopago') {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `O gateway ${args.gatewayId} exige um token de cartão emitido pelo SDK do navegador. Envie o campo \`card.token\` em vez de número/CVV.`,
+    });
+  }
+  if (!args.card.number || !args.card.expiry || !args.card.cvc) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Dados do cartão incompletos (número, validade e CVV obrigatórios).',
+    });
+  }
+  const [mm, yyRawPart] = args.card.expiry.split('/');
+  if (!mm || !yyRawPart) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Validade do cartão inválida (use MM/AA ou MM/AAAA).',
+    });
+  }
+  const yy = yyRawPart.length === 2 ? `20${yyRawPart}` : yyRawPart;
+  const mpAdapter = args.adapter as unknown as MercadoPagoAdapter;
+  return mpAdapter.tokenizeCard(args.credentials as never, {
+    cardNumber: args.card.number,
+    expirationMonth: Number(mm),
+    expirationYear: Number(yy),
+    securityCode: args.card.cvc,
+    holderName: args.card.holderName,
+    holderDocument: args.holderDocument,
+  });
+}
 
 /**
  * Mint a human-friendly public reference: `UNV-<8 uppercase chars>`.

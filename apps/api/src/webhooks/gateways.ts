@@ -10,9 +10,10 @@ import type { AppServices } from '../services';
  * — NOT under `/trpc/*` because tRPC parses JSON and the gateway's HMAC
  * signature is computed over the EXACT raw body bytes.
  *
- * Block 22 supports Mercado Pago only; the dispatch table makes adding
- * Pagar.me / PagSeguro a 4-line change once their adapters' webhook
- * verification is exercised.
+ * Routes all 4 supported gateways (Mercado Pago, Pagar.me, PagSeguro,
+ * Stripe). The per-gateway resource-id extractor lives in
+ * `extractResourceId(gatewayId, ...)`; everything downstream is generic
+ * because the adapter contract is uniform (`verifyWebhook` + `getCharge`).
  *
  * Flow per request:
  *   1. Read raw body as string (preserves bytes for HMAC).
@@ -44,9 +45,12 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
     // 1. Extract the resourceId the gateway is reporting on. We need it
     //    BEFORE signature verification because we need the credentials,
     //    which we find via the transaction the resourceId points at.
-    //    Each gateway has its own variant; for MP the id arrives either
-    //    in `?data.id` or in the JSON body's `data.id` field.
-    const resourceId = extractMpResourceId(queryParams, raw);
+    //    Per-gateway shape:
+    //      - mercadopago : `?data.id` or body `data.id`
+    //      - pagarme     : body `data.id`
+    //      - pagseguro   : body `charges[0].id` or body `id`
+    //      - stripe      : body `data.object.id`
+    const resourceId = extractResourceId(gatewayId, queryParams, raw);
     if (!resourceId) {
       return c.json({ error: 'missing_resource_id' }, 400);
     }
@@ -299,10 +303,27 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
 /* helpers                                                                     */
 /* -------------------------------------------------------------------------- */
 
-const SUPPORTED_GATEWAYS = new Set<GatewayId>(['mercadopago']);
+const SUPPORTED_GATEWAYS = new Set<GatewayId>(['mercadopago', 'pagarme', 'pagseguro', 'stripe']);
 
 function isSupportedGatewayId(id: string): id is GatewayId {
   return SUPPORTED_GATEWAYS.has(id as GatewayId);
+}
+
+function extractResourceId(
+  gatewayId: GatewayId,
+  queryParams: Record<string, string>,
+  rawBody: string,
+): string | null {
+  switch (gatewayId) {
+    case 'mercadopago':
+      return extractMpResourceId(queryParams, rawBody);
+    case 'pagarme':
+      return extractPagarmeResourceId(rawBody);
+    case 'pagseguro':
+      return extractPagSeguroResourceId(rawBody);
+    case 'stripe':
+      return extractStripeResourceId(rawBody);
+  }
 }
 
 function extractMpResourceId(queryParams: Record<string, string>, rawBody: string): string | null {
@@ -316,6 +337,45 @@ function extractMpResourceId(queryParams: Record<string, string>, rawBody: strin
     /* malformed body — caller will reject */
   }
   return null;
+}
+
+function extractPagarmeResourceId(rawBody: string): string | null {
+  try {
+    const parsed = JSON.parse(rawBody) as {
+      data?: { id?: unknown; charges?: Array<{ id?: unknown }> };
+      id?: unknown;
+    };
+    const id = parsed.data?.id ?? parsed.data?.charges?.[0]?.id ?? parsed.id;
+    return id != null ? String(id) : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractPagSeguroResourceId(rawBody: string): string | null {
+  try {
+    const parsed = JSON.parse(rawBody) as {
+      charges?: Array<{ id?: unknown }>;
+      id?: unknown;
+    };
+    const id = parsed.charges?.[0]?.id ?? parsed.id;
+    return id != null ? String(id) : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractStripeResourceId(rawBody: string): string | null {
+  try {
+    const parsed = JSON.parse(rawBody) as {
+      data?: { object?: { id?: unknown } };
+      id?: unknown;
+    };
+    const id = parsed.data?.object?.id ?? parsed.id;
+    return id != null ? String(id) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function storeRaw(params: {
