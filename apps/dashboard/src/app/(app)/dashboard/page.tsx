@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useState } from 'react';
+import { OnboardingWizard } from '../../../components/OnboardingWizard';
 import { Heading, Kicker, Surface } from '../../../components/ui';
 import { useSession } from '../../../lib/auth';
 import { formatCents } from '../../../lib/money';
@@ -94,6 +95,8 @@ export default function DashboardHome() {
             : 'Sua operação aparece aqui assim que a primeira venda chegar. Comece conectando o WhatsApp e cadastrando seu produto.'}
         </p>
       </header>
+
+      <OnboardingWizard />
 
       <section className="grid gap-4 md:grid-cols-3">
         <MetricCard
