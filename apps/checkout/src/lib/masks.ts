@@ -52,6 +52,13 @@ export function maskDigits(input: string, max: number): string {
   return input.replace(/\D+/g, '').slice(0, max);
 }
 
+/** BR ZIP code: 00000-000. */
+export function maskZip(input: string): string {
+  const digits = input.replace(/\D+/g, '').slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
 /** Strip a masked CPF/CNPJ back to digits for API submission. */
 export function unmaskDigits(input: string): string {
   return input.replace(/\D+/g, '');

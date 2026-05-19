@@ -10,6 +10,7 @@ import {
   maskCardNumber,
   maskCpfCnpj,
   maskDigits,
+  maskZip,
   unmaskDigits,
 } from '../../../lib/masks';
 import { formatCents } from '../../../lib/money';
@@ -90,6 +91,20 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
    */
   const [cardHolder, setCardHolder] = useState('');
 
+  /**
+   * Boleto-only billing address. We collect zip first and call ViaCEP
+   * to pre-fill street/neighborhood/city/state, then ask the buyer
+   * only for the number + optional complement — the canonical BR UX.
+   */
+  const [addrZip, setAddrZip] = useState('');
+  const [addrStreet, setAddrStreet] = useState('');
+  const [addrNumber, setAddrNumber] = useState('');
+  const [addrComplement, setAddrComplement] = useState('');
+  const [addrNeighborhood, setAddrNeighborhood] = useState('');
+  const [addrCity, setAddrCity] = useState('');
+  const [addrState, setAddrState] = useState('');
+  const [addrLookup, setAddrLookup] = useState<'idle' | 'loading' | 'error' | 'ok'>('idle');
+
   const createOrder = trpc.checkout.createOrder.useMutation();
 
   const formattedTotal = useMemo(
@@ -121,7 +136,52 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
       cardCvc.length >= 3 &&
       trimmedHolder.length >= 2);
 
-  const submitDisabled = !identifyComplete || !cardComplete || createOrder.isPending;
+  const addressZipDigits = unmaskDigits(addrZip);
+  const addressComplete =
+    method !== 'boleto' ||
+    (addressZipDigits.length === 8 &&
+      addrStreet.trim().length >= 2 &&
+      addrNumber.trim().length >= 1 &&
+      addrNeighborhood.trim().length >= 2 &&
+      addrCity.trim().length >= 2 &&
+      addrState.trim().length === 2);
+
+  const submitDisabled =
+    !identifyComplete || !cardComplete || !addressComplete || createOrder.isPending;
+
+  /**
+   * ViaCEP lookup. Fires only when we have a full 8-digit zip and the
+   * fetch hasn't already populated the address for this exact zip.
+   * Failure is non-fatal — buyer falls back to typing the address by
+   * hand, which is still gated by `addressComplete`.
+   */
+  const lookupZip = async (zip: string) => {
+    const digits = unmaskDigits(zip);
+    if (digits.length !== 8) return;
+    setAddrLookup('loading');
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) throw new Error(`viacep ${res.status}`);
+      const json = (await res.json()) as {
+        erro?: boolean;
+        logradouro?: string;
+        bairro?: string;
+        localidade?: string;
+        uf?: string;
+      };
+      if (json.erro) {
+        setAddrLookup('error');
+        return;
+      }
+      setAddrStreet(json.logradouro ?? '');
+      setAddrNeighborhood(json.bairro ?? '');
+      setAddrCity(json.localidade ?? '');
+      setAddrState((json.uf ?? '').toUpperCase());
+      setAddrLookup('ok');
+    } catch {
+      setAddrLookup('error');
+    }
+  };
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -148,6 +208,19 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
               holderName: trimmedHolder || 'APRO',
             }
           : undefined,
+      address:
+        method === 'boleto'
+          ? {
+              zipCode: addrZip,
+              street: addrStreet.trim(),
+              number: addrNumber.trim(),
+              complement: addrComplement.trim() || undefined,
+              neighborhood: addrNeighborhood.trim(),
+              city: addrCity.trim(),
+              state: addrState.trim().toUpperCase(),
+              country: 'BR',
+            }
+          : undefined,
     });
   };
 
@@ -162,6 +235,8 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           pixQrCodeImage={createOrder.data.pixQrCodeImage}
           pixCopyPaste={createOrder.data.pixCopyPaste}
           pixExpiresAt={createOrder.data.pixExpiresAt}
+          boletoUrl={createOrder.data.boletoUrl}
+          boletoBarcode={createOrder.data.boletoBarcode}
           gatewayConfigured={createOrder.data.gatewayConfigured}
           status={createOrder.data.status}
         />
@@ -296,9 +371,102 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                   ) : null}
 
                   {method === 'boleto' ? (
-                    <p className="text-[13px] text-[var(--ink-70)] leading-[1.55]">
-                      O boleto leva até 2 dias úteis para compensar. Indicado para quem não usa Pix.
-                    </p>
+                    <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-4">
+                      <p className="text-[12px] text-[var(--ink-70)] leading-[1.5]">
+                        O boleto leva até 2 dias úteis para compensar. Por exigência bancária,
+                        precisamos do seu endereço de cobrança.
+                      </p>
+                      <div className="grid grid-cols-[160px_1fr] gap-3">
+                        <Field label="CEP">
+                          <input
+                            type="text"
+                            value={addrZip}
+                            onChange={(e) => {
+                              const next = maskZip(e.target.value);
+                              setAddrZip(next);
+                              if (unmaskDigits(next).length === 8) {
+                                void lookupZip(next);
+                              } else {
+                                setAddrLookup('idle');
+                              }
+                            }}
+                            placeholder="00000-000"
+                            inputMode="numeric"
+                            autoComplete="postal-code"
+                          />
+                        </Field>
+                        <Field
+                          label={
+                            addrLookup === 'loading'
+                              ? 'Buscando endereço…'
+                              : addrLookup === 'error'
+                                ? 'CEP não encontrado — preencha manualmente'
+                                : 'Rua'
+                          }
+                        >
+                          <input
+                            type="text"
+                            value={addrStreet}
+                            onChange={(e) => setAddrStreet(e.target.value)}
+                            placeholder="Av. Paulista"
+                            autoComplete="address-line1"
+                          />
+                        </Field>
+                      </div>
+                      <div className="grid grid-cols-[120px_1fr] gap-3">
+                        <Field label="Número">
+                          <input
+                            type="text"
+                            value={addrNumber}
+                            onChange={(e) => setAddrNumber(e.target.value)}
+                            placeholder="123"
+                            inputMode="numeric"
+                            autoComplete="address-line2"
+                          />
+                        </Field>
+                        <Field label="Complemento (opcional)">
+                          <input
+                            type="text"
+                            value={addrComplement}
+                            onChange={(e) => setAddrComplement(e.target.value)}
+                            placeholder="Sala 7, fundos…"
+                            autoComplete="address-line3"
+                            maxLength={80}
+                          />
+                        </Field>
+                      </div>
+                      <div className="grid grid-cols-[1.4fr_1fr_80px] gap-3">
+                        <Field label="Bairro">
+                          <input
+                            type="text"
+                            value={addrNeighborhood}
+                            onChange={(e) => setAddrNeighborhood(e.target.value)}
+                            placeholder="Bela Vista"
+                          />
+                        </Field>
+                        <Field label="Cidade">
+                          <input
+                            type="text"
+                            value={addrCity}
+                            onChange={(e) => setAddrCity(e.target.value)}
+                            placeholder="São Paulo"
+                            autoComplete="address-level2"
+                          />
+                        </Field>
+                        <Field label="UF">
+                          <input
+                            type="text"
+                            value={addrState}
+                            onChange={(e) =>
+                              setAddrState(e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase())
+                            }
+                            placeholder="SP"
+                            maxLength={2}
+                            autoComplete="address-level1"
+                          />
+                        </Field>
+                      </div>
+                    </div>
                   ) : null}
 
                   {method === 'credit_card' ? (
@@ -716,6 +884,8 @@ function SuccessView({
   pixQrCodeImage,
   pixCopyPaste,
   pixExpiresAt,
+  boletoUrl,
+  boletoBarcode,
   gatewayConfigured,
   status,
 }: {
@@ -726,17 +896,28 @@ function SuccessView({
   pixQrCodeImage: string | null;
   pixCopyPaste: string | null;
   pixExpiresAt: Date | string | null;
+  boletoUrl: string | null;
+  boletoBarcode: string | null;
   gatewayConfigured: boolean;
   status: string;
 }) {
   const isPaid = status === 'paid';
   const hasPix = !!(pixQrCodeImage || pixCopyPaste);
-  const kicker = isPaid ? 'Pagamento aprovado' : hasPix ? 'Pix gerado' : 'Pedido criado';
+  const hasBoleto = !!(boletoUrl || boletoBarcode);
+  const kicker = isPaid
+    ? 'Pagamento aprovado'
+    : hasPix
+      ? 'Pix gerado'
+      : hasBoleto
+        ? 'Boleto gerado'
+        : 'Pedido criado';
   const headline = isPaid
     ? 'Compra confirmada!'
     : hasPix
       ? 'Pague em segundos.'
-      : 'Recebemos sua compra.';
+      : hasBoleto
+        ? 'Boleto pronto pra pagar.'
+        : 'Recebemos sua compra.';
   return (
     <div>
       <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
@@ -774,6 +955,25 @@ function SuccessView({
             </p>
           ) : null}
         </>
+      ) : hasBoleto ? (
+        <>
+          <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
+            Pague no app do seu banco ou em qualquer agência. Mandamos uma cópia para{' '}
+            <strong>{buyerEmail}</strong>. Após compensação (até 2 dias úteis), liberamos o acesso
+            no seu WhatsApp.
+          </p>
+          {boletoUrl ? (
+            <a
+              href={boletoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary mt-6 w-full text-[15px]"
+            >
+              Abrir boleto em nova aba
+            </a>
+          ) : null}
+          {boletoBarcode ? <BoletoCopyButton code={boletoBarcode} /> : null}
+        </>
       ) : (
         <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
           {gatewayConfigured
@@ -800,6 +1000,34 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
     <div className="flex items-baseline justify-between gap-4">
       <dt className="text-[var(--ink-50)]">{label}</dt>
       <dd className="text-[var(--ink-100)]">{value}</dd>
+    </div>
+  );
+}
+
+function BoletoCopyButton({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignored — buyer always has the "abrir boleto" link as fallback */
+    }
+  };
+  return (
+    <div className="mt-5 flex flex-col gap-2">
+      <span className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
+        Linha digitável
+      </span>
+      <div className="flex items-stretch gap-2">
+        <code className="flex-1 overflow-hidden truncate rounded-xl border border-[var(--hairline)] bg-[var(--surface-1)] px-4 py-3 font-mono text-[12px] text-[var(--ink-70)]">
+          {code}
+        </code>
+        <button type="button" onClick={copy} className="btn btn-primary px-5 text-[13px]">
+          {copied ? 'Copiado!' : 'Copiar'}
+        </button>
+      </div>
     </div>
   );
 }
