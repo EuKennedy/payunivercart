@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { Heading, Kicker, Surface } from '../../../components/ui';
 import { useSession } from '../../../lib/auth';
 import { formatCents } from '../../../lib/money';
 import { trpc } from '../../../lib/trpc';
+
+const MASK_KEY = 'payunivercart.dashboard.mask';
 
 /**
  * Dashboard home — visão geral da operação. Real data via tRPC: GMV
@@ -18,6 +20,28 @@ import { trpc } from '../../../lib/trpc';
 export default function DashboardHome() {
   const session = useSession();
   const router = useRouter();
+  // Hide financial values for screen-sharing. Persisted in localStorage
+  // so the toggle survives reloads — the producer doesn't have to
+  // re-hide every time they re-open the tab during a call.
+  const [masked, setMasked] = useState(false);
+  useEffect(() => {
+    try {
+      setMasked(localStorage.getItem(MASK_KEY) === '1');
+    } catch {
+      /* private mode / SSR — fall back to unmasked */
+    }
+  }, []);
+  const toggleMask = () => {
+    setMasked((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(MASK_KEY, next ? '1' : '0');
+      } catch {
+        /* noop */
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!session.isPending && !session.data) router.replace('/login');
@@ -46,11 +70,24 @@ export default function DashboardHome() {
   const hasAnyOrders =
     (overview.data?.allTime.paidCount ?? 0) > 0 || (recent.data?.length ?? 0) > 0;
 
+  const maskValue = (rendered: string) => (masked ? 'R$ ****' : rendered);
+
   return (
     <div className="space-y-12">
       <header className="space-y-3">
         <Kicker>Visão geral</Kicker>
-        <Heading level={1}>Olá, {firstName}.</Heading>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Heading level={1}>Oi, {firstName}. 👋</Heading>
+          <button
+            type="button"
+            onClick={toggleMask}
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]"
+            aria-label={masked ? 'Mostrar valores' : 'Esconder valores'}
+            title={masked ? 'Mostrar valores' : 'Esconder valores (screen-share safe)'}
+          >
+            {masked ? '👁️ Mostrar valores' : '🙈 Esconder valores'}
+          </button>
+        </div>
         <p className="max-w-2xl text-[16px] text-[var(--color-fg-muted)] leading-[1.55]">
           {hasAnyOrders
             ? 'Acompanhe sua operação em tempo real. Os números abaixo são do seu workspace, atualizados a cada 30 segundos.'
@@ -61,8 +98,8 @@ export default function DashboardHome() {
       <section className="grid gap-4 md:grid-cols-3">
         <MetricCard
           label="GMV hoje"
-          value={formatCents(todayGmv, 'BRL')}
-          trend={trendLine(todayGmv, yGmv, (n) => formatCents(n, 'BRL'))}
+          value={maskValue(formatCents(todayGmv, 'BRL'))}
+          trend={masked ? '' : trendLine(todayGmv, yGmv, (n) => formatCents(n, 'BRL'))}
         />
         <MetricCard
           label="Pedidos hoje"
@@ -114,7 +151,7 @@ export default function DashboardHome() {
                       </div>
                     </td>
                     <td className="px-5 py-3 font-medium text-[var(--color-fg)]">
-                      {formatCents(order.totalCents, order.currency)}
+                      {maskValue(formatCents(order.totalCents, order.currency))}
                     </td>
                     <td className="px-5 py-3">
                       <StatusPill status={order.status} />

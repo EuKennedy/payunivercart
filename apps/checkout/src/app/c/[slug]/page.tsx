@@ -171,8 +171,30 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 
   const brandTone = workspace.brandPrimaryColor;
 
+  // When the producer set a brand color in Configurações → Marca,
+  // override the dopamine palette so every CTA, focus ring, and pill
+  // picks up their identity. We override the THREE stops the checkout
+  // CSS uses (-400 -500 -600) — `derivedFromBrand` darkens the user
+  // hex by ~10% for the gradient endpoint and lightens by ~10% for the
+  // start, keeping the "premium dopamine gradient" feel.
+  const brandPalette = brandTone ? deriveBrandPalette(brandTone) : null;
+
   return (
-    <main className="min-h-screen">
+    <main
+      className="min-h-screen"
+      style={
+        brandPalette
+          ? ({
+              '--dop-400': brandPalette.light,
+              '--dop-500': brandPalette.mid,
+              '--dop-600': brandPalette.dark,
+              '--dop-soft': `${brandPalette.mid}10`,
+              '--dop-glow': `${brandPalette.mid}38`,
+              '--dop-hairline': `${brandPalette.mid}38`,
+            } as React.CSSProperties)
+          : undefined
+      }
+    >
       <ProducerHeader workspace={workspace} brandTone={brandTone} />
 
       <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10">
@@ -831,4 +853,30 @@ function formatExpiresAt(date: Date | string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * Derive a light / mid / dark triple from the producer's brand hex.
+ * The checkout's dopamine gradient uses three stops; we map the
+ * producer's single chosen color onto that scale so the gradient
+ * keeps its premium feel while picking up their identity.
+ */
+function deriveBrandPalette(hex: string): { light: string; mid: string; dark: string } {
+  const normalized = hex.startsWith('#') ? hex : `#${hex}`;
+  if (!/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+    // Bad input — fall back to a no-op palette caller can detect via
+    // identical stops (still valid CSS, just no gradient depth).
+    return { light: normalized, mid: normalized, dark: normalized };
+  }
+  const r = Number.parseInt(normalized.slice(1, 3), 16);
+  const g = Number.parseInt(normalized.slice(3, 5), 16);
+  const b = Number.parseInt(normalized.slice(5, 7), 16);
+  const lighten = (c: number) => Math.min(255, Math.round(c + (255 - c) * 0.18));
+  const darken = (c: number) => Math.max(0, Math.round(c * 0.82));
+  const toHex = (c: number) => c.toString(16).padStart(2, '0');
+  return {
+    light: `#${toHex(lighten(r))}${toHex(lighten(g))}${toHex(lighten(b))}`,
+    mid: normalized,
+    dark: `#${toHex(darken(r))}${toHex(darken(g))}${toHex(darken(b))}`,
+  };
 }
