@@ -76,6 +76,7 @@ const ProductRow = z.object({
   maxInstallments: z.number().int().min(1).max(24),
   deliveryUrl: z.string().nullable(),
   deliveryInstructions: z.string().nullable(),
+  isSubscription: z.boolean(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -110,6 +111,7 @@ export const productsRouter = router({
           coverImageMime: schema.products.coverImageMime,
           deliveryUrl: schema.products.deliveryUrl,
           deliveryInstructions: schema.products.deliveryInstructions,
+          isSubscription: schema.products.isSubscription,
           isActive: schema.products.isActive,
           createdAt: schema.products.createdAt,
           updatedAt: schema.products.updatedAt,
@@ -145,6 +147,7 @@ export const productsRouter = router({
         maxInstallments: r.maxInstallments ?? 12,
         deliveryUrl: r.deliveryUrl,
         deliveryInstructions: r.deliveryInstructions,
+        isSubscription: r.isSubscription,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
       }));
@@ -172,6 +175,7 @@ export const productsRouter = router({
           coverImageMime: schema.products.coverImageMime,
           deliveryUrl: schema.products.deliveryUrl,
           deliveryInstructions: schema.products.deliveryInstructions,
+          isSubscription: schema.products.isSubscription,
           isActive: schema.products.isActive,
           createdAt: schema.products.createdAt,
           updatedAt: schema.products.updatedAt,
@@ -208,6 +212,7 @@ export const productsRouter = router({
         maxInstallments: row.maxInstallments ?? 12,
         deliveryUrl: row.deliveryUrl,
         deliveryInstructions: row.deliveryInstructions,
+        isSubscription: row.isSubscription,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -319,6 +324,12 @@ export const productsRouter = router({
          */
         deliveryUrl: z.string().trim().max(500).nullable().optional(),
         deliveryInstructions: z.string().trim().max(1000).nullable().optional(),
+        /**
+         * Flip the product between one-time purchase and recurring
+         * subscription. Plans live in their own router (`subscriptions.*`)
+         * — toggling here only sets the catalogue flag.
+         */
+        isSubscription: z.boolean().optional(),
       }),
     )
     .output(z.object({ ok: z.literal(true) }))
@@ -331,6 +342,7 @@ export const productsRouter = router({
         if (input.deliveryUrl !== undefined) patch.deliveryUrl = input.deliveryUrl;
         if (input.deliveryInstructions !== undefined)
           patch.deliveryInstructions = input.deliveryInstructions;
+        if (input.isSubscription !== undefined) patch.isSubscription = input.isSubscription;
         if (input.cover !== undefined) {
           const { bytes, mime } = decodeCover(input.cover);
           patch.coverImage = bytes;

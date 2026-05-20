@@ -67,6 +67,13 @@ export const products = pgTable(
      * preserved on render. Keep short — the receipt has limited room.
      */
     deliveryInstructions: text(),
+    /**
+     * When true, the public checkout renders a plan picker (from
+     * `subscription_plans`) and posts to `checkout.createSubscription`
+     * instead of `createOrder`. One-time products keep the legacy
+     * single-price flow.
+     */
+    isSubscription: boolean().notNull().default(false),
     isActive: boolean().notNull().default(true),
     metadata: jsonb().notNull().default({}),
     createdAt: createdAt(),

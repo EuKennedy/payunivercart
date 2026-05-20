@@ -66,6 +66,12 @@ export default function CheckoutPage({ params }: { params: Promise<{ slug: strin
     );
   }
 
+  // Subscription products short-circuit to a dedicated plan picker
+  // + recurring card flow. The template choice (single vs stepper)
+  // only governs one-time products today.
+  if (product.data.product.isSubscription) {
+    return <SubscriptionCheckoutView slug={slug} data={product.data} />;
+  }
   return product.data.workspace.checkoutTemplate === 'stepper' ? (
     <StepperCheckoutView slug={slug} data={product.data} />
   ) : (
@@ -664,6 +670,537 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
         </div>
       </footer>
     </main>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* SubscriptionCheckoutView — plan picker + recurring card flow                */
+/*                                                                            */
+/* Rendered when the product is flagged `isSubscription`. Layout:              */
+/*   1. Plan picker — N cards stacked vertically, "Mais escolhido" badge on   */
+/*      `isHighlighted=true`. Buyer clicks to select.                         */
+/*   2. Identification — name/email/CPF/phone (same model as one-time).      */
+/*   3. Card form — recurring engine REQUIRES a tokenized card.              */
+/*                                                                            */
+/* Pix + boleto are deliberately absent here: only cartão de crédito has     */
+/* a real recurring engine in MP. Buyers who want Pix can buy the producer's */
+/* one-time product instead.                                                  */
+/* -------------------------------------------------------------------------- */
+
+function SubscriptionCheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
+  const { product, workspace } = data;
+
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(() => {
+    const highlighted = product.plans.find((p) => p.isHighlighted);
+    return (highlighted ?? product.plans[0])?.id ?? null;
+  });
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [doc, setDoc] = useState('');
+  const [phone, setPhone] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvc, setCardCvc] = useState('');
+  const [cardHolder, setCardHolder] = useState('');
+
+  const subscribe = trpc.subscriptions.subscribe.useMutation();
+
+  const selectedPlan = useMemo(
+    () => product.plans.find((p) => p.id === selectedPlanId) ?? null,
+    [selectedPlanId, product.plans],
+  );
+
+  // For monthly plans, surface the implied annual equivalent next to
+  // the price so buyers can mentally compare a R$ 49/mês plan to a
+  // R$ 499/ano (~15% discount) on the same screen.
+  const monthly = product.plans.find((p) => p.billingPeriod === 'monthly');
+  const yearly = product.plans.find((p) => p.billingPeriod === 'yearly');
+  const annualSavings =
+    monthly && yearly ? Math.max(0, monthly.amountCents * 12 - yearly.amountCents) : 0;
+  const annualSavingsPct =
+    monthly && yearly && monthly.amountCents > 0
+      ? Math.round((annualSavings / (monthly.amountCents * 12)) * 100)
+      : 0;
+
+  const docDigits = unmaskDigits(doc);
+  const phoneDigits = unmaskDigits(phone);
+  const cardDigits = unmaskDigits(cardNumber);
+  const expiryDigits = unmaskDigits(cardExpiry);
+  const trimmedHolder = cardHolder.trim() || name.trim();
+
+  const identifyComplete =
+    name.trim().length >= 2 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    (docDigits.length === 11 || docDigits.length === 14) &&
+    phoneDigits.length >= 10;
+  const cardComplete =
+    cardDigits.length >= 13 &&
+    expiryDigits.length === 4 &&
+    cardCvc.length >= 3 &&
+    trimmedHolder.length >= 2;
+  const canSubmit = !!selectedPlan && identifyComplete && cardComplete && !subscribe.isPending;
+
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedPlan) return;
+    // Browser-side card tokenization via MP SDK is the production path
+    // — until that lands in this app we forward the raw card and let
+    // the server-side tokenize hop in MP adapter compute the token.
+    // The server route accepts `cardToken` only; we fake one here by
+    // POSTing to `/v1/card_tokens` from the client. For first cut we
+    // post raw fields and the api error-surfaces if MP refuses.
+    const [mm, yyRaw] = cardExpiry.split('/');
+    if (!mm || !yyRaw) return;
+    const yy = yyRaw.length === 2 ? `20${yyRaw}` : yyRaw;
+    // Use MP public-key endpoint via the producer's publishable key if
+    // wired; placeholder: we forward to api which will refuse without
+    // a token. TODO: integrate MercadoPago.js v2 here.
+    const cardTokenPlaceholder = `RAW:${cardDigits}:${mm}:${yy}:${cardCvc}`;
+    subscribe.mutate({
+      slug,
+      planId: selectedPlan.id,
+      buyer: {
+        name: name.trim(),
+        email: email.trim(),
+        document: doc,
+        phone,
+      },
+      cardToken: cardTokenPlaceholder,
+      cardHolderName: trimmedHolder,
+    });
+  };
+
+  if (subscribe.data) {
+    return (
+      <CenteredCard wide>
+        <SubscriptionSuccess
+          publicReference={subscribe.data.publicReference}
+          status={subscribe.data.status}
+          nextChargeAt={subscribe.data.nextChargeAt}
+          planName={selectedPlan?.name ?? '—'}
+          amountCents={selectedPlan?.amountCents ?? 0}
+          billingPeriod={selectedPlan?.billingPeriod ?? 'monthly'}
+          buyerEmail={email.trim()}
+        />
+      </CenteredCard>
+    );
+  }
+
+  const brandTone = workspace.brandPrimaryColor;
+  const brandPalette = brandTone ? deriveBrandPalette(brandTone) : null;
+
+  return (
+    <main
+      className="min-h-screen"
+      style={
+        brandPalette
+          ? ({
+              '--dop-400': brandPalette.light,
+              '--dop-500': brandPalette.mid,
+              '--dop-600': brandPalette.dark,
+              '--dop-soft': `${brandPalette.mid}10`,
+              '--dop-glow': `${brandPalette.mid}38`,
+              '--dop-hairline': `${brandPalette.mid}38`,
+            } as React.CSSProperties)
+          : undefined
+      }
+    >
+      <ProducerHeader workspace={workspace} brandTone={brandTone} />
+
+      <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.4fr_1fr]">
+          {/* ===== Plans + identification + card ===== */}
+          <div className="flex flex-col gap-6">
+            <section className="glass-card p-6">
+              <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
+                Assinatura recorrente
+              </p>
+              <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)] tracking-tight">
+                Escolha seu plano.
+              </h1>
+              {product.description ? (
+                <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
+                  {product.description}
+                </p>
+              ) : null}
+
+              {product.plans.length === 0 ? (
+                <p className="mt-5 rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
+                  Nenhum plano ativo. Avise o produtor.
+                </p>
+              ) : (
+                <div className="mt-5 flex flex-col gap-3">
+                  {product.plans.map((p) => (
+                    <PlanPickCard
+                      key={p.id}
+                      plan={p}
+                      selected={p.id === selectedPlanId}
+                      onPick={() => setSelectedPlanId(p.id)}
+                      annualSavings={
+                        p.billingPeriod === 'yearly' && annualSavingsPct > 0 ? annualSavingsPct : 0
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="glass-card flex flex-col gap-5 p-6">
+              <h2 className="font-semibold text-[18px] text-[var(--ink-100)] tracking-tight">
+                Identificação
+              </h2>
+              <Field label="Nome completo">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Como aparece no documento"
+                  autoComplete="name"
+                />
+              </Field>
+              <Field label="Email">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="voce@empresa.com"
+                  autoComplete="email"
+                  inputMode="email"
+                />
+              </Field>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Field label="CPF / CNPJ">
+                  <input
+                    type="text"
+                    value={doc}
+                    onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
+                    placeholder="000.000.000-00"
+                    inputMode="numeric"
+                  />
+                </Field>
+                <Field label="Telefone">
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(maskBrPhone(e.target.value))}
+                    placeholder="(11) 91234-5678"
+                    inputMode="tel"
+                    autoComplete="tel"
+                  />
+                </Field>
+              </div>
+            </section>
+
+            <section className="glass-card flex flex-col gap-5 p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-[18px] text-[var(--ink-100)] tracking-tight">
+                  Cartão de crédito
+                </h2>
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
+                  <ShieldIcon size={11} /> Assinatura renovada automaticamente
+                </span>
+              </div>
+              <Field label="Nome impresso no cartão">
+                <input
+                  type="text"
+                  value={cardHolder}
+                  onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                  placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
+                  autoComplete="cc-name"
+                  maxLength={60}
+                />
+              </Field>
+              <Field label="Número do cartão">
+                <input
+                  type="text"
+                  value={cardNumber}
+                  onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                  placeholder="0000 0000 0000 0000"
+                  inputMode="numeric"
+                  autoComplete="cc-number"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Validade (MM/AA)">
+                  <input
+                    type="text"
+                    value={cardExpiry}
+                    onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
+                    placeholder="12/30"
+                    inputMode="numeric"
+                    autoComplete="cc-exp"
+                  />
+                </Field>
+                <Field label="CVV">
+                  <input
+                    type="text"
+                    value={cardCvc}
+                    onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
+                    placeholder="000"
+                    inputMode="numeric"
+                    autoComplete="cc-csc"
+                  />
+                </Field>
+              </div>
+
+              {subscribe.error ? (
+                <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger-text)] leading-[1.5]">
+                  {subscribe.error.message}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="btn btn-primary inline-flex w-full items-center justify-center gap-3 py-4 text-[16px]"
+              >
+                {subscribe.isPending
+                  ? 'Confirmando assinatura…'
+                  : selectedPlan
+                    ? `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                    : 'Escolha um plano acima'}
+              </button>
+              <p className="text-center text-[11px] text-[var(--ink-50)] leading-[1.5]">
+                Cobrança automática. Cancele quando quiser na sua conta ou pedindo pro produtor.
+              </p>
+            </section>
+          </div>
+
+          {/* ===== Sticky summary ===== */}
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            <div className="glass-card p-6">
+              <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
+                Sua assinatura
+              </p>
+              <div className="mt-5 flex items-start gap-4 border-[var(--hairline)] border-b pb-5">
+                {product.coverImageUrl ? (
+                  <img
+                    src={product.coverImageUrl}
+                    alt={product.name}
+                    className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                  />
+                ) : (
+                  <span
+                    className="grid h-14 w-14 shrink-0 place-items-center rounded-xl font-semibold text-[16px] text-white"
+                    style={{
+                      background:
+                        brandTone ??
+                        'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
+                    }}
+                  >
+                    {(product.name[0] ?? '·').toUpperCase()}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-[14px] text-[var(--ink-100)] leading-tight">
+                    {product.name}
+                  </p>
+                  <p className="mt-1 text-[12px] text-[var(--ink-50)]">
+                    {selectedPlan?.name ?? 'Selecione um plano'}
+                  </p>
+                </div>
+              </div>
+
+              <dl className="mt-5 space-y-3 text-[13px]">
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-[var(--ink-70)]">Periodicidade</dt>
+                  <dd className="font-semibold text-[var(--ink-90)]">
+                    {selectedPlan?.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
+                  </dd>
+                </div>
+                {selectedPlan && selectedPlan.trialDays > 0 ? (
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-[var(--ink-70)]">Trial grátis</dt>
+                    <dd className="font-semibold text-[var(--dop-600)]">
+                      {selectedPlan.trialDays} dias
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+
+              <div className="mt-5 flex items-end justify-between border-[var(--hairline)] border-t pt-5">
+                <span className="font-semibold text-[13px] text-[var(--ink-70)] uppercase tracking-[0.16em]">
+                  {selectedPlan?.billingPeriod === 'yearly' ? 'Por ano' : 'Por mês'}
+                </span>
+                <div className="text-right">
+                  <span className="font-semibold text-[28px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
+                    {selectedPlan
+                      ? formatCents(selectedPlan.amountCents, selectedPlan.currency)
+                      : '—'}
+                  </span>
+                  {selectedPlan?.billingPeriod === 'yearly' && annualSavingsPct > 0 ? (
+                    <p className="mt-1 font-semibold text-[12px] text-[var(--dop-600)]">
+                      você economiza {annualSavingsPct}%
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="glass-card flex flex-col gap-3 p-5 text-[12px] text-[var(--ink-70)]">
+              <div className="flex items-start gap-2">
+                <ShieldIcon />
+                <span>
+                  Cobrança recorrente via Mercado Pago. Cancele sem multa. Confirmação enviada pra
+                  seu email + WhatsApp.
+                </span>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </form>
+
+      <footer className="mt-6 border-[var(--hairline)] border-t bg-[var(--bg-elev-1)]/60">
+        <div className="container-x mx-auto flex w-full max-w-[1180px] flex-col items-center gap-1 py-5 text-center text-[11px] text-[var(--ink-50)]">
+          <p className="inline-flex flex-wrap items-center justify-center gap-1.5">
+            Pagamento processado por{' '}
+            <img
+              src="/payunivercart-logo.png"
+              alt="payunivercart"
+              className="inline-block h-[14px] w-auto opacity-80"
+            />
+            . Ao confirmar, você concorda com os termos e a política de privacidade do produtor.
+          </p>
+          <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+/**
+ * Plan card rendered in the buyer's plan picker. Selected state uses
+ * the brand color border + glow; "Mais escolhido" sits as a floating
+ * pill on top-right.
+ */
+function PlanPickCard({
+  plan,
+  selected,
+  onPick,
+  annualSavings,
+}: {
+  plan: CheckoutData['product']['plans'][number];
+  selected: boolean;
+  onPick: () => void;
+  annualSavings: number;
+}) {
+  const perWord = plan.billingPeriod === 'yearly' ? 'ano' : 'mês';
+  const monthlyEquivalent =
+    plan.billingPeriod === 'yearly' ? Math.round(plan.amountCents / 12) : null;
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-pressed={selected}
+      className={clsx(
+        'group relative flex items-center justify-between gap-4 rounded-2xl border bg-[var(--surface-1)] p-5 text-left transition',
+        selected
+          ? 'border-[var(--dop-500)] shadow-[0_8px_28px_-8px_var(--dop-glow)]'
+          : 'border-[var(--hairline)] hover:border-[var(--hairline-strong)] hover:bg-white/40',
+      )}
+    >
+      {plan.isHighlighted ? (
+        <span className="-top-3 absolute right-5 inline-flex items-center gap-1 rounded-full bg-[var(--dop-500)] px-3 py-1 font-semibold text-[10px] text-white uppercase tracking-[0.14em]">
+          ★ Mais escolhido
+        </span>
+      ) : null}
+      <div className="flex items-center gap-4">
+        <span
+          className={clsx(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 transition',
+            selected
+              ? 'border-[var(--dop-500)] bg-[var(--dop-500)] text-white'
+              : 'border-[var(--hairline-strong)] text-transparent group-hover:border-[var(--ink-50)]',
+          )}
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            aria-hidden="true"
+            className="size-4"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+          </svg>
+        </span>
+        <div className="min-w-0">
+          <p className="font-semibold text-[15px] text-[var(--ink-100)]">{plan.name}</p>
+          <p className="mt-0.5 text-[12px] text-[var(--ink-70)]">
+            {plan.billingPeriod === 'yearly' ? 'Cobrança anual' : 'Cobrança mensal'}
+            {plan.trialDays > 0 ? ` · ${plan.trialDays} dias grátis` : ''}
+          </p>
+        </div>
+      </div>
+      <div className="text-right">
+        <p className="font-semibold text-[20px] text-[var(--ink-100)] tabular-nums leading-none">
+          {formatCents(plan.amountCents, plan.currency)}
+          <span className="font-normal text-[12px] text-[var(--ink-50)]">/{perWord}</span>
+        </p>
+        {monthlyEquivalent !== null ? (
+          <p className="mt-1 text-[11px] text-[var(--ink-50)]">
+            {formatCents(monthlyEquivalent, plan.currency)}/mês
+          </p>
+        ) : null}
+        {annualSavings > 0 ? (
+          <p className="mt-1 font-semibold text-[11px] text-[var(--dop-600)]">
+            economize {annualSavings}%
+          </p>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
+function SubscriptionSuccess({
+  publicReference,
+  status,
+  nextChargeAt,
+  planName,
+  amountCents,
+  billingPeriod,
+  buyerEmail,
+}: {
+  publicReference: string;
+  status: string;
+  nextChargeAt: Date | string | null;
+  planName: string;
+  amountCents: number;
+  billingPeriod: 'monthly' | 'yearly';
+  buyerEmail: string;
+}) {
+  const isActive = status === 'active';
+  return (
+    <div>
+      <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
+        {isActive ? 'Assinatura ativa' : 'Assinatura criada'}
+      </p>
+      <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)]">
+        {isActive ? 'Bem-vindo a bordo! 🎉' : 'Estamos confirmando seu pagamento.'}
+      </h1>
+      <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
+        Mandamos a confirmação em <strong>{buyerEmail}</strong>. Próxima cobrança{' '}
+        {nextChargeAt
+          ? `em ${formatExpiresAt(nextChargeAt)}`
+          : `daqui a 1 ${billingPeriod === 'yearly' ? 'ano' : 'mês'}`}
+        .
+      </p>
+      <dl className="mt-6 space-y-3 rounded-2xl bg-[var(--surface-1)] p-5 text-[13px]">
+        <Row label="Plano" value={planName} />
+        <Row
+          label="Valor"
+          value={
+            <strong>
+              {formatCents(amountCents, 'BRL')}/{billingPeriod === 'yearly' ? 'ano' : 'mês'}
+            </strong>
+          }
+        />
+        <Row label="Código" value={<span className="font-mono">{publicReference}</span>} />
+      </dl>
+      <p className="mt-6 text-center text-[11px] text-[var(--ink-50)]">
+        Para cancelar, responda o email da cobrança ou fale com o produtor.
+      </p>
+    </div>
   );
 }
 

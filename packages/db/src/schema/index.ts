@@ -9,6 +9,7 @@ export * from './orders';
 export * from './transactions';
 export * from './carts';
 export * from './recovery';
+export * from './subscriptions';
 export * from './webhooks';
 export * from './audit';
 export * from './platform_billing';

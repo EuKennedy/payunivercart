@@ -55,6 +55,28 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
       return c.json({ error: 'missing_resource_id' }, 400);
     }
 
+    // 1.5. MP subscription topics route to a dedicated handler. The
+    //      resource id for `subscription_preapproval` events IS the
+    //      preapproval id (matches `subscriptions.gatewaySubscriptionId`);
+    //      for `subscription_authorized_payment` it's the recurring
+    //      payment id and we'll round-trip MP to learn which
+    //      preapproval it belongs to. Both branches return early so
+    //      the rest of the function (built for one-time charges) stays
+    //      unchanged.
+    if (gatewayId === 'mercadopago') {
+      const mpType = extractMpEventType(raw);
+      if (mpType?.startsWith('subscription_')) {
+        const result = await handleMpSubscriptionEvent(services, {
+          eventType: mpType,
+          resourceId,
+          raw,
+          headers,
+          queryParams,
+        });
+        return c.json(result);
+      }
+    }
+
     // 2. Find the transaction → workspaceId.
     const [tx] = await services.db.db
       .select({
@@ -282,6 +304,132 @@ function extractResourceId(
       return extractPagSeguroResourceId(rawBody);
     case 'stripe':
       return extractStripeResourceId(rawBody);
+  }
+}
+
+/**
+ * MP webhook bodies carry a `type` (v2) or `topic` (legacy v1) field.
+ * Subscription events live under `subscription_preapproval` and
+ * `subscription_authorized_payment`.
+ */
+function extractMpEventType(rawBody: string): string | null {
+  try {
+    const parsed = JSON.parse(rawBody) as { type?: unknown; topic?: unknown };
+    if (typeof parsed.type === 'string') return parsed.type;
+    if (typeof parsed.topic === 'string') return parsed.topic;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Process MP subscription events. For `subscription_preapproval` we
+ * round-trip `adapter.getSubscription(...)` so the local mirror picks
+ * up the canonical status (active / paused / cancelled / expired) and
+ * the new `next_payment_date`. Authorized-payment events are persisted
+ * only — the orders / receipts surfaces lands in a follow-up.
+ */
+async function handleMpSubscriptionEvent(
+  services: AppServices,
+  ctx: {
+    eventType: string;
+    resourceId: string;
+    raw: string;
+    headers: Record<string, string>;
+    queryParams: Record<string, string>;
+  },
+): Promise<{ ok: true; deferred?: boolean; status?: string }> {
+  if (ctx.eventType !== 'subscription_preapproval') {
+    // `subscription_authorized_payment` and future MP topics are
+    // logged for audit but don't update domain rows yet.
+    await storeRaw({
+      services,
+      source: 'mercadopago',
+      eventId: `subevent:${ctx.eventType}:${ctx.resourceId}:${Date.now()}`,
+      eventType: ctx.eventType,
+      headers: ctx.headers,
+      raw: ctx.raw,
+      signatureValid: 'unknown',
+      workspaceId: null,
+    });
+    return { ok: true, deferred: true };
+  }
+
+  const [sub] = await services.db.db
+    .select({
+      id: schema.subscriptions.id,
+      workspaceId: schema.subscriptions.workspaceId,
+      status: schema.subscriptions.status,
+    })
+    .from(schema.subscriptions)
+    .where(
+      and(
+        eq(schema.subscriptions.gatewayId, 'mercadopago'),
+        eq(schema.subscriptions.gatewaySubscriptionId, ctx.resourceId),
+      ),
+    )
+    .limit(1);
+  if (!sub) {
+    await storeRaw({
+      services,
+      source: 'mercadopago',
+      eventId: `sub-pending:${ctx.resourceId}:${Date.now()}`,
+      eventType: ctx.eventType,
+      headers: ctx.headers,
+      raw: ctx.raw,
+      signatureValid: 'unknown',
+      workspaceId: null,
+      error: 'subscription not yet recorded for resourceId',
+    });
+    return { ok: true, deferred: true };
+  }
+
+  const [credRow] = await services.db.db
+    .select({ credentialsEncrypted: schema.gatewayCredentials.credentialsEncrypted })
+    .from(schema.gatewayCredentials)
+    .where(
+      and(
+        eq(schema.gatewayCredentials.workspaceId, sub.workspaceId),
+        eq(schema.gatewayCredentials.gatewayId, 'mercadopago'),
+        eq(schema.gatewayCredentials.isDefault, true),
+      ),
+    )
+    .limit(1);
+  if (!credRow) {
+    return { ok: true, deferred: true };
+  }
+
+  const adapter = getAdapter('mercadopago');
+  if (!adapter.getSubscription) return { ok: true, deferred: true };
+  const credentials = adapter.parseCredentials(
+    services.crypto.unsealJson<Record<string, unknown>>(credRow.credentialsEncrypted),
+  );
+
+  try {
+    const fresh = await adapter.getSubscription(credentials as never, ctx.resourceId);
+    const now = new Date();
+    await services.db.db
+      .update(schema.subscriptions)
+      .set({
+        status: fresh.status,
+        nextChargeAt: fresh.nextChargeAt ?? null,
+        startedAt: fresh.status === 'active' && !sub.status ? now : undefined,
+        cancelledAt: fresh.status === 'cancelled' ? now : null,
+        updatedAt: now,
+      })
+      .where(eq(schema.subscriptions.id, sub.id));
+    return { ok: true, status: fresh.status };
+  } catch (cause) {
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'mp.subscription.refresh.failed',
+        subscriptionId: sub.id,
+        error: cause instanceof Error ? cause.message : String(cause),
+      })}\n`,
+    );
+    return { ok: true, deferred: true };
   }
 }
 

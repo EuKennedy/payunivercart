@@ -3,14 +3,17 @@ import type { GatewayId } from '@payunivercart/shared';
 import { PayunivercartError } from '@payunivercart/shared';
 import { type PaymentDeclineCode, PaymentError } from '../errors';
 import {
+  type CancelSubscriptionInput,
   type CreateBoletoInput,
   type CreateCardInput,
   type CreatePixInput,
+  type CreateSubscriptionInput,
   type MercadoPagoCredentials,
   type PaymentGateway,
   type PaymentResult,
   type RefundInput,
   type RefundResult,
+  type SubscriptionResult,
   type WebhookEvent,
   type WebhookRequest,
   mercadoPagoCredentialsSchema,
@@ -243,6 +246,96 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
     return this.toPaymentResult(json, 'boleto');
   }
 
+  /**
+   * Create a recurring subscription via MP `/preapproval`. Status is
+   * forced to `authorized` because we already have a card token —
+   * "pending" forces the buyer to log into MP to confirm, which kills
+   * conversion. End-date is optional; omit for evergreen.
+   *
+   * MP's recurring engine charges the first cycle immediately (~1h
+   * delay in their docs). Subsequent cycles fire on
+   * `next_payment_date` and surface through the
+   * `subscription_authorized_payment` webhook topic.
+   */
+  async createSubscription(
+    credentials: MercadoPagoCredentials,
+    input: CreateSubscriptionInput,
+  ): Promise<SubscriptionResult> {
+    if (input.amount.currency !== 'BRL') {
+      throw new PaymentError('Mercado Pago subscription only supports BRL', {
+        gatewayId: this.id,
+        declineCode: 'UNSUPPORTED_CURRENCY',
+      });
+    }
+    const body: Record<string, unknown> = {
+      reason: input.reason,
+      external_reference: input.subscriptionId,
+      payer_email: input.customer.email,
+      card_token_id: input.cardToken,
+      status: 'authorized',
+      auto_recurring: {
+        frequency: input.frequency,
+        frequency_type: input.frequencyType,
+        transaction_amount: centsToReais(input.amount.amount),
+        currency_id: 'BRL',
+        ...(input.startDate ? { start_date: input.startDate.toISOString() } : {}),
+        ...(input.endDate ? { end_date: input.endDate.toISOString() } : {}),
+        ...(input.trialDays && input.trialDays > 0
+          ? { free_trial: { frequency: input.trialDays, frequency_type: 'days' } }
+          : {}),
+      },
+      ...(input.backUrl ? { back_url: input.backUrl } : {}),
+      ...(input.webhookUrl ? { notification_url: input.webhookUrl } : {}),
+      metadata: {
+        ...input.metadata,
+        workspace_id: input.workspaceId,
+        subscription_id: input.subscriptionId,
+        product_id: input.productId,
+        plan_id: input.planId,
+      },
+    };
+
+    const res = await this.request(credentials, 'POST', '/preapproval', body, {
+      timeoutMs: TIMEOUTS_MS.payment,
+    });
+    if (!res.ok) throw await this.mapHttpError(res, 'PROCESSING_ERROR');
+
+    const json = (await res.json()) as MpPreapprovalResponse;
+    return this.toSubscriptionResult(json);
+  }
+
+  async cancelSubscription(
+    credentials: MercadoPagoCredentials,
+    input: CancelSubscriptionInput,
+  ): Promise<SubscriptionResult> {
+    const res = await this.request(
+      credentials,
+      'PUT',
+      `/preapproval/${encodeURIComponent(input.gatewaySubscriptionId)}`,
+      { status: 'cancelled' },
+      { timeoutMs: TIMEOUTS_MS.payment },
+    );
+    if (!res.ok) throw await this.mapHttpError(res, 'PROCESSING_ERROR');
+    const json = (await res.json()) as MpPreapprovalResponse;
+    return this.toSubscriptionResult(json);
+  }
+
+  async getSubscription(
+    credentials: MercadoPagoCredentials,
+    gatewaySubscriptionId: string,
+  ): Promise<SubscriptionResult> {
+    const res = await this.request(
+      credentials,
+      'GET',
+      `/preapproval/${encodeURIComponent(gatewaySubscriptionId)}`,
+      undefined,
+      { timeoutMs: TIMEOUTS_MS.read },
+    );
+    if (!res.ok) throw await this.mapHttpError(res, 'PROCESSING_ERROR');
+    const json = (await res.json()) as MpPreapprovalResponse;
+    return this.toSubscriptionResult(json);
+  }
+
   async refund(credentials: MercadoPagoCredentials, input: RefundInput): Promise<RefundResult> {
     const body = input.amount !== undefined ? { amount: centsToReais(input.amount.amount) } : {};
     const res = await this.request(
@@ -361,7 +454,7 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
 
   private async request(
     credentials: MercadoPagoCredentials,
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT',
     path: string,
     body: unknown,
     opts: { idempotencyKey?: string; timeoutMs: number },
@@ -440,6 +533,17 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
       boletoDueDate: expiresAt,
       cardBrand: json.payment_method_id ?? undefined,
       cardLast4: json.card?.last_four_digits,
+      raw: json,
+    };
+  }
+
+  private toSubscriptionResult(json: MpPreapprovalResponse): SubscriptionResult {
+    return {
+      gatewayId: this.id,
+      gatewaySubscriptionId: String(json.id),
+      status: mapMpSubscriptionStatus(json.status),
+      nextChargeAt: json.next_payment_date ? new Date(json.next_payment_date) : undefined,
+      firstPaymentId: json.last_payment_id ? String(json.last_payment_id) : undefined,
       raw: json,
     };
   }
@@ -576,4 +680,39 @@ interface MpRefundResponse {
   id: number | string;
   status: string;
   amount: number;
+}
+
+interface MpPreapprovalResponse {
+  id: number | string;
+  status: string;
+  reason?: string;
+  payer_email?: string;
+  external_reference?: string;
+  next_payment_date?: string;
+  last_payment_id?: number | string;
+  auto_recurring?: {
+    frequency?: number;
+    frequency_type?: string;
+    transaction_amount?: number;
+    currency_id?: string;
+  };
+}
+
+/** MP preapproval status → our canonical subscription status. */
+function mapMpSubscriptionStatus(status: string): SubscriptionResult['status'] {
+  switch (status) {
+    case 'authorized':
+      return 'active';
+    case 'pending':
+      return 'pending';
+    case 'paused':
+      return 'paused';
+    case 'cancelled':
+      return 'cancelled';
+    case 'finished':
+    case 'expired':
+      return 'expired';
+    default:
+      return 'pending';
+  }
 }

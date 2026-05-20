@@ -41,6 +41,7 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
   const [cover, setCover] = useState<ImageUpload | null>(null);
   const [deliveryUrl, setDeliveryUrl] = useState('');
   const [deliveryInstructions, setDeliveryInstructions] = useState('');
+  const [isSubscription, setIsSubscription] = useState(false);
 
   // Hydrate state once the query resolves. We only seed on the leading
   // edge so subsequent refetches from `invalidate()` don't clobber
@@ -55,6 +56,7 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
     setIsActive(product.data.isActive);
     setDeliveryUrl(product.data.deliveryUrl ?? '');
     setDeliveryInstructions(product.data.deliveryInstructions ?? '');
+    setIsSubscription(product.data.isSubscription);
     setSeeded(true);
   }, [product.data, seeded]);
 
@@ -81,8 +83,11 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
     if (trimmedName.length === 0) return 'Informe o nome do produto.';
     if (trimmedName.length > 120) return 'Nome muito longo (máx 120 caracteres).';
     if (description.trim().length > 2000) return 'Descrição muito longa (máx 2000 caracteres).';
-    if (!Number.isFinite(priceCents) || priceCents <= 0) return 'Informe um preço válido.';
-    if (priceCents > 10_000_000) return 'Preço acima do limite (R$ 100.000,00).';
+    // One-time products precisam de preço base. Subscriptions usam plans.
+    if (!isSubscription) {
+      if (!Number.isFinite(priceCents) || priceCents <= 0) return 'Informe um preço válido.';
+      if (priceCents > 10_000_000) return 'Preço acima do limite (R$ 100.000,00).';
+    }
     return null;
   })();
   const apiError = update.error?.message ?? null;
@@ -94,9 +99,12 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
       id,
       name: trimmedName,
       description: description.trim() || null,
-      priceCents,
+      // Don't push priceCents on subscription products — plans own
+      // pricing; mutating the offer here would shadow them.
+      ...(isSubscription ? {} : { priceCents }),
       maxInstallments,
       isActive,
+      isSubscription,
       deliveryUrl: deliveryUrl.trim() || null,
       deliveryInstructions: deliveryInstructions.trim() || null,
       ...(cover ? { cover } : {}),
@@ -157,43 +165,49 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
           onChange={setCover}
         />
 
-        <div className="grid grid-cols-1 gap-7 md:grid-cols-2">
-          <Field
-            label="Preço"
-            hint={
-              previewFormatted
-                ? `Cliente paga ${previewFormatted}.`
-                : 'Use vírgula como separador decimal.'
-            }
-          >
-            <div className="relative">
-              <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
-                R$
-              </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={priceInput}
-                onChange={(e) => setPriceInput(e.target.value)}
-                className={`${fieldInputClass} pl-10`}
-              />
-            </div>
-          </Field>
+        <ProductTypeSegment value={isSubscription} onChange={setIsSubscription} />
 
-          <Field label="Parcelamento máximo">
-            <select
-              value={maxInstallments}
-              onChange={(e) => setMaxInstallments(Number.parseInt(e.target.value, 10))}
-              className={`${fieldInputClass} appearance-none`}
+        {!isSubscription ? (
+          <div className="grid grid-cols-1 gap-7 md:grid-cols-2">
+            <Field
+              label="Preço"
+              hint={
+                previewFormatted
+                  ? `Cliente paga ${previewFormatted}.`
+                  : 'Use vírgula como separador decimal.'
+              }
             >
-              {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  {n}×{n === 1 ? ' (à vista)' : ''}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
+              <div className="relative">
+                <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
+                  R$
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={priceInput}
+                  onChange={(e) => setPriceInput(e.target.value)}
+                  className={`${fieldInputClass} pl-10`}
+                />
+              </div>
+            </Field>
+
+            <Field label="Parcelamento máximo">
+              <select
+                value={maxInstallments}
+                onChange={(e) => setMaxInstallments(Number.parseInt(e.target.value, 10))}
+                className={`${fieldInputClass} appearance-none`}
+              >
+                {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n}×{n === 1 ? ' (à vista)' : ''}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        ) : (
+          <SubscriptionPlansSection productId={id} />
+        )}
 
         <label className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
           <input
@@ -288,5 +302,305 @@ function Field({
       {children}
       {hint ? <span className="text-[12px] text-[var(--color-fg-subtle)]">{hint}</span> : null}
     </label>
+  );
+}
+
+/**
+ * Type segment — toggles between "compra única" and "assinatura
+ * recorrente". Renders as a two-card pick so the producer sees the
+ * trade-offs side-by-side instead of a binary switch hidden in a row.
+ */
+function ProductTypeSegment({
+  value,
+  onChange,
+}: {
+  value: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-3 font-medium text-[13px] text-[var(--color-fg-muted)]">Tipo de produto</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <TypeCard
+          selected={!value}
+          onClick={() => onChange(false)}
+          title="Compra única"
+          subtitle="Cobrança avulsa"
+          description="Pix, cartão ou boleto. Buyer paga uma vez e recebe o acesso."
+        />
+        <TypeCard
+          selected={value}
+          onClick={() => onChange(true)}
+          title="Assinatura"
+          subtitle="Cobrança recorrente"
+          description="Cartão de crédito mensal ou anual. Mercado Pago renova automaticamente."
+        />
+      </div>
+    </div>
+  );
+}
+
+function TypeCard({
+  selected,
+  onClick,
+  title,
+  subtitle,
+  description,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle: string;
+  description: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={
+        selected
+          ? 'group flex flex-col items-start gap-2 rounded-2xl border-2 border-[var(--color-brand-500)] bg-[var(--color-surface)] p-5 text-left ring-4 ring-[var(--color-brand-500)]/10 transition'
+          : 'group flex flex-col items-start gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-left transition hover:border-[var(--color-border-strong)] hover:shadow-[var(--shadow-md)]'
+      }
+    >
+      <div className="flex w-full items-start justify-between gap-3">
+        <div className="flex flex-col">
+          <span className="font-semibold text-[15px] text-[var(--color-fg)]">{title}</span>
+          <span className="text-[12px] text-[var(--color-fg-subtle)]">{subtitle}</span>
+        </div>
+        {selected ? (
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-brand-500)] text-white">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              aria-hidden="true"
+              className="size-3.5"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+            </svg>
+          </span>
+        ) : null}
+      </div>
+      <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.5]">{description}</p>
+    </button>
+  );
+}
+
+/**
+ * Plans CRUD inline. Lists plans for this product + inline form to
+ * add a new one. Edit happens via a small popover, delete via the
+ * deleteRow action with the FK restriction handled server-side.
+ */
+function SubscriptionPlansSection({ productId }: { productId: string }) {
+  const utils = trpc.useUtils();
+  const plans = trpc.subscriptions.listPlans.useQuery({ productId }, { staleTime: 15_000 });
+  const create = trpc.subscriptions.createPlan.useMutation({
+    onSuccess: () => utils.subscriptions.listPlans.invalidate({ productId }),
+  });
+  const update = trpc.subscriptions.updatePlan.useMutation({
+    onSuccess: () => utils.subscriptions.listPlans.invalidate({ productId }),
+  });
+  const remove = trpc.subscriptions.deletePlan.useMutation({
+    onSuccess: () => utils.subscriptions.listPlans.invalidate({ productId }),
+  });
+
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [price, setPrice] = useState('');
+  const [trial, setTrial] = useState(0);
+
+  const submit = () => {
+    const cents = parseCentsBRL(price);
+    if (!name.trim() || !Number.isFinite(cents) || cents <= 0) return;
+    create.mutate(
+      {
+        productId,
+        name: name.trim(),
+        billingPeriod: period,
+        amountCents: cents,
+        trialDays: trial,
+      },
+      {
+        onSuccess: () => {
+          setAdding(false);
+          setName('');
+          setPrice('');
+          setTrial(0);
+          setPeriod('monthly');
+        },
+      },
+    );
+  };
+
+  return (
+    <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="font-medium text-[13px] text-[var(--color-fg)]">
+            Planos da assinatura
+          </span>
+          <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
+            Crie 1 ou mais planos (ex: Mensal R$ 49,90 · Anual R$ 499). Buyer escolhe no checkout.
+            Marque um como "Mais escolhido" pra destacar.
+          </span>
+        </div>
+        {!adding ? (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--color-brand-500)] px-3 py-2 font-semibold text-[13px] text-white transition hover:bg-[var(--color-brand-600)]"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+              className="size-3.5"
+            >
+              <path strokeLinecap="round" d="M8 3v10M3 8h10" />
+            </svg>
+            Novo plano
+          </button>
+        ) : null}
+      </header>
+
+      {plans.isPending ? (
+        <p className="text-[13px] text-[var(--color-fg-subtle)]">Carregando planos…</p>
+      ) : plans.data && plans.data.length > 0 ? (
+        <ul className="flex flex-col gap-3">
+          {plans.data.map((p) => (
+            <li
+              key={p.id}
+              className="flex flex-wrap items-center gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+            >
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-semibold text-[10px] uppercase tracking-wider ${
+                  p.billingPeriod === 'yearly'
+                    ? 'bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
+                    : 'bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)]'
+                }`}
+              >
+                {p.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="font-semibold text-[14px] text-[var(--color-fg)]">{p.name}</span>
+                <span className="text-[12px] text-[var(--color-fg-subtle)]">
+                  {p.trialDays > 0 ? `${p.trialDays} dias de trial · ` : ''}
+                  {p.isActive ? 'Ativo' : 'Desativado'}
+                </span>
+              </div>
+              <span className="font-semibold text-[16px] text-[var(--color-fg)] tabular-nums">
+                {formatCents(p.amountCents, 'BRL')}
+                <span className="text-[11px] text-[var(--color-fg-subtle)]">
+                  /{p.billingPeriod === 'yearly' ? 'ano' : 'mês'}
+                </span>
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => update.mutate({ id: p.id, isHighlighted: !p.isHighlighted })}
+                  className={`rounded-lg px-3 py-1.5 font-medium text-[12px] transition ${
+                    p.isHighlighted
+                      ? 'bg-[var(--color-brand-500)] text-white hover:bg-[var(--color-brand-600)]'
+                      : 'border border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]'
+                  }`}
+                  title="Destaca esse plano no checkout"
+                >
+                  {p.isHighlighted ? '★ Destaque' : '☆ Destacar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update.mutate({ id: p.id, isActive: !p.isActive })}
+                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)]"
+                >
+                  {p.isActive ? 'Desativar' : 'Ativar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`Excluir o plano "${p.name}"?`)) remove.mutate({ id: p.id });
+                  }}
+                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-danger)] transition hover:border-[var(--color-danger)]"
+                >
+                  Excluir
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-5 py-4 text-[13px] text-[var(--color-fg-subtle)]">
+          Sem planos cadastrados ainda. Adicione pelo menos um pra abrir o checkout pra compradores.
+        </p>
+      )}
+
+      {adding ? (
+        <div className="flex flex-col gap-4 rounded-xl border border-[var(--color-brand-500)]/40 bg-[var(--color-surface)] p-5 ring-4 ring-[var(--color-brand-500)]/10">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_140px_140px_100px]">
+            <Field label="Nome do plano">
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className={fieldInputClass}
+                placeholder="Ex.: Mensal Premium"
+                maxLength={80}
+              />
+            </Field>
+            <Field label="Período">
+              <select
+                value={period}
+                onChange={(e) => setPeriod(e.target.value as 'monthly' | 'yearly')}
+                className={`${fieldInputClass} appearance-none`}
+              >
+                <option value="monthly">Mensal</option>
+                <option value="yearly">Anual</option>
+              </select>
+            </Field>
+            <Field label="Preço">
+              <div className="relative">
+                <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
+                  R$
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  className={`${fieldInputClass} pl-10`}
+                  placeholder="49,90"
+                />
+              </div>
+            </Field>
+            <Field label="Trial (dias)">
+              <input
+                type="number"
+                min={0}
+                max={365}
+                value={trial}
+                onChange={(e) => setTrial(Math.max(0, Number.parseInt(e.target.value, 10) || 0))}
+                className={fieldInputClass}
+              />
+            </Field>
+          </div>
+          {create.error ? (
+            <p className="text-[13px] text-[var(--color-danger)]">{create.error.message}</p>
+          ) : null}
+          <div className="flex items-center gap-3">
+            <Button type="button" onClick={submit} disabled={create.isPending}>
+              {create.isPending ? 'Criando…' : 'Adicionar plano'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setAdding(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }

@@ -8,6 +8,7 @@ import { metricsRouter } from './metrics';
 import { ordersRouter } from './orders';
 import { productsRouter } from './products';
 import { recoveryRouter } from './recovery';
+import { subscriptionsRouter } from './subscriptions';
 import { whatsappRouter } from './whatsapp';
 import { workspaceRouter } from './workspace';
 
@@ -27,6 +28,7 @@ export const appRouter = router({
   recovery: recoveryRouter,
   orders: ordersRouter,
   customers: customersRouter,
+  subscriptions: subscriptionsRouter,
   admin: adminRouter,
 });
 

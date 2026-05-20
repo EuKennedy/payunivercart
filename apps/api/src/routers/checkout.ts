@@ -40,6 +40,16 @@ import { publicProcedure, router } from '../trpc';
 
 const SlugSchema = z.string().min(3).max(80);
 
+const SubscriptionPlanPublic = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  billingPeriod: z.enum(['monthly', 'yearly']),
+  amountCents: z.number().int().nonnegative(),
+  currency: z.enum(['BRL', 'USD', 'EUR']),
+  trialDays: z.number().int().nonnegative(),
+  isHighlighted: z.boolean(),
+});
+
 const ProductPublicShape = z.object({
   id: z.string().uuid(),
   slug: z.string(),
@@ -57,6 +67,12 @@ const ProductPublicShape = z.object({
   priceCents: z.number().int().nonnegative(),
   currency: z.enum(['BRL', 'USD', 'EUR']),
   maxInstallments: z.number().int().min(1).max(24),
+  /** When true, frontend renders the plan picker instead of the
+   *  single-price form. */
+  isSubscription: z.boolean(),
+  /** Active subscription plans for this product — empty when the
+   *  product isn't a subscription. */
+  plans: z.array(SubscriptionPlanPublic),
 });
 
 const WorkspacePublicShape = z.object({
@@ -186,6 +202,7 @@ export const checkoutRouter = router({
           coverImageMime: schema.products.coverImageMime,
           type: schema.products.type,
           isActive: schema.products.isActive,
+          isSubscription: schema.products.isSubscription,
           deletedAt: schema.products.deletedAt,
           workspaceId: schema.workspaces.id,
           workspaceName: schema.workspaces.name,
@@ -214,7 +231,10 @@ export const checkoutRouter = router({
       if (!row || !row.isActive) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto indisponível.' });
       }
-      if (row.priceCents == null) {
+      // One-time products require a default offer (priceCents). Subscription
+      // products use plan rows instead, so we tolerate a missing default offer
+      // when isSubscription=true.
+      if (row.priceCents == null && !row.isSubscription) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto indisponível.' });
       }
 
@@ -230,6 +250,30 @@ export const checkoutRouter = router({
         ? `${apiBase}/img/workspace/${row.workspaceId}/logo`
         : (row.workspaceLogoUrl ?? null);
 
+      // Plans only fetched when the product is flagged as subscription.
+      // Active plans only — deactivated plans stay valid for existing
+      // subscribers but are invisible to new buyers.
+      const planRows = row.isSubscription
+        ? await ctx.services.db.db
+            .select({
+              id: schema.subscriptionPlans.id,
+              name: schema.subscriptionPlans.name,
+              billingPeriod: schema.subscriptionPlans.billingPeriod,
+              amountCents: schema.subscriptionPlans.amountCents,
+              currency: schema.subscriptionPlans.currency,
+              trialDays: schema.subscriptionPlans.trialDays,
+              isHighlighted: schema.subscriptionPlans.isHighlighted,
+            })
+            .from(schema.subscriptionPlans)
+            .where(
+              and(
+                eq(schema.subscriptionPlans.productId, row.productId),
+                eq(schema.subscriptionPlans.isActive, true),
+              ),
+            )
+            .orderBy(schema.subscriptionPlans.sortOrder, schema.subscriptionPlans.amountCents)
+        : [];
+
       return {
         product: {
           id: row.productId,
@@ -238,9 +282,20 @@ export const checkoutRouter = router({
           description: row.description,
           coverImageUrl: productCoverUrl,
           type: row.type,
-          priceCents: Number(row.priceCents),
+          priceCents: row.priceCents != null ? Number(row.priceCents) : 0,
           currency: row.currency ?? 'BRL',
           maxInstallments: row.maxInstallments ?? 12,
+          isSubscription: row.isSubscription,
+          plans: planRows.map((p) => ({
+            id: p.id,
+            name: p.name,
+            billingPeriod:
+              p.billingPeriod === 'yearly' ? ('yearly' as const) : ('monthly' as const),
+            amountCents: Number(p.amountCents),
+            currency: p.currency,
+            trialDays: p.trialDays,
+            isHighlighted: p.isHighlighted,
+          })),
         },
         workspace: {
           id: row.workspaceId,

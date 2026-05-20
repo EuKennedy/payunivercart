@@ -80,6 +80,64 @@ export interface CreateBoletoInput {
   webhookUrl?: string;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Subscriptions                                                              */
+/* -------------------------------------------------------------------------- */
+
+export interface CreateSubscriptionInput {
+  workspaceId: string;
+  subscriptionId: string;
+  productId: string;
+  /**
+   * Plan id local — passed through to the gateway as
+   * `external_reference` so the gateway's authorized_payment webhook
+   * lets us match the ciclo back to the plan row.
+   */
+  planId: string;
+  reason: string;
+  amount: Money;
+  customer: CustomerInfo;
+  /** Card token from the gateway's browser SDK — recurring engines
+   *  REFUSE raw PAN. */
+  cardToken: string;
+  /**
+   * MP `auto_recurring.frequency` + `frequency_type`. We collapse our
+   * `'monthly' | 'yearly'` enum at the api layer:
+   *   - monthly → frequency=1 frequency_type='months'
+   *   - yearly  → frequency=12 frequency_type='months'
+   */
+  frequency: number;
+  frequencyType: 'days' | 'months';
+  /** Optional first cycle date in the future. `undefined` = cobrança
+   *  imediata (~1h depois). */
+  startDate?: Date;
+  endDate?: Date;
+  /** Days the buyer can use without being charged. */
+  trialDays?: number;
+  /** Browser callback after subscription confirm. */
+  backUrl?: string;
+  metadata?: Record<string, string | number | boolean>;
+  webhookUrl?: string;
+}
+
+export interface SubscriptionResult {
+  gatewayId: GatewayId;
+  gatewaySubscriptionId: string;
+  status: 'pending' | 'active' | 'paused' | 'cancelled' | 'expired';
+  /** Next time the gateway will attempt to charge. NULL when status is
+   *  cancelled / expired. */
+  nextChargeAt?: Date;
+  /** Initial payment id when the gateway charged the first cycle
+   *  inline (MP returns this on POST /preapproval w/ card_token). */
+  firstPaymentId?: string;
+  raw: unknown;
+}
+
+export interface CancelSubscriptionInput {
+  gatewaySubscriptionId: string;
+  reason?: string;
+}
+
 export interface RefundInput {
   transactionId: string;
   gatewayChargeId: string;
@@ -191,6 +249,23 @@ export interface PaymentGateway<TCredentials = unknown> {
   createPix?(credentials: TCredentials, input: CreatePixInput): Promise<PaymentResult>;
   createCard?(credentials: TCredentials, input: CreateCardInput): Promise<PaymentResult>;
   createBoleto?(credentials: TCredentials, input: CreateBoletoInput): Promise<PaymentResult>;
+  /**
+   * Recurring billing. Only gateways with a native recurring engine
+   * implement these (MP `/preapproval`); the others throw at the
+   * adapter level and the api layer surfaces a clean 400.
+   */
+  createSubscription?(
+    credentials: TCredentials,
+    input: CreateSubscriptionInput,
+  ): Promise<SubscriptionResult>;
+  cancelSubscription?(
+    credentials: TCredentials,
+    input: CancelSubscriptionInput,
+  ): Promise<SubscriptionResult>;
+  getSubscription?(
+    credentials: TCredentials,
+    gatewaySubscriptionId: string,
+  ): Promise<SubscriptionResult>;
   refund(credentials: TCredentials, input: RefundInput): Promise<RefundResult>;
   getCharge(credentials: TCredentials, chargeId: string): Promise<PaymentResult>;
   verifyWebhook(credentials: TCredentials, request: WebhookRequest): WebhookEvent;
