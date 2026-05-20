@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "checkout_template" text DEFAULT 'single' NOT NULL;

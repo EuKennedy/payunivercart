@@ -74,6 +74,7 @@ const CAPABILITIES: Capability[] = [
 export default function CheckoutConfigPage() {
   const session = useSession();
   const router = useRouter();
+  const utils = trpc.useUtils();
 
   useEffect(() => {
     if (!session.isPending && !session.data) router.replace('/login');
@@ -89,6 +90,21 @@ export default function CheckoutConfigPage() {
     enabled: !!session.data,
     staleTime: 30_000,
   });
+  const profile = trpc.workspace.profile.useQuery(undefined, {
+    enabled: !!session.data,
+    staleTime: 30_000,
+  });
+  const updateProfile = trpc.workspace.updateProfile.useMutation({
+    onSuccess: () => {
+      utils.workspace.profile.invalidate();
+    },
+  });
+
+  const selectedTemplate: 'single' | 'stepper' = profile.data?.checkoutTemplate ?? 'single';
+  const pickTemplate = (next: 'single' | 'stepper') => {
+    if (next === selectedTemplate) return;
+    updateProfile.mutate({ checkoutTemplate: next });
+  };
 
   if (session.isPending) return <p className="text-[var(--color-fg-muted)]">Carregando…</p>;
   if (!session.data) return null;
@@ -192,6 +208,45 @@ export default function CheckoutConfigPage() {
         </article>
       </section>
 
+      {/* Template picker */}
+      <section className="flex flex-col gap-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-semibold text-[16px] text-[var(--color-fg)]">Modelo do checkout</h2>
+          <span className="text-[12px] text-[var(--color-fg-subtle)]">
+            Vale para todos os produtos
+          </span>
+        </div>
+        <p className="max-w-2xl text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
+          Escolha o layout que o comprador vai ver em todos os seus produtos. O modelo de etapa
+          única converte melhor em impulso; o passo-a-passo passa mais segurança em tickets altos.
+        </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <TemplateOption
+            templateId="single"
+            title="Etapa única"
+            tagline="Tudo na mesma tela"
+            description="Identificação e pagamento num único formulário. Menos cliques, mais conversão em compras de impulso."
+            selected={selectedTemplate === 'single'}
+            pending={updateProfile.isPending}
+            onPick={() => pickTemplate('single')}
+            preview={<TemplatePreviewSingle />}
+          />
+          <TemplateOption
+            templateId="stepper"
+            title="Passo-a-passo"
+            tagline="3 cards numerados"
+            description="Identificação primeiro, pagamento depois. Cada passo concluído colapsa em um cartão com Editar — ótimo pra ticket alto."
+            selected={selectedTemplate === 'stepper'}
+            pending={updateProfile.isPending}
+            onPick={() => pickTemplate('stepper')}
+            preview={<TemplatePreviewStepper />}
+          />
+        </div>
+        {updateProfile.error ? (
+          <p className="text-[13px] text-[var(--color-danger)]">{updateProfile.error.message}</p>
+        ) : null}
+      </section>
+
       {/* Capabilities grid */}
       <section className="flex flex-col gap-4">
         <h2 className="font-semibold text-[16px] text-[var(--color-fg)]">Áreas do checkout</h2>
@@ -245,6 +300,175 @@ export default function CheckoutConfigPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function TemplateOption({
+  templateId,
+  title,
+  tagline,
+  description,
+  selected,
+  pending,
+  preview,
+  onPick,
+}: {
+  templateId: 'single' | 'stepper';
+  title: string;
+  tagline: string;
+  description: string;
+  selected: boolean;
+  pending: boolean;
+  preview: React.ReactNode;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      disabled={pending && !selected}
+      aria-pressed={selected}
+      data-template={templateId}
+      className={
+        selected
+          ? 'group flex flex-col gap-4 rounded-2xl border-2 border-[var(--color-brand-500)] bg-[var(--color-surface)] p-5 text-left ring-4 ring-[var(--color-brand-500)]/10 transition'
+          : 'group flex flex-col gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-left transition hover:border-[var(--color-border-strong)] hover:shadow-[var(--shadow-md)]'
+      }
+    >
+      <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3">
+        {preview}
+      </div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="font-semibold text-[15px] text-[var(--color-fg)]">{title}</span>
+          <span className="text-[12px] text-[var(--color-fg-subtle)]">{tagline}</span>
+        </div>
+        {selected ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-brand-50)] px-2.5 py-1 font-semibold text-[11px] text-[var(--color-brand-700)] uppercase tracking-wider">
+            <CheckIcon size={11} /> Em uso
+          </span>
+        ) : (
+          <span className="font-medium text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
+            {pending ? 'Salvando…' : 'Usar este'}
+          </span>
+        )}
+      </div>
+      <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">{description}</p>
+    </button>
+  );
+}
+
+/** Wire-frame style preview: single column with one solid form block. */
+function TemplatePreviewSingle() {
+  return (
+    <svg
+      viewBox="0 0 240 130"
+      className="h-[130px] w-full"
+      role="img"
+      aria-label="Preview do checkout em etapa única"
+    >
+      <title>Etapa única</title>
+      <rect x="0" y="0" width="240" height="130" fill="transparent" />
+      {/* Header */}
+      <rect x="12" y="10" width="60" height="6" rx="2" fill="#cbd5e1" />
+      {/* Single form column */}
+      <rect
+        x="12"
+        y="26"
+        width="150"
+        height="92"
+        rx="6"
+        fill="#fff"
+        stroke="#16a34a"
+        strokeOpacity="0.55"
+      />
+      <rect x="22" y="36" width="40" height="4" rx="1.5" fill="#94a3b8" />
+      <rect x="22" y="46" width="130" height="10" rx="3" fill="#f1f5f9" />
+      <rect x="22" y="60" width="56" height="10" rx="3" fill="#f1f5f9" />
+      <rect x="84" y="60" width="68" height="10" rx="3" fill="#f1f5f9" />
+      <rect x="22" y="76" width="130" height="10" rx="3" fill="#f1f5f9" />
+      <rect x="22" y="94" width="130" height="14" rx="4" fill="#16a34a" />
+      {/* Sticky summary */}
+      <rect x="172" y="26" width="56" height="92" rx="6" fill="#fff" stroke="#e2e8f0" />
+      <rect x="180" y="34" width="32" height="4" rx="1.5" fill="#94a3b8" />
+      <rect x="180" y="44" width="40" height="4" rx="1.5" fill="#e2e8f0" />
+      <rect x="180" y="52" width="40" height="4" rx="1.5" fill="#e2e8f0" />
+      <rect x="180" y="100" width="40" height="8" rx="2" fill="#16a34a" />
+    </svg>
+  );
+}
+
+/** Wire-frame style preview: 3 numbered cards stacked vertically. */
+function TemplatePreviewStepper() {
+  return (
+    <svg
+      viewBox="0 0 240 130"
+      className="h-[130px] w-full"
+      role="img"
+      aria-label="Preview do checkout em 3 passos"
+    >
+      <title>Passo-a-passo</title>
+      <rect x="0" y="0" width="240" height="130" fill="transparent" />
+      {/* Header */}
+      <rect x="12" y="10" width="60" height="6" rx="2" fill="#cbd5e1" />
+      {/* Stacked stepper cards */}
+      <rect x="12" y="24" width="150" height="22" rx="6" fill="#fff" stroke="#e2e8f0" />
+      <circle cx="22" cy="35" r="5" fill="#16a34a" />
+      <path
+        d="M19.5 35 l2 2 l3 -3"
+        stroke="#fff"
+        strokeWidth="1.4"
+        fill="none"
+        strokeLinecap="round"
+      />
+      <rect x="32" y="32" width="50" height="4" rx="1.5" fill="#0f172a" />
+      <rect x="140" y="32" width="16" height="4" rx="1.5" fill="#16a34a" />
+
+      <rect
+        x="12"
+        y="50"
+        width="150"
+        height="60"
+        rx="6"
+        fill="#fff"
+        stroke="#16a34a"
+        strokeOpacity="0.55"
+        strokeWidth="1.4"
+      />
+      <circle cx="22" cy="61" r="5" fill="#16a34a" />
+      <text x="22" y="63.5" textAnchor="middle" fontSize="6" fill="#fff" fontWeight="700">
+        2
+      </text>
+      <rect x="32" y="58" width="50" height="4" rx="1.5" fill="#0f172a" />
+      <rect x="22" y="72" width="130" height="8" rx="3" fill="#f1f5f9" />
+      <rect x="22" y="84" width="130" height="8" rx="3" fill="#f1f5f9" />
+      <rect x="22" y="96" width="130" height="10" rx="3" fill="#16a34a" />
+
+      {/* Summary */}
+      <rect x="172" y="24" width="56" height="86" rx="6" fill="#fff" stroke="#e2e8f0" />
+      <rect x="180" y="32" width="32" height="4" rx="1.5" fill="#94a3b8" />
+      <rect x="180" y="42" width="40" height="4" rx="1.5" fill="#e2e8f0" />
+      <rect x="180" y="92" width="40" height="8" rx="2" fill="#16a34a" />
+    </svg>
+  );
+}
+
+function CheckIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+    >
+      <title>selecionado</title>
+      <path d="M5 12l5 5 9-9" />
+    </svg>
   );
 }
 

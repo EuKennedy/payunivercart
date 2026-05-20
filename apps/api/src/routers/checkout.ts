@@ -70,6 +70,12 @@ const WorkspacePublicShape = z.object({
   displayName: z.string(),
   brandLogoUrl: z.string().nullable(),
   brandPrimaryColor: z.string().nullable(),
+  /**
+   * Layout the buyer sees: `single` renders identification + payment
+   * on the same page, `stepper` walks through 3 numbered cards. The
+   * producer picks under Configurações → Meu checkout.
+   */
+  checkoutTemplate: z.enum(['single', 'stepper']),
 });
 
 const BuyerInput = z.object({
@@ -182,6 +188,7 @@ export const checkoutRouter = router({
           workspaceLogoUrl: schema.workspaces.brandLogoUrl,
           workspaceLogoMime: schema.workspaces.brandLogoMime,
           workspaceColor: schema.workspaces.brandPrimaryColor,
+          workspaceCheckoutTemplate: schema.workspaces.checkoutTemplate,
           priceCents: schema.productOffers.amountCents,
           currency: schema.productOffers.currency,
           maxInstallments: schema.productOffers.maxInstallments,
@@ -235,6 +242,10 @@ export const checkoutRouter = router({
           displayName: row.workspaceCompanyName?.trim() || row.workspaceName,
           brandLogoUrl: workspaceLogoUrl,
           brandPrimaryColor: row.workspaceColor,
+          checkoutTemplate:
+            row.workspaceCheckoutTemplate === 'stepper'
+              ? ('stepper' as const)
+              : ('single' as const),
         },
       };
     }),

@@ -52,6 +52,14 @@ export const workspaces = pgTable(
     brandLogoMime: text(),
     brandPrimaryColor: text(),
     /**
+     * Public checkout layout template. Producer picks between a
+     * single-page form ("Identificação + Pagamento na mesma tela") and
+     * a 3-step stepper. Default is `single` because it converts higher
+     * on impulse buys; producers selling higher-ticket items often
+     * prefer `stepper` for the perceived "checkout seguro" weight.
+     */
+    checkoutTemplate: text().notNull().default('single'),
+    /**
      * Producer's own WhatsApp number (E.164, e.g. `+5531984956383`).
      * When set, the gateway-webhook handler dispatches a sale alert
      * via the workspace's WAHA session every time an order flips to

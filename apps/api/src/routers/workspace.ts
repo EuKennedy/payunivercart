@@ -108,6 +108,7 @@ export const workspaceRouter = router({
         locale: z.string(),
         timezone: z.string(),
         notificationPhoneE164: z.string().nullable(),
+        checkoutTemplate: z.enum(['single', 'stepper']),
       }),
     )
     .query(async ({ ctx }) => {
@@ -119,6 +120,7 @@ export const workspaceRouter = router({
           locale: schema.workspaces.locale,
           timezone: schema.workspaces.timezone,
           notificationPhoneE164: schema.workspaces.notificationPhoneE164,
+          checkoutTemplate: schema.workspaces.checkoutTemplate,
         })
         .from(schema.workspaces)
         .where(eq(schema.workspaces.id, ctx.workspaceId))
@@ -133,6 +135,8 @@ export const workspaceRouter = router({
         locale: row.locale,
         timezone: row.timezone,
         notificationPhoneE164: row.notificationPhoneE164,
+        checkoutTemplate:
+          row.checkoutTemplate === 'stepper' ? ('stepper' as const) : ('single' as const),
       };
     }),
 
@@ -168,6 +172,12 @@ export const workspaceRouter = router({
           .regex(/^\+\d{10,15}$/, 'Use formato internacional, ex: +5531984956383.')
           .nullable()
           .optional(),
+        /**
+         * Producer choice between single-page and 3-step checkout
+         * layouts. Persisted on the workspace because every product
+         * shares the same producer-facing brand surface.
+         */
+        checkoutTemplate: z.enum(['single', 'stepper']).optional(),
       }),
     )
     .output(z.object({ ok: z.literal(true) }))
@@ -177,6 +187,7 @@ export const workspaceRouter = router({
       if (input.slug !== undefined) patch.slug = input.slug;
       if (input.notificationPhoneE164 !== undefined)
         patch.notificationPhoneE164 = input.notificationPhoneE164;
+      if (input.checkoutTemplate !== undefined) patch.checkoutTemplate = input.checkoutTemplate;
       if (Object.keys(patch).length === 0) {
         return { ok: true as const };
       }
