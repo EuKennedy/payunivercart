@@ -36,7 +36,7 @@
 # a deliberate trade-off documented in apps/api/Dockerfile.deprecated.
 # =============================================================================
 
-ARG NODE_VERSION=22.11.0
+ARG NODE_VERSION=22.22.0
 ARG PNPM_VERSION=9.12.3
 
 # -----------------------------------------------------------------------------
@@ -46,7 +46,26 @@ ARG PNPM_VERSION=9.12.3
 #   so pnpm keeps devDependencies (tsx, next, typescript, etc.) regardless
 #   of what Coolify leaks at build time.
 # -----------------------------------------------------------------------------
-FROM node:${NODE_VERSION}-bookworm-slim AS deps
+# -----------------------------------------------------------------------------
+# Stage: base
+#   Shared foundation for every other stage. Patches Debian system
+#   libraries (glibc, gnutls, systemd, perl, gnupg, ...) so Snyk's
+#   Dockerfile scanner doesn't flag ~95 stale-package CVEs on every
+#   rebuild. Running the upgrade in ONE stage and chaining downstream
+#   stages with `FROM base` means apt-upgrade only runs once per
+#   build context — the cache layer is reused by deps + 5 runtimes.
+#
+# `apt-get -y upgrade` is safe inside a Docker build: the layer is
+# frozen the moment the RUN finishes, so there's no in-place service
+# disruption. We pin to no-install-recommends to keep the image slim.
+# -----------------------------------------------------------------------------
+FROM node:${NODE_VERSION}-bookworm-slim AS base
+RUN apt-get update \
+    && apt-get -y --no-install-recommends upgrade \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM base AS deps
 
 ARG PNPM_VERSION
 
@@ -146,7 +165,7 @@ RUN NODE_ENV=production pnpm --filter @payunivercart/admin exec next build
 
 # api-runtime — tsx executes the .ts source. Full /repo tree copied so
 # the per-package node_modules symlinks pnpm wrote are intact.
-FROM node:${NODE_VERSION}-bookworm-slim AS api-runtime
+FROM base AS api-runtime
 ENV NODE_ENV=production \
     NODE_OPTIONS="--enable-source-maps"
 RUN groupadd --system --gid 10001 api \
@@ -158,7 +177,7 @@ EXPOSE 4000
 CMD ["apps/api/node_modules/.bin/tsx", "apps/api/src/server.ts"]
 
 # workers-runtime — same shape as api but boots the BullMQ processor.
-FROM node:${NODE_VERSION}-bookworm-slim AS workers-runtime
+FROM base AS workers-runtime
 ENV NODE_ENV=production \
     NODE_OPTIONS="--enable-source-maps"
 RUN groupadd --system --gid 10001 worker \
@@ -172,7 +191,7 @@ CMD ["apps/workers/node_modules/.bin/tsx", "apps/workers/src/index.ts"]
 # contained bundle (~150 MB) instead of the full /repo tree (~1 GB).
 # `output: standalone` in next.config.ts writes apps/dashboard/.next/standalone/
 # which includes a pre-traced node_modules subset and server.js entry.
-FROM node:${NODE_VERSION}-bookworm-slim AS dashboard-runtime
+FROM base AS dashboard-runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
@@ -188,7 +207,7 @@ EXPOSE 3000
 CMD ["node", "apps/dashboard/server.js"]
 
 # checkout-runtime — same standalone pattern, port 3001.
-FROM node:${NODE_VERSION}-bookworm-slim AS checkout-runtime
+FROM base AS checkout-runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3001 \
@@ -204,7 +223,7 @@ EXPOSE 3001
 CMD ["node", "apps/checkout/server.js"]
 
 # admin-runtime — same standalone pattern, port 3002.
-FROM node:${NODE_VERSION}-bookworm-slim AS admin-runtime
+FROM base AS admin-runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3002 \
