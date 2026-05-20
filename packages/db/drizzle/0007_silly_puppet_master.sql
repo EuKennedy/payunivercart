@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "accept_boleto" boolean DEFAULT true NOT NULL;

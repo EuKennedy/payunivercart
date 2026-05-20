@@ -109,6 +109,7 @@ export const workspaceRouter = router({
         timezone: z.string(),
         notificationPhoneE164: z.string().nullable(),
         checkoutTemplate: z.enum(['single', 'stepper']),
+        acceptBoleto: z.boolean(),
       }),
     )
     .query(async ({ ctx }) => {
@@ -121,6 +122,7 @@ export const workspaceRouter = router({
           timezone: schema.workspaces.timezone,
           notificationPhoneE164: schema.workspaces.notificationPhoneE164,
           checkoutTemplate: schema.workspaces.checkoutTemplate,
+          acceptBoleto: schema.workspaces.acceptBoleto,
         })
         .from(schema.workspaces)
         .where(eq(schema.workspaces.id, ctx.workspaceId))
@@ -137,6 +139,7 @@ export const workspaceRouter = router({
         notificationPhoneE164: row.notificationPhoneE164,
         checkoutTemplate:
           row.checkoutTemplate === 'stepper' ? ('stepper' as const) : ('single' as const),
+        acceptBoleto: row.acceptBoleto,
       };
     }),
 
@@ -178,6 +181,11 @@ export const workspaceRouter = router({
          * shares the same producer-facing brand surface.
          */
         checkoutTemplate: z.enum(['single', 'stepper']).optional(),
+        /**
+         * Toggle the Boleto option in the public checkout. Default
+         * true on insert; producer flips off for digital-only flows.
+         */
+        acceptBoleto: z.boolean().optional(),
       }),
     )
     .output(z.object({ ok: z.literal(true) }))
@@ -188,6 +196,7 @@ export const workspaceRouter = router({
       if (input.notificationPhoneE164 !== undefined)
         patch.notificationPhoneE164 = input.notificationPhoneE164;
       if (input.checkoutTemplate !== undefined) patch.checkoutTemplate = input.checkoutTemplate;
+      if (input.acceptBoleto !== undefined) patch.acceptBoleto = input.acceptBoleto;
       if (Object.keys(patch).length === 0) {
         return { ok: true as const };
       }

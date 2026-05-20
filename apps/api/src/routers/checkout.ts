@@ -76,6 +76,11 @@ const WorkspacePublicShape = z.object({
    * producer picks under Configurações → Meu checkout.
    */
   checkoutTemplate: z.enum(['single', 'stepper']),
+  /**
+   * When false the public checkout hides the Boleto method tab —
+   * producer set this in Configurações → Meu checkout.
+   */
+  acceptBoleto: z.boolean(),
 });
 
 const BuyerInput = z.object({
@@ -189,6 +194,7 @@ export const checkoutRouter = router({
           workspaceLogoMime: schema.workspaces.brandLogoMime,
           workspaceColor: schema.workspaces.brandPrimaryColor,
           workspaceCheckoutTemplate: schema.workspaces.checkoutTemplate,
+          workspaceAcceptBoleto: schema.workspaces.acceptBoleto,
           priceCents: schema.productOffers.amountCents,
           currency: schema.productOffers.currency,
           maxInstallments: schema.productOffers.maxInstallments,
@@ -246,6 +252,7 @@ export const checkoutRouter = router({
             row.workspaceCheckoutTemplate === 'stepper'
               ? ('stepper' as const)
               : ('single' as const),
+          acceptBoleto: row.workspaceAcceptBoleto,
         },
       };
     }),

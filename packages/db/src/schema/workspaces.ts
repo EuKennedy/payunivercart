@@ -60,6 +60,13 @@ export const workspaces = pgTable(
      */
     checkoutTemplate: text().notNull().default('single'),
     /**
+     * Producer toggle to hide the Boleto payment option from the
+     * public checkout. Boleto is enabled by default; producers selling
+     * digital-only / low-ticket can turn it off so buyers can't choose
+     * a slow-clearing method that hurts conversion.
+     */
+    acceptBoleto: boolean().notNull().default(true),
+    /**
      * Producer's own WhatsApp number (E.164, e.g. `+5531984956383`).
      * When set, the gateway-webhook handler dispatches a sale alert
      * via the workspace's WAHA session every time an order flips to

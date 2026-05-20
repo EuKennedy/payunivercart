@@ -101,9 +101,14 @@ export default function CheckoutConfigPage() {
   });
 
   const selectedTemplate: 'single' | 'stepper' = profile.data?.checkoutTemplate ?? 'single';
+  const acceptBoleto: boolean = profile.data?.acceptBoleto ?? true;
   const pickTemplate = (next: 'single' | 'stepper') => {
     if (next === selectedTemplate) return;
     updateProfile.mutate({ checkoutTemplate: next });
+  };
+  const toggleBoleto = (next: boolean) => {
+    if (next === acceptBoleto) return;
+    updateProfile.mutate({ acceptBoleto: next });
   };
 
   if (session.isPending) return <p className="text-[var(--color-fg-muted)]">Carregando…</p>;
@@ -245,6 +250,43 @@ export default function CheckoutConfigPage() {
         {updateProfile.error ? (
           <p className="text-[13px] text-[var(--color-danger)]">{updateProfile.error.message}</p>
         ) : null}
+      </section>
+
+      {/* Method toggles */}
+      <section className="flex flex-col gap-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-semibold text-[16px] text-[var(--color-fg)]">Métodos de pagamento</h2>
+          <span className="text-[12px] text-[var(--color-fg-subtle)]">
+            Pix e Cartão são sempre exibidos
+          </span>
+        </div>
+        <p className="max-w-2xl text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
+          Pix e Cartão ficam sempre visíveis. Boleto leva até 2 dias úteis pra compensar — desligue
+          se você vende produto digital e prefere conversão imediata.
+        </p>
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+          <span className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-brand-50)] text-[var(--color-brand-700)]">
+              <BoletoBarsThumb />
+            </span>
+            <span className="flex flex-col">
+              <span className="font-semibold text-[14px] text-[var(--color-fg)]">
+                Boleto bancário
+              </span>
+              <span className="text-[12px] text-[var(--color-fg-subtle)]">
+                {acceptBoleto
+                  ? 'Comprador pode pagar com boleto (compensação 1–2 dias úteis).'
+                  : 'Boleto desativado — comprador só vê Pix e Cartão.'}
+              </span>
+            </span>
+          </span>
+          <ToggleSwitch
+            checked={acceptBoleto}
+            disabled={updateProfile.isPending}
+            onChange={toggleBoleto}
+            label={`Aceitar boleto: ${acceptBoleto ? 'ligado' : 'desligado'}`}
+          />
+        </div>
       </section>
 
       {/* Capabilities grid */}
@@ -468,6 +510,57 @@ function CheckIcon({ size = 12 }: { size?: number }) {
     >
       <title>selecionado</title>
       <path d="M5 12l5 5 9-9" />
+    </svg>
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  disabled,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition disabled:opacity-50 ${
+        checked
+          ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-500)]'
+          : 'border-[var(--color-border-strong)] bg-[var(--color-surface-muted)]'
+      }`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+}
+
+function BoletoBarsThumb() {
+  return (
+    <svg viewBox="0 0 32 24" className="size-5" fill="currentColor" aria-hidden="true">
+      <rect x="2" y="3" width="2" height="18" />
+      <rect x="5.5" y="3" width="1" height="18" />
+      <rect x="8" y="3" width="2.5" height="18" />
+      <rect x="11.5" y="3" width="1" height="18" />
+      <rect x="14" y="3" width="2" height="18" />
+      <rect x="17.5" y="3" width="1.5" height="18" />
+      <rect x="20.5" y="3" width="2" height="18" />
+      <rect x="24" y="3" width="1" height="18" />
+      <rect x="26" y="3" width="2.5" height="18" />
+      <rect x="29.5" y="3" width="1" height="18" />
     </svg>
   );
 }

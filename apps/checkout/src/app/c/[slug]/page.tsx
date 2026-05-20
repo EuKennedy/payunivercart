@@ -366,7 +366,11 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                 </p>
               ) : (
                 <div className="flex flex-col gap-4">
-                  <MethodTabs current={method} onChange={setMethod} />
+                  <MethodTabs
+                    current={method}
+                    onChange={setMethod}
+                    acceptBoleto={workspace.acceptBoleto}
+                  />
 
                   {method === 'pix' ? (
                     <p className="text-[13px] text-[var(--ink-70)] leading-[1.55]">
@@ -678,7 +682,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
 
-  const [step, setStep] = useState<'identify' | 'pay'>('identify');
+  const [step, setStep] = useState<'identify' | 'method' | 'pay'>('identify');
   const [method, setMethod] = useState<Method>('pix');
   const [installments, setInstallments] = useState(1);
   const [name, setName] = useState('');
@@ -860,7 +864,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
               n={1}
               label="Identificação"
               state={step === 'identify' ? 'active' : identifyComplete ? 'done' : 'pending'}
-              onEdit={step === 'pay' ? () => setStep('identify') : undefined}
+              onEdit={step !== 'identify' ? () => setStep('identify') : undefined}
             >
               {step === 'identify' ? (
                 <div className="flex flex-col gap-5">
@@ -909,11 +913,11 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
                   </p>
                   <button
                     type="button"
-                    onClick={() => identifyComplete && setStep('pay')}
+                    onClick={() => identifyComplete && setStep('method')}
                     disabled={!identifyComplete}
                     className="btn btn-primary mt-1 inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
                   >
-                    Ir para o pagamento →
+                    Escolher método →
                   </button>
                 </div>
               ) : (
@@ -928,19 +932,92 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
               )}
             </StitchStepCard>
 
-            <StitchStepCard n={2} label="Pagamento" state={step === 'pay' ? 'active' : 'pending'}>
+            <StitchStepCard
+              n={2}
+              label="Método de pagamento"
+              state={step === 'method' ? 'active' : step === 'pay' ? 'done' : 'pending'}
+              onEdit={step === 'pay' ? () => setStep('method') : undefined}
+            >
+              {step === 'identify' ? (
+                <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
+                  Complete a identificação acima para escolher.
+                </p>
+              ) : step === 'method' ? (
+                <div className="flex flex-col gap-3">
+                  <MethodPickCard
+                    method="pix"
+                    title="Pix"
+                    tagline="Aprovação instantânea"
+                    description="QR-code ou copia-e-cola. Liberação em segundos."
+                    icon={<PixOfficialIcon />}
+                    selected={method === 'pix'}
+                    onPick={() => {
+                      setMethod('pix');
+                      setStep('pay');
+                    }}
+                  />
+                  <MethodPickCard
+                    method="credit_card"
+                    title="Cartão de crédito"
+                    tagline={
+                      product.maxInstallments > 1
+                        ? `Até ${product.maxInstallments}× sem juros`
+                        : 'Aprovação na hora'
+                    }
+                    description="Visa · Master · Amex · Elo · Hipercard."
+                    icon={<CardChipIcon />}
+                    selected={method === 'credit_card'}
+                    onPick={() => {
+                      setMethod('credit_card');
+                      setStep('pay');
+                    }}
+                  />
+                  {workspace.acceptBoleto ? (
+                    <MethodPickCard
+                      method="boleto"
+                      title="Boleto bancário"
+                      tagline="Compensação em até 2 dias úteis"
+                      description="Pague no app do seu banco ou em qualquer agência."
+                      icon={<BoletoBarsIcon />}
+                      selected={method === 'boleto'}
+                      onPick={() => {
+                        setMethod('boleto');
+                        setStep('pay');
+                      }}
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 text-[14px] text-[var(--ink-90)]">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--dop-soft)] text-[var(--dop-600)]">
+                    {method === 'pix' ? (
+                      <PixOfficialIcon size={16} />
+                    ) : method === 'credit_card' ? (
+                      <CardChipIcon size={16} />
+                    ) : (
+                      <BoletoBarsIcon size={16} />
+                    )}
+                  </span>
+                  <span className="font-semibold">{METHOD_LABELS[method]}</span>
+                </div>
+              )}
+            </StitchStepCard>
+
+            <StitchStepCard
+              n={3}
+              label="Finalizar pagamento"
+              state={step === 'pay' ? 'active' : 'pending'}
+            >
               {step !== 'pay' ? (
                 <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
-                  Complete a identificação acima para liberar.
+                  Escolha o método de pagamento para finalizar.
                 </p>
               ) : (
                 <div className="flex flex-col gap-6">
-                  <StitchPaymentTabs current={method} onChange={setMethod} />
-
                   {method === 'pix' ? (
                     <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-5 md:flex-row md:items-center md:gap-5">
                       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--dop-soft)] text-[var(--dop-600)]">
-                        <BoltIcon />
+                        <PixOfficialIcon />
                       </div>
                       <div className="space-y-1">
                         <h3 className="font-semibold text-[14px] text-[var(--ink-100)]">
@@ -1303,43 +1380,6 @@ function StitchStepCard({
   );
 }
 
-function StitchPaymentTabs({
-  current,
-  onChange,
-}: {
-  current: Method;
-  onChange: (m: Method) => void;
-}) {
-  const items: { m: Method; icon: React.ReactNode; label: string }[] = [
-    { m: 'pix', icon: <QrIcon />, label: 'Pix' },
-    { m: 'credit_card', icon: <CardIcon />, label: 'Cartão' },
-    { m: 'boleto', icon: <BoletoIcon />, label: 'Boleto' },
-  ];
-  return (
-    <div className="grid grid-cols-3 gap-1 rounded-2xl bg-[var(--surface-2)] p-1.5">
-      {items.map(({ m, icon, label }) => {
-        const active = current === m;
-        return (
-          <button
-            key={m}
-            type="button"
-            onClick={() => onChange(m)}
-            className={clsx(
-              'flex items-center justify-center gap-2 rounded-xl px-3 py-3 font-semibold text-[13px] transition',
-              active
-                ? 'bg-white text-[var(--dop-600)] shadow-[0_2px_8px_rgba(15,23,42,0.08)]'
-                : 'text-[var(--ink-70)] hover:bg-white/40 hover:text-[var(--ink-100)]',
-            )}
-          >
-            <span aria-hidden="true">{icon}</span>
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function StitchSummaryGrid({ items }: { items: { label: string; value: string }[] }) {
   return (
     <div className="grid grid-cols-1 gap-x-8 gap-y-4 text-[var(--ink-70)] md:grid-cols-2">
@@ -1371,57 +1411,138 @@ function CheckIcon() {
     </svg>
   );
 }
-function BoltIcon() {
+
+/**
+ * Pix official mark — 4-pointed pinwheel. Stylised from Banco Central
+ * do Brasil's official Pix logo so buyers recognise it instantly.
+ */
+function PixOfficialIcon({ size = 28 }: { size?: number }) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="size-6">
-      <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true">
+      <path d="M5.3 9.7a3.2 3.2 0 0 1 2.3 1l2.7 2.7c.4.4 1 .4 1.4 0l2.7-2.7a3.2 3.2 0 0 1 2.3-1H17l-3.6-3.6a2 2 0 0 0-2.8 0L7 9.7h-1.7z" />
+      <path d="M5.3 14.3c.9 0 1.7-.4 2.3-1l2.7-2.7c.4-.4 1-.4 1.4 0l2.7 2.7a3.2 3.2 0 0 0 2.3 1H17l-3.6 3.6a2 2 0 0 1-2.8 0L7 14.3H5.3z" />
+      <path d="M19 9.7 17.7 8.4c-.4-.4-1-.4-1.4 0L15 9.7a3.2 3.2 0 0 0-2.3 1l-.5.5a.5.5 0 0 1-.4 0l-.5-.5a3.2 3.2 0 0 0-2.3-1L7.7 8.4c-.4-.4-1-.4-1.4 0L5 9.7l-1.5 1.5a2 2 0 0 0 0 2.8L5 15.5l1.3 1.3c.4.4 1 .4 1.4 0L9 15.5a3.2 3.2 0 0 0 2.3-1l.5-.5a.5.5 0 0 1 .4 0l.5.5a3.2 3.2 0 0 0 2.3 1l1.3 1.3c.4.4 1 .4 1.4 0L19 15.5l1.5-1.5a2 2 0 0 0 0-2.8L19 9.7z" />
     </svg>
   );
 }
-function QrIcon() {
+
+/** Cartão com chip + faixa magnética + dígitos. */
+function CardChipIcon({ size = 28 }: { size?: number }) {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      aria-hidden="true"
-      className="size-4"
-    >
-      <rect x="2.5" y="2.5" width="4" height="4" rx="0.5" />
-      <rect x="9.5" y="2.5" width="4" height="4" rx="0.5" />
-      <rect x="2.5" y="9.5" width="4" height="4" rx="0.5" />
-      <path strokeLinecap="round" d="M9.5 9.5h4M9.5 11.5h2M11.5 13.5h2" />
+    <svg viewBox="0 0 32 24" width={size} height={(size * 24) / 32} fill="none" aria-hidden="true">
+      <rect x="1" y="1" width="30" height="22" rx="3" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="5" y="6" width="6" height="5" rx="0.8" fill="currentColor" opacity="0.85" />
+      <path
+        d="M13 8.5h2M14 10h1"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+        opacity="0.55"
+      />
+      <path
+        d="M5 16.5h6M13 16.5h4M19 16.5h4M25 16.5h2"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        opacity="0.7"
+      />
     </svg>
   );
 }
-function CardIcon() {
+
+/** Boleto — código de barras vertical. */
+function BoletoBarsIcon({ size = 28 }: { size?: number }) {
   return (
     <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
+      viewBox="0 0 32 24"
+      width={size}
+      height={(size * 24) / 32}
+      fill="currentColor"
       aria-hidden="true"
-      className="size-4"
     >
-      <rect x="2" y="4" width="12" height="9" rx="1.5" />
-      <path strokeLinecap="round" d="M2 7.5h12M5 11h2" />
+      <rect x="2" y="3" width="2" height="18" />
+      <rect x="5.5" y="3" width="1" height="18" />
+      <rect x="8" y="3" width="2.5" height="18" />
+      <rect x="11.5" y="3" width="1" height="18" />
+      <rect x="14" y="3" width="2" height="18" />
+      <rect x="17.5" y="3" width="1.5" height="18" />
+      <rect x="20.5" y="3" width="2" height="18" />
+      <rect x="24" y="3" width="1" height="18" />
+      <rect x="26" y="3" width="2.5" height="18" />
+      <rect x="29.5" y="3" width="1" height="18" />
     </svg>
   );
 }
-function BoletoIcon() {
+
+/**
+ * Large clickable method card used in the stepper's "Método" step.
+ * Click selects the method and advances to step 3 in one tap.
+ */
+function MethodPickCard({
+  method,
+  title,
+  tagline,
+  description,
+  icon,
+  selected,
+  onPick,
+}: {
+  method: Method;
+  title: string;
+  tagline: string;
+  description: string;
+  icon: React.ReactNode;
+  selected: boolean;
+  onPick: () => void;
+}) {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      aria-hidden="true"
-      className="size-4"
+    <button
+      type="button"
+      onClick={onPick}
+      data-method={method}
+      aria-pressed={selected}
+      className={clsx(
+        'group flex items-center gap-4 rounded-2xl border bg-[var(--surface-1)] p-4 text-left transition',
+        selected
+          ? 'border-[var(--dop-500)] shadow-[0_4px_16px_-4px_var(--dop-glow)]'
+          : 'border-[var(--hairline)] hover:border-[var(--hairline-strong)] hover:bg-white/40',
+      )}
     >
-      <path strokeLinecap="round" d="M3 3v10M5 3v10M6.5 3v10M8.5 3v10M10 3v10M12 3v10M13 3v10" />
-    </svg>
+      <span
+        className={clsx(
+          'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition',
+          selected
+            ? 'bg-[var(--dop-500)] text-white'
+            : 'bg-[var(--surface-2)] text-[var(--ink-90)] group-hover:bg-[var(--dop-soft)] group-hover:text-[var(--dop-600)]',
+        )}
+      >
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-[15px] text-[var(--ink-100)]">{title}</p>
+        <p className="mt-0.5 font-semibold text-[12px] text-[var(--dop-600)]">{tagline}</p>
+        <p className="mt-1 text-[12px] text-[var(--ink-70)] leading-[1.4]">{description}</p>
+      </div>
+      <span
+        className={clsx(
+          'shrink-0 transition',
+          selected
+            ? 'text-[var(--dop-500)]'
+            : 'text-[var(--ink-30)] group-hover:text-[var(--ink-50)]',
+        )}
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+          className="size-4"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l5 5-5 5" />
+        </svg>
+      </span>
+    </button>
   );
 }
 
@@ -1542,10 +1663,26 @@ function StepCard({
   );
 }
 
-function MethodTabs({ current, onChange }: { current: Method; onChange: (m: Method) => void }) {
+function MethodTabs({
+  current,
+  onChange,
+  acceptBoleto,
+}: {
+  current: Method;
+  onChange: (m: Method) => void;
+  acceptBoleto: boolean;
+}) {
+  const methods: Method[] = acceptBoleto
+    ? ['pix', 'credit_card', 'boleto']
+    : ['pix', 'credit_card'];
   return (
-    <div className="grid grid-cols-3 gap-1 rounded-full bg-[var(--surface-2)] p-1">
-      {(['pix', 'credit_card', 'boleto'] as Method[]).map((m) => (
+    <div
+      className={clsx(
+        'grid gap-1 rounded-full bg-[var(--surface-2)] p-1',
+        methods.length === 3 ? 'grid-cols-3' : 'grid-cols-2',
+      )}
+    >
+      {methods.map((m) => (
         <button
           key={m}
           type="button"
