@@ -4,6 +4,7 @@ import type { AppRouter } from '@payunivercart/api/routers';
 import type { inferRouterOutputs } from '@trpc/server';
 import clsx from 'clsx';
 import { use, useMemo, useState } from 'react';
+import { ThemeToggle } from '../../../components/ThemeToggle';
 import {
   maskBrPhone,
   maskCardExpiry,
@@ -2124,9 +2125,12 @@ function ProducerHeader({
             </span>
           </div>
         </div>
-        <span className="hidden text-[11px] text-[var(--ink-50)] sm:inline">
-          🔒 Conexão criptografada · payunivercart
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="hidden text-[11px] text-[var(--ink-50)] sm:inline">
+            🔒 Conexão criptografada · payunivercart
+          </span>
+          <ThemeToggle compact />
+        </div>
       </div>
     </header>
   );

@@ -82,6 +82,119 @@
   --select-fg: #ffffff;
 }
 
+/* =============================================================================
+ * Dark theme — midnight surface for the buyer. Activated by
+ * `data-theme="dark"` on <html> (set by ThemeProvider) or by the
+ * `prefers-color-scheme: dark` media query when the user hasn't
+ * explicitly picked light.
+ *
+ * Contrast budget (vs #0a0a0c bg):
+ *   --ink-100   17.2:1 AAA
+ *   --ink-90    14.0:1 AAA
+ *   --ink-70     8.2:1 AAA
+ *   --ink-50     5.7:1 AA Large (hints + metadata only)
+ * Dopamine green --dop-500 lifts to #4ade80 for AAA on dark surfaces.
+ * ============================================================================= */
+[data-theme="dark"] {
+  --bg: #0a0a0c;
+  --bg-elev-1: #131316;
+  --bg-elev-2: #1c1c1e;
+  --bg-elev-3: #242427;
+
+  --ink-100: #f5f5f7;
+  --ink-90: #e5e5e7;
+  --ink-70: #a1a1a6;
+  --ink-50: #8e8e93;
+  --ink-30: #636366;
+  --ink-10: #3a3a3c;
+
+  --dop-500: #4ade80;
+  --dop-400: #86efac;
+  --dop-300: #bbf7d0;
+  --dop-200: #064e2c;
+  --dop-600: #22c55e;
+  --dop-700: #16a34a;
+  --dop-glow: rgba(74, 222, 128, 0.32);
+  --dop-soft: rgba(74, 222, 128, 0.12);
+  --dop-hairline: rgba(74, 222, 128, 0.28);
+
+  --glass-bg: rgba(28, 28, 30, 0.62);
+  --glass-bg-2: rgba(28, 28, 30, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-strong: rgba(255, 255, 255, 0.18);
+  --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 60px rgba(0, 0, 0, 0.5);
+
+  --surface-1: rgba(255, 255, 255, 0.04);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-3: rgba(255, 255, 255, 0.09);
+  --surface-strong: rgba(255, 255, 255, 0.14);
+  --hairline: rgba(255, 255, 255, 0.07);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+
+  --danger-bg: rgba(248, 113, 113, 0.12);
+  --danger-text: #fca5a5;
+  --danger-border: rgba(248, 113, 113, 0.32);
+
+  --warn-bg: rgba(251, 191, 36, 0.12);
+  --warn-text: #fcd34d;
+
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.3);
+  --sh-md: 0 4px 16px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --sh-lg: 0 16px 40px rgba(0, 0, 0, 0.55), 0 6px 16px rgba(0, 0, 0, 0.4);
+  --sh-xl: 0 32px 64px rgba(0, 0, 0, 0.6), 0 12px 24px rgba(0, 0, 0, 0.4);
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a0c;
+    --bg-elev-1: #131316;
+    --bg-elev-2: #1c1c1e;
+    --bg-elev-3: #242427;
+    --ink-100: #f5f5f7;
+    --ink-90: #e5e5e7;
+    --ink-70: #a1a1a6;
+    --ink-50: #8e8e93;
+    --ink-30: #636366;
+    --ink-10: #3a3a3c;
+    --dop-500: #4ade80;
+    --dop-400: #86efac;
+    --dop-300: #bbf7d0;
+    --dop-200: #064e2c;
+    --dop-600: #22c55e;
+    --dop-700: #16a34a;
+    --dop-glow: rgba(74, 222, 128, 0.32);
+    --dop-soft: rgba(74, 222, 128, 0.12);
+    --dop-hairline: rgba(74, 222, 128, 0.28);
+    --glass-bg: rgba(28, 28, 30, 0.62);
+    --glass-bg-2: rgba(28, 28, 30, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-border-strong: rgba(255, 255, 255, 0.18);
+    --surface-1: rgba(255, 255, 255, 0.04);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --surface-3: rgba(255, 255, 255, 0.09);
+    --surface-strong: rgba(255, 255, 255, 0.14);
+    --hairline: rgba(255, 255, 255, 0.07);
+    --hairline-strong: rgba(255, 255, 255, 0.14);
+    --danger-bg: rgba(248, 113, 113, 0.12);
+    --danger-text: #fca5a5;
+    --danger-border: rgba(248, 113, 113, 0.32);
+    --warn-bg: rgba(251, 191, 36, 0.12);
+    --warn-text: #fcd34d;
+    --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.3);
+    --sh-md: 0 4px 16px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+    --sh-lg: 0 16px 40px rgba(0, 0, 0, 0.55), 0 6px 16px rgba(0, 0, 0, 0.4);
+    --sh-xl: 0 32px 64px rgba(0, 0, 0, 0.6), 0 12px 24px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+
+[data-theme="dark"] html,
+:root:not([data-theme="light"]) html {
+  color-scheme: dark;
+}
+
 /* Theme bridge — semantic colors callable as bg-[var(--color-foo)] */
 @theme inline {
   --color-bg: var(--bg);

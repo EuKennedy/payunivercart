@@ -5,6 +5,7 @@ import { httpBatchLink } from '@trpc/client';
 import { useState } from 'react';
 import { TRPC_URL } from '../lib/env';
 import { trpc } from '../lib/trpc';
+import { ThemeProvider } from './ThemeProvider';
 
 /**
  * Checkout providers. Smaller than the dashboard's — no session,
@@ -45,8 +46,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <trpc.Provider client={trpcClient} queryClient={queryClient}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    </trpc.Provider>
+    <ThemeProvider>
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      </trpc.Provider>
+    </ThemeProvider>
   );
 }

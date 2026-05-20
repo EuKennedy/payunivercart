@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { signOut, useSession } from '../lib/auth';
+import { ThemeToggle } from './ThemeToggle';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 /**
@@ -130,11 +131,11 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Product wordmark — the official payunivercart logo (PNG asset
-          shipped under public/). Sits below the workspace switcher so
-          the producer's tenant name owns the top-left and the platform
-          attribution stays visible without competing for hierarchy. */}
-      <div className="flex justify-center pt-1">
+      {/* Theme toggle + product wordmark sit side-by-side at the
+          bottom. The toggle is a 3-pill segmented control so producers
+          can pick Light / Dark / Sistema explicitly without digging. */}
+      <div className="flex flex-col items-center gap-3 pt-1">
+        <ThemeToggle />
         <img src="/payunivercart-logo.png" alt="payunivercart" className="h-5 w-auto opacity-70" />
       </div>
     </aside>
