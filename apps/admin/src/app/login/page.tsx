@@ -36,10 +36,13 @@ export default function AdminLoginPage() {
         onSubmit={onSubmit}
         className="flex w-full max-w-sm flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8"
       >
-        <header className="flex flex-col gap-2">
-          <p className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
-            payunivercart · admin
-          </p>
+        <header className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <img src="/payunivercart-logo.png" alt="payunivercart" className="h-6 w-auto" />
+            <span className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
+              · admin
+            </span>
+          </div>
           <h1 className="font-semibold text-[22px] text-[var(--color-fg)]">Acesso interno</h1>
           <p className="text-[13px] text-[var(--color-fg-muted)]">
             Apenas operadores cadastrados podem entrar. Producers usam pay.univercart.com.

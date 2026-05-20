@@ -35,11 +35,8 @@ export default function LoginPage() {
       <div className="mx-auto grid min-h-screen max-w-7xl grid-cols-1 lg:grid-cols-2">
         {/* Left — form */}
         <section className="flex flex-col px-6 py-8 lg:px-16 lg:py-12">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="grid size-9 place-items-center rounded-lg bg-[var(--color-fg)] font-semibold text-[14px] text-[var(--color-fg-inverse)]">
-              p
-            </span>
-            <span className="font-semibold text-[15px] tracking-tight">payunivercart</span>
+          <Link href="/" className="inline-flex items-center">
+            <img src="/payunivercart-logo.png" alt="payunivercart" className="h-7 w-auto" />
           </Link>
 
           <div className="flex flex-1 flex-col justify-center py-10">

@@ -69,10 +69,13 @@ export default function AdminHome() {
   return (
     <main className="mx-auto flex w-full max-w-[1280px] flex-col gap-10 px-6 py-10">
       <header className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-2">
-          <p className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
-            payunivercart · admin
-          </p>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <img src="/payunivercart-logo.png" alt="payunivercart" className="h-6 w-auto" />
+            <span className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
+              · admin
+            </span>
+          </div>
           <h1 className="font-semibold text-[28px] tracking-tight">Operação</h1>
           <p className="text-[14px] text-[var(--color-fg-muted)]">
             Visão cross-tenant da plataforma. Use com cautela — toda ação aqui afeta múltiplos

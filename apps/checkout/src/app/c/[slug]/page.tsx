@@ -647,8 +647,13 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 
       <footer className="mt-6 border-[var(--hairline)] border-t bg-[var(--bg-elev-1)]/60">
         <div className="container-x mx-auto flex w-full max-w-[1180px] flex-col items-center gap-1 py-5 text-center text-[11px] text-[var(--ink-50)]">
-          <p>
-            Pagamento processado por <strong className="text-[var(--ink-70)]">payunivercart</strong>
+          <p className="inline-flex flex-wrap items-center justify-center gap-1.5">
+            Pagamento processado por{' '}
+            <img
+              src="/payunivercart-logo.png"
+              alt="payunivercart"
+              className="inline-block h-[14px] w-auto opacity-80"
+            />
             . Ao confirmar, você concorda com os termos e a política de privacidade do produtor.
           </p>
           <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>
@@ -1224,8 +1229,13 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
 
       <footer className="mt-6 border-[var(--hairline)] border-t bg-[var(--bg-elev-1)]/60">
         <div className="container-x mx-auto flex w-full max-w-[1180px] flex-col items-center gap-1 py-5 text-center text-[11px] text-[var(--ink-50)]">
-          <p>
-            Pagamento processado por <strong className="text-[var(--ink-70)]">payunivercart</strong>
+          <p className="inline-flex flex-wrap items-center justify-center gap-1.5">
+            Pagamento processado por{' '}
+            <img
+              src="/payunivercart-logo.png"
+              alt="payunivercart"
+              className="inline-block h-[14px] w-auto opacity-80"
+            />
             . Ao confirmar, você concorda com os termos e a política de privacidade do produtor.
           </p>
           <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>

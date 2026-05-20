@@ -129,12 +129,13 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Product wordmark — moved out of the brand mark so the workspace
-          name owns the top-left. Keeps the payunivercart attribution
-          visible without competing with the producer's tenant name. */}
-      <p className="px-1 text-center font-medium text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.18em]">
-        payunivercart
-      </p>
+      {/* Product wordmark — the official payunivercart logo (PNG asset
+          shipped under public/). Sits below the workspace switcher so
+          the producer's tenant name owns the top-left and the platform
+          attribution stays visible without competing for hierarchy. */}
+      <div className="flex justify-center pt-1">
+        <img src="/payunivercart-logo.png" alt="payunivercart" className="h-5 w-auto opacity-70" />
+      </div>
     </aside>
   );
 }
