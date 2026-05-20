@@ -24,6 +24,10 @@ description = "Documented example responses and env placeholders"
 paths = [
   '''docs/research/.*\.md$''',
   '''.env.example$''',
+  # Vitest fixtures inside payment adapters mint fake credential values
+  # (e.g. `sk_test_pagarme_xyz123`) that match generic-api-key heuristics.
+  # The strings live only in test files and are referenced nowhere else.
+  '''packages/payments/src/adapters/.*\.test\.ts$''',
 ]
 
 # `replace_me_...`, `__REPLACE_ME__`, `generate_with_openssl_rand_hex_32`
