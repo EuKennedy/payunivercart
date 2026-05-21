@@ -6,6 +6,7 @@ import { gatewaysRouter } from './gateways';
 import { healthRouter } from './health';
 import { metricsRouter } from './metrics';
 import { ordersRouter } from './orders';
+import { partnersRouter } from './partners';
 import { productsRouter } from './products';
 import { recoveryRouter } from './recovery';
 import { subscriptionsRouter } from './subscriptions';
@@ -29,6 +30,7 @@ export const appRouter = router({
   orders: ordersRouter,
   customers: customersRouter,
   subscriptions: subscriptionsRouter,
+  partners: partnersRouter,
   admin: adminRouter,
 });
 

@@ -17,6 +17,8 @@ export const QUEUE_NAMES = {
   recovery: 'recovery.dispatch',
   /** Audit chain verifier (runs hourly via a repeatable job). */
   auditVerify: 'audit.verify',
+  /** Univercart Connect — partner webhook deliveries sweeper. */
+  connectDeliveries: 'connect.deliveries',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -27,6 +29,7 @@ export interface QueueBundle {
   webhookOutbox: Queue;
   recovery: Queue;
   auditVerify: Queue;
+  connectDeliveries: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -54,5 +57,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     webhookOutbox: new Queue(QUEUE_NAMES.webhookOutbox, opts),
     recovery: new Queue(QUEUE_NAMES.recovery, opts),
     auditVerify: new Queue(QUEUE_NAMES.auditVerify, opts),
+    connectDeliveries: new Queue(QUEUE_NAMES.connectDeliveries, opts),
   };
 }

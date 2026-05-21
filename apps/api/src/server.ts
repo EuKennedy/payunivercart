@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
+import { mountConnectApi } from './connect/router';
 import { loadEnv } from './env';
 import { appRouter } from './routers/index';
 import { buildServices } from './services';
@@ -205,6 +206,7 @@ app.get('/img/product/:id/cover', async (c) => {
 
 mountWahaWebhook(app, services);
 mountGatewayWebhooks(app, services);
+mountConnectApi(app, services);
 
 app.use(
   '/trpc/*',

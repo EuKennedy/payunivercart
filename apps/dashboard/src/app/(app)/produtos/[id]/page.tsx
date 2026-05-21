@@ -429,6 +429,19 @@ function SubscriptionPlansSection({
   const [period, setPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const [price, setPrice] = useState('');
   const [trial, setTrial] = useState(0);
+  /**
+   * Univercart Connect — partner + role this plan provisions access to.
+   * Both fields are nullable and travel together (validated server-side).
+   * When the producer picks a partner, we fetch its role catalogue and
+   * surface a second dropdown.
+   */
+  const [partnerAccountId, setPartnerAccountId] = useState<string | null>(null);
+  const [partnerRoleSlug, setPartnerRoleSlug] = useState<string | null>(null);
+  const partnersQuery = trpc.partners.list.useQuery(undefined, { staleTime: 60_000 });
+  const partnerRolesQuery = trpc.partners.listRoles.useQuery(
+    { partnerId: partnerAccountId ?? '' },
+    { enabled: !!partnerAccountId, staleTime: 60_000 },
+  );
 
   const submit = () => {
     const cents = parseCentsBRL(price);
@@ -440,6 +453,8 @@ function SubscriptionPlansSection({
         billingPeriod: period,
         amountCents: cents,
         trialDays: trial,
+        partnerAccountId,
+        partnerRoleSlug,
       },
       {
         onSuccess: () => {
@@ -448,6 +463,8 @@ function SubscriptionPlansSection({
           setPrice('');
           setTrial(0);
           setPeriod('monthly');
+          setPartnerAccountId(null);
+          setPartnerRoleSlug(null);
         },
       },
     );
@@ -509,6 +526,14 @@ function SubscriptionPlansSection({
                 <span className="text-[12px] text-[var(--color-fg-subtle)]">
                   {p.trialDays > 0 ? `${p.trialDays} dias de trial · ` : ''}
                   {p.isActive ? 'Ativo' : 'Desativado'}
+                  {p.partnerAccountId && p.partnerRoleSlug ? (
+                    <>
+                      {' · '}
+                      <span className="font-mono text-[11px] text-[var(--color-brand-700)]">
+                        Connect → {p.partnerRoleSlug}
+                      </span>
+                    </>
+                  ) : null}
                 </span>
               </div>
               <span className="font-semibold text-[16px] text-[var(--color-fg)] tabular-nums">
@@ -646,6 +671,50 @@ function SubscriptionPlansSection({
               />
             </Field>
           </div>
+
+          {/* Univercart Connect: optional SaaS partner mapping. */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field
+              label="Univercart Connect (opcional)"
+              hint="SaaS parceiro liberado quando o pagamento for confirmado."
+            >
+              <select
+                value={partnerAccountId ?? ''}
+                onChange={(e) => {
+                  const next = e.target.value || null;
+                  setPartnerAccountId(next);
+                  setPartnerRoleSlug(null);
+                }}
+                className={`${fieldInputClass} appearance-none`}
+              >
+                <option value="">Nenhum (entrega manual)</option>
+                {(partnersQuery.data ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field
+              label="Papel no SaaS"
+              hint="Slug que o SaaS espera receber (entry / medium / ultra...)."
+            >
+              <select
+                value={partnerRoleSlug ?? ''}
+                onChange={(e) => setPartnerRoleSlug(e.target.value || null)}
+                disabled={!partnerAccountId}
+                className={`${fieldInputClass} appearance-none disabled:opacity-50`}
+              >
+                <option value="">{partnerAccountId ? 'Escolher papel…' : '—'}</option>
+                {(partnerRolesQuery.data ?? []).map((r) => (
+                  <option key={r.slug} value={r.slug}>
+                    {r.displayName} ({r.slug})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
           {create.error ? (
             <p className="text-[13px] text-[var(--color-danger)]">{create.error.message}</p>
           ) : null}

@@ -67,6 +67,19 @@ async function main() {
     },
   );
 
+  // Univercart Connect — partner webhook delivery sweeper. Tighter
+  // cadence (5s) than recovery because newly-paid subscriptions expect
+  // their webhook within seconds, not minutes. The sweep is idempotent
+  // (state machine on each delivery row) and bounded (BATCH_SIZE).
+  await queues.connectDeliveries.upsertJobScheduler(
+    'sweeper',
+    { every: 5 * 1000 },
+    {
+      name: 'connect.deliveries.sweep',
+      data: {},
+    },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,
@@ -77,6 +90,7 @@ async function main() {
       queues.webhookOutbox.close(),
       queues.recovery.close(),
       queues.auditVerify.close(),
+      queues.connectDeliveries.close(),
     ]);
     queues.connection.disconnect();
     process.exit(0);

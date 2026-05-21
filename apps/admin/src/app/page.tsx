@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { signOut, useSession } from '../lib/auth';
@@ -82,13 +83,21 @@ export default function AdminHome() {
             produtores.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => signOut().then(() => router.replace('/login'))}
-          className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]"
-        >
-          Sair · {session.data.user.email}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/partners"
+            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]"
+          >
+            Univercart Connect →
+          </Link>
+          <button
+            type="button"
+            onClick={() => signOut().then(() => router.replace('/login'))}
+            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]"
+          >
+            Sair · {session.data.user.email}
+          </button>
+        </div>
       </header>
 
       <section className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">

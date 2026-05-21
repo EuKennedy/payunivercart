@@ -52,6 +52,18 @@ export interface EmailSender {
     resumeUrl: string;
     brand?: string;
   }): Promise<void>;
+  /**
+   * Univercart Connect — magic-link email sent the moment a buyer's
+   * subscription is provisioned in a partner SaaS. Contains the
+   * partner brand, product name, and the JWT setup link (valid 72h).
+   */
+  sendEntitlementGranted(input: {
+    to: string;
+    customerName: string;
+    partnerName: string;
+    productName: string;
+    magicLinkUrl: string;
+  }): Promise<void>;
 }
 
 export function createEmailSender(config: EmailSenderConfig): EmailSender {
@@ -184,6 +196,26 @@ export function createEmailSender(config: EmailSenderConfig): EmailSender {
               <a href="${escapeAttr(resumeUrl)}" style="display:inline-block;background:#16a34a;color:#ffffff;font-weight:600;font-size:14px;padding:12px 20px;border-radius:12px;text-decoration:none;">Concluir pagamento</a>
             </p>
             <p style="margin:0;color:#86868b;font-size:12px;">Pedido ${escapeHtml(publicReference)}. Esse link expira em algumas horas.</p>
+          `,
+        ),
+      });
+    },
+
+    async sendEntitlementGranted({ to, customerName, partnerName, productName, magicLinkUrl }) {
+      const firstName = customerName.split(/\s+/)[0] ?? customerName;
+      await send({
+        to,
+        subject: `Seu acesso ao ${partnerName} está pronto`,
+        text: `Oi ${firstName}!\n\nSua assinatura de "${productName}" foi confirmada e seu acesso ao ${partnerName} já está liberado.\n\nDefina sua senha pelo link:\n${magicLinkUrl}\n\nO link expira em 72 horas. Se precisar, peça um novo ao produtor.`,
+        html: shell(
+          partnerName,
+          `
+            <h1 style="margin:0 0 8px 0;font-size:24px;letter-spacing:-0.01em;">Acesso liberado ao ${escapeHtml(partnerName)} 🎉</h1>
+            <p style="margin:0 0 16px 0;color:#515154;font-size:14px;">Oi ${escapeHtml(firstName)}! Sua assinatura de <strong>${escapeHtml(productName)}</strong> foi confirmada.</p>
+            <p style="margin:24px 0;">
+              <a href="${escapeAttr(magicLinkUrl)}" style="display:inline-block;background:#16a34a;color:#ffffff;font-weight:600;font-size:14px;padding:12px 20px;border-radius:12px;text-decoration:none;">Definir senha e acessar</a>
+            </p>
+            <p style="margin:0;color:#86868b;font-size:12px;">Esse link expira em 72 horas. Se precisar de um novo, peça pro produtor.</p>
           `,
         ),
       });

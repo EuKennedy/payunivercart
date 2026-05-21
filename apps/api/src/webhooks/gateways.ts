@@ -1,8 +1,10 @@
+import type { EntitlementEventType } from '@payunivercart/connect';
 import { schema } from '@payunivercart/db';
 import { type WebhookEvent, getAdapter } from '@payunivercart/payments';
 import { type GatewayId, PayunivercartError } from '@payunivercart/shared';
 import { and, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
+import { ConnectDispatcher } from '../connect/dispatcher';
 import type { AppServices } from '../services';
 
 /**
@@ -419,6 +421,38 @@ async function handleMpSubscriptionEvent(
         updatedAt: now,
       })
       .where(eq(schema.subscriptions.id, sub.id));
+
+    // Dispatch Univercart Connect entitlement event when the status
+    // transition is meaningful for a 3rd-party SaaS partner. Mapping:
+    //   pending → active|trialing      → entitlement.granted
+    //   active|trialing → paused|past_due → entitlement.suspended
+    //   paused|past_due → active        → entitlement.reactivated
+    //   * → cancelled                  → entitlement.revoked
+    const dispatchType = mapStatusTransition(sub.status, fresh.status);
+    if (dispatchType) {
+      const dispatcher = new ConnectDispatcher(services);
+      const result = await dispatcher.dispatch({
+        type: dispatchType,
+        subscriptionId: sub.id,
+      });
+      if ('skipped' in result) {
+        // Skipping is normal for non-partner subscriptions; only log if
+        // something looks wrong (e.g. partner suspended after we already
+        // started provisioning).
+        if (!result.reason.startsWith('plan_has_no_partner')) {
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'info',
+              event: 'connect.dispatch.skipped',
+              subscriptionId: sub.id,
+              type: dispatchType,
+              reason: result.reason,
+            })}\n`,
+          );
+        }
+      }
+    }
+
     return { ok: true, status: fresh.status };
   } catch (cause) {
     process.stdout.write(
@@ -431,6 +465,25 @@ async function handleMpSubscriptionEvent(
     );
     return { ok: true, deferred: true };
   }
+}
+
+/**
+ * Map a (previous, next) subscription status pair to the Univercart
+ * Connect event type. Returns `null` when the transition has no
+ * partner-visible meaning (e.g. metadata-only edits, status unchanged).
+ */
+function mapStatusTransition(prev: string, next: string): EntitlementEventType | null {
+  if (prev === next) return null;
+  const isActive = (s: string) => s === 'active' || s === 'trialing';
+  const isPaused = (s: string) => s === 'paused' || s === 'past_due';
+  // Terminal states (cancelled / expired / finished) all revoke.
+  if (next === 'cancelled' || next === 'expired' || next === 'finished') {
+    return 'entitlement.revoked';
+  }
+  if (isPaused(prev) && isActive(next)) return 'entitlement.reactivated';
+  if (isActive(prev) && isPaused(next)) return 'entitlement.suspended';
+  if (!isActive(prev) && isActive(next)) return 'entitlement.granted';
+  return null;
 }
 
 function extractMpResourceId(queryParams: Record<string, string>, rawBody: string): string | null {

@@ -8,6 +8,7 @@ import {
   timestampTzNullable,
   updatedAt,
 } from './common';
+import { partnerAccounts } from './partners';
 import { products } from './products';
 import { workspaces } from './workspaces';
 
@@ -59,12 +60,30 @@ export const subscriptionPlans = pgTable(
     sortOrder: integer().notNull().default(0),
     /** Optional flag rendered as "Mais escolhido" badge on the picker. */
     isHighlighted: boolean().notNull().default(false),
+    /**
+     * Univercart Connect — partner SaaS this plan provisions access
+     * to. Null on plans that don't gate any external app (the producer
+     * delivers value some other way, e.g. course platform link). When
+     * set, every successful subscription cycle dispatches entitlement
+     * events to the partner's webhook with `partnerRoleSlug` as the
+     * `role` field.
+     */
+    partnerAccountId: fk().references(() => partnerAccounts.id, { onDelete: 'set null' }),
+    /**
+     * Slug from `partner_roles.slug` — the partner's own taxonomy
+     * (e.g. `entry`, `medium`, `ultra`). Plain text instead of FK
+     * because partner role definitions can change without invalidating
+     * historical plans; we only care that the value matches what the
+     * partner expects today.
+     */
+    partnerRoleSlug: text(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     index('subscription_plans_workspace_idx').on(table.workspaceId),
     index('subscription_plans_product_idx').on(table.productId),
+    index('subscription_plans_partner_idx').on(table.partnerAccountId),
   ],
 );
 

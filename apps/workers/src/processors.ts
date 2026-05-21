@@ -3,6 +3,7 @@ import { WahaClient } from '@payunivercart/waha';
 import { Worker, type WorkerOptions } from 'bullmq';
 import type IORedis from 'ioredis';
 import type { WorkersEnv } from './env';
+import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
 import { runRecoverySweep } from './handlers/recovery';
 import { QUEUE_NAMES } from './queues';
 
@@ -70,7 +71,20 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
-  for (const w of [webhookInbound, webhookOutbox, recovery, auditVerify]) {
+  // Univercart Connect — partner webhook deliveries. Driven by a
+  // repeatable sweeper (registered in index.ts, every 5s). Each tick
+  // claims a batch of due deliveries, POSTs them, and updates state.
+  const connectDeliveries = new Worker(
+    QUEUE_NAMES.connectDeliveries,
+    async (job) => {
+      const result = await runConnectDeliveriesSweep({ db: dbWrapper.db });
+      logEvent('connect.deliveries.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
+  for (const w of [webhookInbound, webhookOutbox, recovery, auditVerify, connectDeliveries]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
         queue: w.name,
@@ -81,7 +95,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     w.on('error', (err) => logEvent('worker.error', { queue: w.name, error: err.message }));
   }
 
-  return [webhookInbound, webhookOutbox, recovery, auditVerify];
+  return [webhookInbound, webhookOutbox, recovery, auditVerify, connectDeliveries];
 }
 
 function logEvent(event: string, data: Record<string, unknown>): void {

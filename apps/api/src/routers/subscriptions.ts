@@ -43,6 +43,10 @@ const PlanRow = z.object({
   isActive: z.boolean(),
   isHighlighted: z.boolean(),
   sortOrder: z.number().int(),
+  /** Univercart Connect — partner SaaS this plan provisions. */
+  partnerAccountId: z.string().uuid().nullable(),
+  /** Slug from `partner_roles.slug`. */
+  partnerRoleSlug: z.string().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -86,6 +90,8 @@ export const subscriptionsRouter = router({
           isActive: schema.subscriptionPlans.isActive,
           isHighlighted: schema.subscriptionPlans.isHighlighted,
           sortOrder: schema.subscriptionPlans.sortOrder,
+          partnerAccountId: schema.subscriptionPlans.partnerAccountId,
+          partnerRoleSlug: schema.subscriptionPlans.partnerRoleSlug,
           createdAt: schema.subscriptionPlans.createdAt,
           updatedAt: schema.subscriptionPlans.updatedAt,
         })
@@ -116,6 +122,9 @@ export const subscriptionsRouter = router({
         trialDays: z.number().int().min(0).max(365).default(0),
         isHighlighted: z.boolean().default(false),
         sortOrder: z.number().int().min(0).max(999).default(0),
+        /** Univercart Connect: partner this plan provisions to. */
+        partnerAccountId: z.string().uuid().nullable().default(null),
+        partnerRoleSlug: z.string().trim().min(1).max(40).nullable().default(null),
       }),
     )
     .output(z.object({ id: z.string().uuid() }))
@@ -134,6 +143,15 @@ export const subscriptionsRouter = router({
       if (!product) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto inexistente.' });
       }
+      // partnerAccountId + partnerRoleSlug travel together — either both
+      // set or both null. Producer flipping one without the other is a
+      // misconfiguration that breaks entitlement dispatch silently.
+      if ((input.partnerAccountId == null) !== (input.partnerRoleSlug == null)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Para integrar com um SaaS parceiro, escolha o parceiro E o papel.',
+        });
+      }
       const [row] = await ctx.services.db.db
         .insert(schema.subscriptionPlans)
         .values({
@@ -146,6 +164,8 @@ export const subscriptionsRouter = router({
           trialDays: input.trialDays,
           isHighlighted: input.isHighlighted,
           sortOrder: input.sortOrder,
+          partnerAccountId: input.partnerAccountId,
+          partnerRoleSlug: input.partnerRoleSlug,
         })
         .returning({ id: schema.subscriptionPlans.id });
       if (!row) {
@@ -167,6 +187,8 @@ export const subscriptionsRouter = router({
         isActive: z.boolean().optional(),
         isHighlighted: z.boolean().optional(),
         sortOrder: z.number().int().min(0).max(999).optional(),
+        partnerAccountId: z.string().uuid().nullable().optional(),
+        partnerRoleSlug: z.string().trim().min(1).max(40).nullable().optional(),
       }),
     )
     .output(z.object({ ok: z.literal(true) }))
@@ -178,6 +200,35 @@ export const subscriptionsRouter = router({
       if (input.isActive !== undefined) patch.isActive = input.isActive;
       if (input.isHighlighted !== undefined) patch.isHighlighted = input.isHighlighted;
       if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
+      if (input.partnerAccountId !== undefined) patch.partnerAccountId = input.partnerAccountId;
+      if (input.partnerRoleSlug !== undefined) patch.partnerRoleSlug = input.partnerRoleSlug;
+      // If either partner field is being touched, both must end up
+      // either both set or both null. We resolve the post-patch state
+      // for validation.
+      if (input.partnerAccountId !== undefined || input.partnerRoleSlug !== undefined) {
+        const [existing] = await ctx.services.db.db
+          .select({
+            partnerAccountId: schema.subscriptionPlans.partnerAccountId,
+            partnerRoleSlug: schema.subscriptionPlans.partnerRoleSlug,
+          })
+          .from(schema.subscriptionPlans)
+          .where(eq(schema.subscriptionPlans.id, input.id))
+          .limit(1);
+        const nextPartnerId =
+          input.partnerAccountId !== undefined
+            ? input.partnerAccountId
+            : (existing?.partnerAccountId ?? null);
+        const nextRoleSlug =
+          input.partnerRoleSlug !== undefined
+            ? input.partnerRoleSlug
+            : (existing?.partnerRoleSlug ?? null);
+        if ((nextPartnerId == null) !== (nextRoleSlug == null)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Para integrar com um SaaS parceiro, escolha o parceiro E o papel.',
+          });
+        }
+      }
       await ctx.services.db.db
         .update(schema.subscriptionPlans)
         .set(patch)

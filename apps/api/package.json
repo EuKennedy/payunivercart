@@ -22,6 +22,7 @@
     "@sentry/node": "8.51.0",
     "@payunivercart/audit": "workspace:*",
     "@payunivercart/auth": "workspace:*",
+    "@payunivercart/connect": "workspace:*",
     "@payunivercart/crypto": "workspace:*",
     "@payunivercart/db": "workspace:*",
     "@payunivercart/emails": "workspace:*",

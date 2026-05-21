@@ -101,6 +101,21 @@ const envSchema = z.object({
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean),
     ),
+
+  /**
+   * Univercart Connect — public base URL of THIS api (Connect endpoints
+   * live at `${CONNECT_API_BASE}/v1/...`). Falls back to API_PUBLIC_URL
+   * when unset so single-host dev keeps working.
+   */
+  CONNECT_API_BASE: z.string().url().optional(),
+
+  /**
+   * Univercart Connect — public base URL of the checkout app, used to
+   * mint magic links (`${CHECKOUT_PUBLIC_URL}/connect/setup?t=<JWT>`).
+   * If your partner exposes its own setup page, override via the
+   * partner's webhook handler — this is only the default landing page.
+   */
+  CHECKOUT_PUBLIC_URL: z.string().url().optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
