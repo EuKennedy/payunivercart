@@ -42,7 +42,7 @@
 6. **Docker Compose** — pin versions: postgres:17, redis:7, devlikeapro/waha-plus (web.js engine), app images.
 7. **Better-Auth** wiring + OTP channel selector (WAHA / Email post-login).
 8. **First migration** via `pnpm db:generate && pnpm db:migrate`.
-9. **Coolify** compose file at `docker/coolify.compose.yml` for `pay.univercart.com`.
+9. **Coolify** compose file at `docker/coolify.compose.yml` for `app.univercart.com` (dashboard) + `pay.univercart.com` (checkout) + `api.univercart.com` (api) + `admin.univercart.com` (admin).
 
 ## Watch-outs (don't lose these)
 

@@ -11,7 +11,7 @@ import { useSession } from '../lib/auth';
  *
  * Why a client gate and not an RSC fetch?
  *   Better-Auth's session cookie is scoped to the API origin
- *   (`api.univercart.com`). The dashboard's RSC layer (`pay.univercart.com`)
+ *   (`api.univercart.com`). The dashboard's RSC layer (`app.univercart.com`)
  *   does not see that cookie from `cookies()`. We could enable
  *   `crossSubDomainCookies` on Better-Auth so a `.univercart.com`-scoped
  *   cookie is visible to both subdomains — that hardening lands in a

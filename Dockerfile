@@ -152,7 +152,7 @@ FROM src AS dashboard-builder
 # domains live on `*.univercart.com` by default and can be overridden
 # from compose for staging.
 ARG NEXT_PUBLIC_API_URL=https://api.univercart.com
-ARG NEXT_PUBLIC_CHECKOUT_URL=https://check.univercart.com
+ARG NEXT_PUBLIC_CHECKOUT_URL=https://pay.univercart.com
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_CHECKOUT_URL=$NEXT_PUBLIC_CHECKOUT_URL
 RUN NODE_ENV=production pnpm --filter @payunivercart/dashboard exec next build

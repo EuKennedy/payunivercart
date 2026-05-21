@@ -170,8 +170,8 @@ Better-Auth is configured with:
 Production runs on a single VPS with Coolify orchestrating Docker Compose. Coolify reads `docker/docker-compose.yml`; each service has its own Dockerfile under `docker/`. Migrations run as a one-shot job before `apps/api` starts.
 
 Domains:
-- `pay.univercart.com` → `apps/dashboard`
-- `checkout.univercart.com` → `apps/checkout`
+- `app.univercart.com` → `apps/dashboard`
+- `pay.univercart.com` → `apps/checkout`
 - `admin.univercart.com` → `apps/admin`
 - `api.univercart.com` → `apps/api`
 - `waha.univercart.internal` → WAHA (internal-only via Cloudflare Tunnel or firewall rules)

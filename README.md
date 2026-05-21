@@ -41,8 +41,8 @@ pnpm dev
 ```
 .
 ├── apps/
-│   ├── dashboard/    # Next.js 15 — producer panel (pay.univercart.com)
-│   ├── checkout/     # Next.js 15 — public checkout (checkout.univercart.com)
+│   ├── dashboard/    # Next.js 15 — producer panel (app.univercart.com)
+│   ├── checkout/     # Next.js 15 — public checkout (pay.univercart.com)
 │   ├── admin/        # Next.js 15 — super-admin internal panel
 │   ├── api/          # Hono + tRPC — type-safe backend
 │   └── workers/      # BullMQ workers — async jobs
@@ -73,7 +73,7 @@ pnpm dev
 - **Email**: Resend + React Email
 - **Tooling**: TypeScript 5.7 strict, Biome, Vitest, Playwright
 - **Observability**: Sentry, PostHog, OpenTelemetry
-- **Deployment**: Docker Compose orchestrated by Coolify on `pay.univercart.com`
+- **Deployment**: Docker Compose orchestrated by Coolify on `app.univercart.com`
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full rationale behind each choice.
 

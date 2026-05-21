@@ -53,7 +53,7 @@ export default function AdminHome() {
           <h1 className="font-semibold text-[20px]">Sem permissão</h1>
           <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
             Sua conta não está na lista de operadores do painel interno. Se você é produtor, use{' '}
-            <code className="font-mono">pay.univercart.com</code>.
+            <code className="font-mono">app.univercart.com</code>.
           </p>
           <button
             type="button"

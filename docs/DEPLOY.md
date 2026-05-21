@@ -1,6 +1,6 @@
 # Deploy — Coolify on VPS
 
-Target: `pay.univercart.com` running on a Coolify-managed VPS.
+Target: `app.univercart.com` (dashboard) + `pay.univercart.com` (checkout) + `api.univercart.com` (api) + `admin.univercart.com` (admin) running on a Coolify-managed VPS.
 
 ## Stack overview
 
@@ -63,8 +63,9 @@ After it exits successfully, every other service starts.
    secrets UI. None of them may contain `__REPLACE_ME__`.
 5. **Domains** — point each subdomain at this VPS in DNS, then add
    them in Coolify's project domains:
-   - `pay.univercart.com` → `dashboard` (port 3000)
-   - `checkout.univercart.com` → `checkout` (port 3001)
+   - `app.univercart.com` → `dashboard` (port 3000)
+   - `pay.univercart.com` → `checkout` (port 3001)
+   - `api.univercart.com` → `api` (port 4000)
    - `admin.univercart.com` → `admin` (port 3002, with an IP allowlist!)
    Coolify issues a Let's Encrypt cert per domain. The internal nginx
    handles the `/api/`, `/trpc/`, `/webhooks/` paths regardless of which
@@ -75,7 +76,7 @@ After it exits successfully, every other service starts.
    build cache.
 7. **Smoke test:**
    ```bash
-   curl -fsS https://pay.univercart.com/health
+   curl -fsS https://api.univercart.com/health
    ```
 
 ## Postgres roles (one-time, after first migrate)

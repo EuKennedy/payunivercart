@@ -285,9 +285,10 @@ export class ConnectDispatcher {
     // Partner can override on their side by configuring a redirect from
     // the URL they expose. The first-line magic link always points at the
     // checkout host so we don't depend on partner DNS being up.
-    const baseUrl = (
-      this.services.env.CHECKOUT_PUBLIC_URL ?? 'https://check.univercart.com'
-    ).replace(/\/$/, '');
+    const baseUrl = (this.services.env.CHECKOUT_PUBLIC_URL ?? 'https://pay.univercart.com').replace(
+      /\/$/,
+      '',
+    );
     return {
       url: `${baseUrl}/connect/setup?t=${result.jwt}`,
       jti: result.jti,

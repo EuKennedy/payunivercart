@@ -4,7 +4,7 @@
 # Bring up everything with: `pnpm docker:up`
 # Stop everything: `pnpm docker:down`
 #
-# Coolify reads the same file when deploying to pay.univercart.com.
+# Coolify reads the same file when deploying to app.univercart.com.
 # Coolify owns reverse-proxy via Traefik: no custom networks, no custom
 # nginx, no `ports:` host binding. Each user-facing service uses `expose:`
 # and gets its Traefik route from the "Domains for <service>" UI entry
@@ -156,7 +156,7 @@ services:
 
   # -----------------------------------------------------------------------
   # Dashboard — Next.js, producer-facing.
-  # Traefik route: `Domains for dashboard` = `https://pay.univercart.com:3000`.
+  # Traefik route: `Domains for dashboard` = `https://app.univercart.com:3000`.
   # -----------------------------------------------------------------------
   dashboard:
     build:
@@ -168,7 +168,7 @@ services:
         # `environment:` block can't influence the client bundle.
         # Pass-through so `coolify .env` overrides reach the build.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.univercart.com}
-        NEXT_PUBLIC_CHECKOUT_URL: ${NEXT_PUBLIC_CHECKOUT_URL:-https://check.univercart.com}
+        NEXT_PUBLIC_CHECKOUT_URL: ${NEXT_PUBLIC_CHECKOUT_URL:-https://pay.univercart.com}
     restart: unless-stopped
     expose: ["3000"]
     environment:
@@ -177,7 +177,7 @@ services:
       # Used by the dashboard's "Link de checkout" column + product
       # edit page so the displayed URL points at the buyer-facing
       # subdomain instead of the dashboard origin.
-      NEXT_PUBLIC_CHECKOUT_URL: ${NEXT_PUBLIC_CHECKOUT_URL:-https://check.univercart.com}
+      NEXT_PUBLIC_CHECKOUT_URL: ${NEXT_PUBLIC_CHECKOUT_URL:-https://pay.univercart.com}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/').then(r => process.exit(r.ok || r.status === 404 ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 10s
@@ -190,7 +190,7 @@ services:
 
   # -----------------------------------------------------------------------
   # Checkout — Next.js, public-facing.
-  # Traefik route: `Domains for checkout` = `https://check.univercart.com:3001`.
+  # Traefik route: `Domains for checkout` = `https://pay.univercart.com:3001`.
   # -----------------------------------------------------------------------
   checkout:
     build:

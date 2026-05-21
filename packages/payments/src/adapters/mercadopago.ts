@@ -48,7 +48,7 @@ const TIMEOUTS_MS = {
   read: 5_000,
 } as const;
 
-const NOTIFICATION_URL_PLACEHOLDER = 'https://pay.univercart.com/webhooks/mercadopago';
+const NOTIFICATION_URL_PLACEHOLDER = 'https://api.univercart.com/webhooks/gateway/mercadopago';
 
 export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials> {
   readonly id: GatewayId = 'mercadopago';

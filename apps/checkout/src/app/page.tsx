@@ -13,7 +13,7 @@ export default function CheckoutLanding() {
         <p className="mt-4 text-[15px] text-[var(--color-fg-muted)] leading-[1.5]">
           Acesse o checkout pelo link enviado pelo produtor
           <span className="mt-1 block font-mono text-[12px] text-[var(--color-fg-subtle)]">
-            check.univercart.com/c/&lt;slug&gt;
+            pay.univercart.com/c/&lt;slug&gt;
           </span>
         </p>
       </div>

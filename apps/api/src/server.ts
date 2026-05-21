@@ -70,8 +70,8 @@ app.use(
     strictTransportSecurity:
       env.NODE_ENV === 'production' ? 'max-age=63072000; includeSubDomains; preload' : false,
     // The `/img/*` endpoints intentionally serve PNG/JPEG/WEBP to the
-    // dashboard (`pay.univercart.com`) and the public checkout
-    // (`check.univercart.com`) — both are different origins from the api
+    // dashboard (`app.univercart.com`) and the public checkout
+    // (`pay.univercart.com`) — both are different origins from the api
     // host. Hono's secureHeaders default `crossOriginResourcePolicy:
     // 'same-origin'` lets `fetch()` succeed (it doesn't enforce CORP)
     // but blocks `<img src=...>` embedding cross-origin, which is why

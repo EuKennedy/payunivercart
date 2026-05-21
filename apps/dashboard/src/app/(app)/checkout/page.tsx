@@ -124,7 +124,7 @@ export default function CheckoutConfigPage() {
         <Heading level={1}>Personalize seu checkout.</Heading>
         <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
           Cada produto tem um link público pronto em
-          <code className="font-mono text-[13px]"> check.univercart.com/c/&lt;slug&gt;</code> com a
+          <code className="font-mono text-[13px]"> pay.univercart.com/c/&lt;slug&gt;</code> com a
           sua marca, métodos de pagamento e cadência de recuperação. Ajuste tudo nas seções abaixo.
         </p>
       </header>
@@ -196,7 +196,7 @@ export default function CheckoutConfigPage() {
                   {firstProduct.name}
                 </span>
                 <span className="font-mono text-[11px] text-[var(--color-fg-subtle)]">
-                  check.univercart.com/c/{firstProduct.slug}
+                  pay.univercart.com/c/{firstProduct.slug}
                 </span>
               </div>
             </div>

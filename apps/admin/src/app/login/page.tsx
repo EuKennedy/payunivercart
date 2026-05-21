@@ -45,7 +45,7 @@ export default function AdminLoginPage() {
           </div>
           <h1 className="font-semibold text-[22px] text-[var(--color-fg)]">Acesso interno</h1>
           <p className="text-[13px] text-[var(--color-fg-muted)]">
-            Apenas operadores cadastrados podem entrar. Producers usam pay.univercart.com.
+            Apenas operadores cadastrados podem entrar. Producers usam app.univercart.com.
           </p>
         </header>
 
