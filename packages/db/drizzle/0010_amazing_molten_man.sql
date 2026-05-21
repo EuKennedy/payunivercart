@@ -1,0 +1,1 @@
+ALTER TABLE "partner_accounts" ADD COLUMN "setup_base_url" text DEFAULT 'https://example.com/setup' NOT NULL;

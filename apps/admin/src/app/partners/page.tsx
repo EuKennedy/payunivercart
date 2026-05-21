@@ -137,6 +137,7 @@ function PartnersList({
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
+  const [setupBaseUrl, setSetupBaseUrl] = useState('');
   const [trialAccessEnabled, setTrialAccessEnabled] = useState(true);
 
   return (
@@ -158,7 +159,7 @@ function PartnersList({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            create.mutate({ slug, name, contactEmail, trialAccessEnabled });
+            create.mutate({ slug, name, contactEmail, setupBaseUrl, trialAccessEnabled });
           }}
           className="flex flex-col gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3"
         >
@@ -169,6 +170,12 @@ function PartnersList({
             value={contactEmail}
             onChange={setContactEmail}
             placeholder="dev@zapgrup.com.br"
+          />
+          <Input
+            label="Setup URL"
+            value={setupBaseUrl}
+            onChange={setSetupBaseUrl}
+            placeholder="https://zapgrup.com.br/connect/setup"
           />
           <label className="flex items-center gap-2 text-[12px] text-[var(--color-fg-muted)]">
             <input

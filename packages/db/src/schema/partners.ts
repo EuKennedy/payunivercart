@@ -54,6 +54,16 @@ export const partnerAccounts = pgTable(
      * Rotated by Univercart staff; partner reads via dashboard.
      */
     jwtSigningSecret: text().notNull(),
+    /**
+     * Base URL on the partner's own infra that handles the magic-link
+     * setup flow. Univercart appends `?t=<JWT>` and embeds the result
+     * in the buyer's email + WhatsApp. Example:
+     *   `https://zapgrup.com.br/connect/setup`
+     * The partner controls the entire setup UX (password form, session
+     * issuance) at this URL — Univercart never sees the buyer's
+     * password.
+     */
+    setupBaseUrl: text().notNull().default('https://example.com/setup'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

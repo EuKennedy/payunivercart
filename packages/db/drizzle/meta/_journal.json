@@ -71,6 +71,13 @@
       "when": 1779393870469,
       "tag": "0009_faithful_lord_tyger",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779403658042,
+      "tag": "0010_amazing_molten_man",
+      "breakpoints": true
     }
   ]
 }

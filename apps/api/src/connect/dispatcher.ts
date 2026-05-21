@@ -103,6 +103,7 @@ export class ConnectDispatcher {
           partnerSlug: row.partner.slug,
           partnerRoleSlug: roleSlug,
           jwtSigningSecret: row.partner.jwtSigningSecret,
+          setupBaseUrl: row.partner.setupBaseUrl,
         });
         data = {
           externalUserId: row.sub.id,
@@ -262,6 +263,7 @@ export class ConnectDispatcher {
     partnerSlug: string;
     partnerRoleSlug: string;
     jwtSigningSecret: string;
+    setupBaseUrl: string;
   }): Promise<{ url: string; jti: string }> {
     const { db } = this.services.db;
 
@@ -281,16 +283,15 @@ export class ConnectDispatcher {
       expiresAt: result.expiresAt,
     });
 
-    // Default landing page is on the checkout app: `/connect/setup?t=<JWT>`.
-    // Partner can override on their side by configuring a redirect from
-    // the URL they expose. The first-line magic link always points at the
-    // checkout host so we don't depend on partner DNS being up.
-    const baseUrl = (this.services.env.CHECKOUT_PUBLIC_URL ?? 'https://pay.univercart.com').replace(
-      /\/$/,
-      '',
-    );
+    // Magic link points DIRECTLY at the partner's own setup endpoint
+    // (e.g. `https://zapgrup.com.br/connect/setup`). Partner controls
+    // the entire setup UX — Univercart hosts no landing page. The
+    // JWT carries everything the partner needs to validate the buyer
+    // and call `POST /v1/tokens/:jti/redeem` before showing the form.
+    const baseUrl = input.setupBaseUrl.replace(/\/$/, '');
+    const separator = baseUrl.includes('?') ? '&' : '?';
     return {
-      url: `${baseUrl}/connect/setup?t=${result.jwt}`,
+      url: `${baseUrl}${separator}t=${result.jwt}`,
       jti: result.jti,
     };
   }

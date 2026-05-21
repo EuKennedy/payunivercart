@@ -91,6 +91,7 @@ export const partnersRouter = router({
         contactEmail: schema.partnerAccounts.contactEmail,
         status: schema.partnerAccounts.status,
         trialAccessEnabled: schema.partnerAccounts.trialAccessEnabled,
+        setupBaseUrl: schema.partnerAccounts.setupBaseUrl,
         createdAt: schema.partnerAccounts.createdAt,
       })
       .from(schema.partnerAccounts)
@@ -110,6 +111,7 @@ export const partnersRouter = router({
         name: z.string().trim().min(1).max(120),
         contactEmail: z.string().email(),
         trialAccessEnabled: z.boolean().default(true),
+        setupBaseUrl: z.string().url(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -122,6 +124,7 @@ export const partnersRouter = router({
             contactEmail: input.contactEmail,
             status: 'active',
             trialAccessEnabled: input.trialAccessEnabled,
+            setupBaseUrl: input.setupBaseUrl,
             jwtSigningSecret: mintJwtSecret(),
           })
           .returning({ id: schema.partnerAccounts.id });
@@ -148,6 +151,7 @@ export const partnersRouter = router({
         contactEmail: z.string().email().optional(),
         status: z.enum(['pending', 'active', 'suspended']).optional(),
         trialAccessEnabled: z.boolean().optional(),
+        setupBaseUrl: z.string().url().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
