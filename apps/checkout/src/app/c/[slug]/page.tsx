@@ -68,16 +68,19 @@ export default function CheckoutPage({ params }: { params: Promise<{ slug: strin
   }
 
   // Subscription products short-circuit to a dedicated plan picker
-  // + recurring card flow. The template choice (single vs stepper)
-  // only governs one-time products today.
+  // + recurring card flow. The template choice (single / stepper /
+  // express) only governs one-time products today.
   if (product.data.product.isSubscription) {
     return <SubscriptionCheckoutView slug={slug} data={product.data} />;
   }
-  return product.data.workspace.checkoutTemplate === 'stepper' ? (
-    <StepperCheckoutView slug={slug} data={product.data} />
-  ) : (
-    <CheckoutView slug={slug} data={product.data} />
-  );
+  const tpl = product.data.workspace.checkoutTemplate;
+  if (tpl === 'express') {
+    return <ExpressCheckoutView slug={slug} data={product.data} />;
+  }
+  if (tpl === 'stepper') {
+    return <StepperCheckoutView slug={slug} data={product.data} />;
+  }
+  return <CheckoutView slug={slug} data={product.data} />;
 }
 
 function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
@@ -830,7 +833,14 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                   Nenhum plano ativo. Avise o produtor.
                 </p>
               ) : (
-                <div className="mt-5 flex flex-col gap-3">
+                <div
+                  className={clsx(
+                    'mt-6 grid gap-4',
+                    product.plans.length === 1 && 'grid-cols-1',
+                    product.plans.length === 2 && 'grid-cols-1 sm:grid-cols-2',
+                    product.plans.length >= 3 && 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                  )}
+                >
                   {product.plans.map((p) => (
                     <PlanPickCard
                       key={p.id}
@@ -1070,9 +1080,15 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
 }
 
 /**
- * Plan card rendered in the buyer's plan picker. Selected state uses
- * the brand color border + glow; "Mais escolhido" sits as a floating
- * pill on top-right.
+ * Plan card — vertical pricing-card layout for the buyer's plan
+ * grid. Stacks period pill (top) → name → big price → period label
+ * → trial hint → check pill (footer). Sits inside a CSS grid so 3
+ * plans render side-by-side on desktop, collapse to 2-col on tablet,
+ * 1-col on mobile.
+ *
+ * "Mais escolhido" plans get a floating pill ABOVE the card, a
+ * stronger border, and a translate-up so the card visually wins the
+ * eye even before the buyer reads anything.
  */
 function PlanPickCard({
   plan,
@@ -1094,61 +1110,86 @@ function PlanPickCard({
       onClick={onPick}
       aria-pressed={selected}
       className={clsx(
-        'group relative flex items-center justify-between gap-4 rounded-2xl border bg-[var(--surface-1)] p-5 text-left transition',
+        'group relative flex flex-col items-stretch gap-4 rounded-2xl border bg-[var(--surface-1)] p-6 text-left transition-all duration-200',
+        plan.isHighlighted && !selected && 'lg:-translate-y-2 lg:shadow-[var(--sh-md)]',
         selected
-          ? 'border-[var(--dop-500)] shadow-[0_8px_28px_-8px_var(--dop-glow)]'
-          : 'border-[var(--hairline)] hover:border-[var(--hairline-strong)] hover:bg-white/40',
+          ? 'lg:-translate-y-2 border-[var(--dop-500)] bg-[var(--dop-soft)] shadow-[0_12px_32px_-8px_var(--dop-glow)]'
+          : 'border-[var(--hairline)] hover:border-[var(--hairline-strong)] hover:bg-white/40 hover:shadow-[var(--sh-sm)]',
       )}
     >
       {plan.isHighlighted ? (
-        <span className="-top-3 absolute right-5 inline-flex items-center gap-1 rounded-full bg-[var(--dop-500)] px-3 py-1 font-semibold text-[10px] text-white uppercase tracking-[0.14em]">
+        <span className="-top-3 -translate-x-1/2 absolute left-1/2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[var(--dop-500)] px-3 py-1 font-semibold text-[10px] text-white uppercase tracking-[0.14em] shadow-[var(--sh-sm)]">
           ★ Mais escolhido
         </span>
       ) : null}
-      <div className="flex items-center gap-4">
+
+      <header className="flex items-center justify-between gap-3">
         <span
           className={clsx(
-            'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 transition',
+            'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-semibold text-[10px] uppercase tracking-[0.14em]',
+            plan.billingPeriod === 'yearly'
+              ? 'bg-[var(--dop-soft)] text-[var(--dop-600)]'
+              : 'bg-[var(--surface-2)] text-[var(--ink-70)]',
+          )}
+        >
+          {plan.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
+        </span>
+        <span
+          className={clsx(
+            'flex h-6 w-6 items-center justify-center rounded-full border-2 transition',
             selected
               ? 'border-[var(--dop-500)] bg-[var(--dop-500)] text-white'
               : 'border-[var(--hairline-strong)] text-transparent group-hover:border-[var(--ink-50)]',
           )}
+          aria-hidden="true"
         >
           <svg
             viewBox="0 0 16 16"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.4"
+            strokeWidth="2.6"
             aria-hidden="true"
-            className="size-4"
+            focusable="false"
+            className="size-3.5"
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
           </svg>
         </span>
-        <div className="min-w-0">
-          <p className="font-semibold text-[15px] text-[var(--ink-100)]">{plan.name}</p>
-          <p className="mt-0.5 text-[12px] text-[var(--ink-70)]">
-            {plan.billingPeriod === 'yearly' ? 'Cobrança anual' : 'Cobrança mensal'}
-            {plan.trialDays > 0 ? ` · ${plan.trialDays} dias grátis` : ''}
-          </p>
-        </div>
-      </div>
-      <div className="text-right">
-        <p className="font-semibold text-[20px] text-[var(--ink-100)] tabular-nums leading-none">
-          {formatCents(plan.amountCents, plan.currency)}
-          <span className="font-normal text-[12px] text-[var(--ink-50)]">/{perWord}</span>
+      </header>
+
+      <div>
+        <p className="font-semibold text-[16px] text-[var(--ink-100)]">{plan.name}</p>
+        <p className="mt-1 flex items-baseline gap-1">
+          <span className="font-semibold text-[32px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
+            {formatCents(plan.amountCents, plan.currency)}
+          </span>
+          <span className="text-[13px] text-[var(--ink-50)]">/{perWord}</span>
         </p>
         {monthlyEquivalent !== null ? (
-          <p className="mt-1 text-[11px] text-[var(--ink-50)]">
-            {formatCents(monthlyEquivalent, plan.currency)}/mês
+          <p className="mt-1.5 text-[12px] text-[var(--ink-50)]">
+            equivale a {formatCents(monthlyEquivalent, plan.currency)}/mês
           </p>
         ) : null}
         {annualSavings > 0 ? (
-          <p className="mt-1 font-semibold text-[11px] text-[var(--dop-600)]">
-            economize {annualSavings}%
+          <p className="mt-1.5 font-semibold text-[12px] text-[var(--dop-600)]">
+            economize {annualSavings}% vs mensal
           </p>
         ) : null}
       </div>
+
+      <footer className="mt-auto flex items-center justify-between gap-2 border-[var(--hairline)] border-t pt-4">
+        <span className="text-[12px] text-[var(--ink-70)]">
+          {plan.trialDays > 0 ? `${plan.trialDays} dias de trial` : 'Cancele quando quiser'}
+        </span>
+        <span
+          className={clsx(
+            'font-semibold text-[11px] uppercase tracking-[0.14em] transition',
+            selected ? 'text-[var(--dop-600)]' : 'text-[var(--ink-50)]',
+          )}
+        >
+          {selected ? 'Selecionado' : 'Escolher'}
+        </span>
+      </footer>
     </button>
   );
 }
@@ -2087,6 +2128,692 @@ function MethodPickCard({
 /* -------------------------------------------------------------------------- */
 /* Header                                                                     */
 /* -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- */
+/* ExpressCheckoutView — Lizzon-style 3-column layout                         */
+/*                                                                            */
+/* Identificação | Pagamento | Resumo side-by-side on desktop. All 3 cards    */
+/* visible from the first frame so the buyer sees the entire flow up front —  */
+/* highest-converting layout for one-page checkouts with strong product       */
+/* fit (Lizzon, Eduzz, Hotmart). On tablet collapses to 2-col (form left +    */
+/* summary right), on mobile stacks vertically.                               */
+/*                                                                            */
+/* State model is intentionally identical to CheckoutView — only the outer    */
+/* composition differs. Helpers (Field, MethodTabs, SuccessView, ...) are     */
+/* reused as-is.                                                              */
+/* -------------------------------------------------------------------------- */
+
+function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
+  const { product, workspace } = data;
+
+  const [step, setStep] = useState<'identify' | 'pay'>('identify');
+  const [method, setMethod] = useState<Method>('pix');
+  const [installments, setInstallments] = useState(1);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [doc, setDoc] = useState('');
+  const [phone, setPhone] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvc, setCardCvc] = useState('');
+  const [cardHolder, setCardHolder] = useState('');
+  const [addrZip, setAddrZip] = useState('');
+  const [addrStreet, setAddrStreet] = useState('');
+  const [addrNumber, setAddrNumber] = useState('');
+  const [addrComplement, setAddrComplement] = useState('');
+  const [addrNeighborhood, setAddrNeighborhood] = useState('');
+  const [addrCity, setAddrCity] = useState('');
+  const [addrState, setAddrState] = useState('');
+  const [addrLookup, setAddrLookup] = useState<'idle' | 'loading' | 'error' | 'ok'>('idle');
+
+  const createOrder = trpc.checkout.createOrder.useMutation();
+
+  const formattedTotal = useMemo(
+    () => formatCents(product.priceCents, product.currency),
+    [product.priceCents, product.currency],
+  );
+  const perInstallment = useMemo(() => {
+    if (product.maxInstallments < 2) return null;
+    return formatCents(Math.ceil(product.priceCents / product.maxInstallments), product.currency);
+  }, [product.maxInstallments, product.currency, product.priceCents]);
+
+  const docDigits = unmaskDigits(doc);
+  const phoneDigits = unmaskDigits(phone);
+  const cardDigits = unmaskDigits(cardNumber);
+  const expiryDigits = unmaskDigits(cardExpiry);
+
+  const identifyComplete =
+    name.trim().length >= 2 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    (docDigits.length === 11 || docDigits.length === 14) &&
+    phoneDigits.length >= 10;
+
+  const trimmedHolder = cardHolder.trim() || name.trim();
+  const cardComplete =
+    method !== 'credit_card' ||
+    (cardDigits.length >= 13 &&
+      expiryDigits.length === 4 &&
+      cardCvc.length >= 3 &&
+      trimmedHolder.length >= 2);
+
+  const addressZipDigits = unmaskDigits(addrZip);
+  const addressComplete =
+    method !== 'boleto' ||
+    (addressZipDigits.length === 8 &&
+      addrStreet.trim().length >= 2 &&
+      addrNumber.trim().length >= 1 &&
+      addrNeighborhood.trim().length >= 2 &&
+      addrCity.trim().length >= 2 &&
+      addrState.trim().length === 2);
+
+  const submitDisabled =
+    !identifyComplete || !cardComplete || !addressComplete || createOrder.isPending;
+
+  const lookupZip = async (zip: string) => {
+    const digits = unmaskDigits(zip);
+    if (digits.length !== 8) return;
+    setAddrLookup('loading');
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) throw new Error(`viacep ${res.status}`);
+      const json = (await res.json()) as {
+        erro?: boolean;
+        logradouro?: string;
+        bairro?: string;
+        localidade?: string;
+        uf?: string;
+      };
+      if (json.erro) {
+        setAddrLookup('error');
+        return;
+      }
+      setAddrStreet(json.logradouro ?? '');
+      setAddrNeighborhood(json.bairro ?? '');
+      setAddrCity(json.localidade ?? '');
+      setAddrState((json.uf ?? '').toUpperCase());
+      setAddrLookup('ok');
+    } catch {
+      setAddrLookup('error');
+    }
+  };
+
+  const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!identifyComplete) {
+      setStep('identify');
+      return;
+    }
+    createOrder.mutate({
+      slug,
+      method,
+      installments: method === 'credit_card' ? installments : undefined,
+      buyer: {
+        name: name.trim(),
+        email: email.trim(),
+        document: doc,
+        phone,
+      },
+      card:
+        method === 'credit_card'
+          ? {
+              number: cardNumber,
+              expiry: cardExpiry,
+              cvc: cardCvc,
+              holderName: trimmedHolder || 'APRO',
+            }
+          : undefined,
+      address:
+        method === 'boleto'
+          ? {
+              zipCode: addrZip,
+              street: addrStreet.trim(),
+              number: addrNumber.trim(),
+              complement: addrComplement.trim() || undefined,
+              neighborhood: addrNeighborhood.trim(),
+              city: addrCity.trim(),
+              state: addrState.trim().toUpperCase(),
+              country: 'BR',
+            }
+          : undefined,
+    });
+  };
+
+  if (createOrder.data) {
+    return (
+      <CenteredCard wide>
+        <SuccessView
+          orderId={createOrder.data.orderId}
+          reference={createOrder.data.publicReference}
+          methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
+          formattedTotal={formattedTotal}
+          buyerEmail={email.trim()}
+          pixQrCodeImage={createOrder.data.pixQrCodeImage}
+          pixCopyPaste={createOrder.data.pixCopyPaste}
+          pixExpiresAt={createOrder.data.pixExpiresAt}
+          boletoUrl={createOrder.data.boletoUrl}
+          boletoBarcode={createOrder.data.boletoBarcode}
+          gatewayConfigured={createOrder.data.gatewayConfigured}
+          initialStatus={createOrder.data.status}
+        />
+      </CenteredCard>
+    );
+  }
+
+  const brandTone = workspace.brandPrimaryColor;
+  const brandPalette = brandTone ? deriveBrandPalette(brandTone) : null;
+  const identifyDone = step === 'pay' && identifyComplete;
+  const payActive = step === 'pay';
+
+  return (
+    <main
+      className="min-h-screen"
+      style={
+        brandPalette
+          ? ({
+              '--dop-400': brandPalette.light,
+              '--dop-500': brandPalette.mid,
+              '--dop-600': brandPalette.dark,
+              '--dop-soft': `${brandPalette.mid}10`,
+              '--dop-glow': `${brandPalette.mid}38`,
+              '--dop-hairline': `${brandPalette.mid}38`,
+            } as React.CSSProperties)
+          : undefined
+      }
+    >
+      <ProducerHeader workspace={workspace} brandTone={brandTone} />
+
+      <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1400px] py-6 sm:py-10">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr_0.9fr]">
+          {/* ===== Col 1 — Identificação ===== */}
+          <ExpressCard
+            stepNum={1}
+            label="Identificação"
+            state={identifyDone ? 'done' : 'active'}
+            onEdit={identifyDone ? () => setStep('identify') : undefined}
+          >
+            {step === 'identify' ? (
+              <div className="flex flex-col gap-4">
+                <Field label="Nome completo">
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Como aparece no documento"
+                    autoComplete="name"
+                  />
+                </Field>
+                <Field label="Email">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="voce@empresa.com"
+                    autoComplete="email"
+                    inputMode="email"
+                  />
+                </Field>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="CPF / CNPJ">
+                    <input
+                      type="text"
+                      value={doc}
+                      onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
+                      placeholder="000.000.000-00"
+                      inputMode="numeric"
+                    />
+                  </Field>
+                  <Field label="Telefone">
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(maskBrPhone(e.target.value))}
+                      placeholder="(11) 91234-5678"
+                      inputMode="tel"
+                      autoComplete="tel"
+                    />
+                  </Field>
+                </div>
+                <p className="text-[12px] text-[var(--ink-50)] leading-[1.5]">
+                  Usaremos seu telefone para enviar o acesso por WhatsApp.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => identifyComplete && setStep('pay')}
+                  disabled={!identifyComplete}
+                  className="btn btn-primary mt-1 w-full text-[15px]"
+                >
+                  Ir para o pagamento →
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3 text-[13px]">
+                <div>
+                  <p className="font-semibold text-[10px] text-[var(--ink-50)] uppercase tracking-[0.14em]">
+                    Dados pessoais
+                  </p>
+                  <p className="mt-1 font-semibold text-[var(--ink-100)]">{name}</p>
+                  <p className="text-[var(--ink-70)]">{email}</p>
+                </div>
+                <div className="border-[var(--hairline)] border-t pt-3">
+                  <p className="text-[var(--ink-70)]">
+                    {doc} · {phone}
+                  </p>
+                </div>
+              </div>
+            )}
+          </ExpressCard>
+
+          {/* ===== Col 2 — Pagamento ===== */}
+          <ExpressCard stepNum={2} label="Pagamento" state={payActive ? 'active' : 'pending'}>
+            {!payActive ? (
+              <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
+                Complete seus dados de identificação para continuar.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-5">
+                <MethodTabs
+                  current={method}
+                  onChange={setMethod}
+                  acceptBoleto={workspace.acceptBoleto}
+                />
+
+                {method === 'pix' ? (
+                  <p className="text-[13px] text-[var(--ink-70)] leading-[1.55]">
+                    Você vai receber um QR-code para pagar no app do seu banco. Aprovação em
+                    segundos.
+                  </p>
+                ) : null}
+
+                {method === 'boleto' ? (
+                  <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-4">
+                    <p className="text-[12px] text-[var(--ink-70)] leading-[1.5]">
+                      O boleto leva até 2 dias úteis. Endereço de cobrança é exigência bancária.
+                    </p>
+                    <div className="grid grid-cols-[140px_1fr] gap-3">
+                      <Field label="CEP">
+                        <input
+                          type="text"
+                          value={addrZip}
+                          onChange={(e) => {
+                            const next = maskZip(e.target.value);
+                            setAddrZip(next);
+                            if (unmaskDigits(next).length === 8) {
+                              void lookupZip(next);
+                            } else {
+                              setAddrLookup('idle');
+                            }
+                          }}
+                          placeholder="00000-000"
+                          inputMode="numeric"
+                          autoComplete="postal-code"
+                        />
+                      </Field>
+                      <Field
+                        label={
+                          addrLookup === 'loading'
+                            ? 'Buscando endereço…'
+                            : addrLookup === 'error'
+                              ? 'CEP não encontrado'
+                              : 'Rua'
+                        }
+                      >
+                        <input
+                          type="text"
+                          value={addrStreet}
+                          onChange={(e) => setAddrStreet(e.target.value)}
+                          placeholder="Av. Paulista"
+                          autoComplete="address-line1"
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-[100px_1fr] gap-3">
+                      <Field label="Número">
+                        <input
+                          type="text"
+                          value={addrNumber}
+                          onChange={(e) => setAddrNumber(e.target.value)}
+                          placeholder="123"
+                          inputMode="numeric"
+                        />
+                      </Field>
+                      <Field label="Complemento (opcional)">
+                        <input
+                          type="text"
+                          value={addrComplement}
+                          onChange={(e) => setAddrComplement(e.target.value)}
+                          placeholder="Sala 7…"
+                          maxLength={80}
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-[1.4fr_1fr_60px] gap-3">
+                      <Field label="Bairro">
+                        <input
+                          type="text"
+                          value={addrNeighborhood}
+                          onChange={(e) => setAddrNeighborhood(e.target.value)}
+                          placeholder="Bela Vista"
+                        />
+                      </Field>
+                      <Field label="Cidade">
+                        <input
+                          type="text"
+                          value={addrCity}
+                          onChange={(e) => setAddrCity(e.target.value)}
+                          placeholder="São Paulo"
+                          autoComplete="address-level2"
+                        />
+                      </Field>
+                      <Field label="UF">
+                        <input
+                          type="text"
+                          value={addrState}
+                          onChange={(e) =>
+                            setAddrState(e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase())
+                          }
+                          placeholder="SP"
+                          maxLength={2}
+                          autoComplete="address-level1"
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                ) : null}
+
+                {method === 'credit_card' ? (
+                  <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-4">
+                    <Field label="Nome impresso no cartão">
+                      <input
+                        type="text"
+                        value={cardHolder}
+                        onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                        placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
+                        autoComplete="cc-name"
+                        maxLength={60}
+                      />
+                    </Field>
+                    <Field label="Número do cartão">
+                      <input
+                        type="text"
+                        value={cardNumber}
+                        onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                        placeholder="0000 0000 0000 0000"
+                        inputMode="numeric"
+                        autoComplete="cc-number"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Validade (MM/AA)">
+                        <input
+                          type="text"
+                          value={cardExpiry}
+                          onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
+                          placeholder="12/30"
+                          inputMode="numeric"
+                          autoComplete="cc-exp"
+                        />
+                      </Field>
+                      <Field label="CVV">
+                        <input
+                          type="text"
+                          value={cardCvc}
+                          onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
+                          placeholder="000"
+                          inputMode="numeric"
+                          autoComplete="cc-csc"
+                        />
+                      </Field>
+                    </div>
+                    {product.maxInstallments > 1 ? (
+                      <Field label="Parcelas">
+                        <select
+                          value={installments}
+                          onChange={(e) => setInstallments(Number.parseInt(e.target.value, 10))}
+                        >
+                          {Array.from({ length: product.maxInstallments }, (_, i) => i + 1).map(
+                            (n) => (
+                              <option key={n} value={n}>
+                                {n === 1
+                                  ? `1× — ${formattedTotal}`
+                                  : `${n}× — ${formatCents(Math.ceil(product.priceCents / n), product.currency)} sem juros`}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </Field>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {createOrder.error ? (
+                  <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger-text)] leading-[1.5]">
+                    {createOrder.error.message}
+                  </p>
+                ) : null}
+
+                <button
+                  type="submit"
+                  disabled={submitDisabled}
+                  className="btn btn-primary mt-1 inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
+                >
+                  <LockIcon size={14} />{' '}
+                  {createOrder.isPending ? 'Processando…' : `Finalizar pedido · ${formattedTotal}`}
+                </button>
+                <SecurityLine />
+              </div>
+            )}
+          </ExpressCard>
+
+          {/* ===== Col 3 — Resumo + trust ===== */}
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            <div className="glass-card p-5">
+              <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
+                Resumo do pedido
+              </p>
+              <div className="mt-4 flex items-start gap-3 border-[var(--hairline)] border-b pb-4">
+                {product.coverImageUrl ? (
+                  <img
+                    src={product.coverImageUrl}
+                    alt={product.name}
+                    className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                  />
+                ) : (
+                  <span
+                    className="grid h-14 w-14 shrink-0 place-items-center rounded-xl font-semibold text-[16px] text-white"
+                    style={{
+                      background:
+                        brandTone ??
+                        'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
+                    }}
+                  >
+                    {(product.name[0] ?? '·').toUpperCase()}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-[13px] text-[var(--ink-100)] leading-tight">
+                    {product.name}
+                  </p>
+                  <p className="mt-1 text-[12px] text-[var(--ink-50)]">Quantidade: 1</p>
+                </div>
+                <p className="shrink-0 font-semibold text-[13px] text-[var(--ink-100)] tabular-nums">
+                  {formattedTotal}
+                </p>
+              </div>
+
+              <dl className="mt-4 space-y-2 text-[13px]">
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-[var(--ink-70)]">Subtotal</dt>
+                  <dd className="text-[var(--ink-90)] tabular-nums">{formattedTotal}</dd>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-[var(--ink-70)]">Frete</dt>
+                  <dd className="font-medium text-[var(--dop-600)]">
+                    {product.type === 'physical' ? 'a calcular' : 'Grátis'}
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="mt-4 flex items-end justify-between border-[var(--hairline)] border-t pt-4">
+                <span className="font-semibold text-[12px] text-[var(--ink-70)] uppercase tracking-[0.14em]">
+                  Total
+                </span>
+                <div className="text-right">
+                  <span className="font-semibold text-[26px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
+                    {formattedTotal}
+                  </span>
+                  {product.maxInstallments > 1 && perInstallment ? (
+                    <p className="mt-1 font-semibold text-[11px] text-[var(--dop-600)]">
+                      até {product.maxInstallments}× de {perInstallment} sem juros
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <ul className="flex flex-col gap-2.5 rounded-2xl border border-[var(--hairline)] bg-[var(--bg-elev-1)] p-4 text-[12px] text-[var(--ink-70)]">
+              <TrustItem>Compra 100% segura e criptografada</TrustItem>
+              <TrustItem>Produto entregue por email + WhatsApp</TrustItem>
+              <TrustItem>Suporte humano por WhatsApp</TrustItem>
+            </ul>
+          </aside>
+        </div>
+      </form>
+
+      <footer className="mt-6 border-[var(--hairline)] border-t bg-[var(--bg-elev-1)]/60">
+        <div className="container-x mx-auto flex w-full max-w-[1400px] flex-col items-center gap-1 py-5 text-center text-[11px] text-[var(--ink-50)]">
+          <p className="inline-flex flex-wrap items-center justify-center gap-1.5">
+            Pagamento processado por{' '}
+            <img
+              src="/payunivercart-logo.png"
+              alt="payunivercart"
+              className="inline-block h-[14px] w-auto opacity-80"
+            />
+            . Ao confirmar, você concorda com os termos e a política de privacidade do produtor.
+          </p>
+          <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+/**
+ * Express layout card — single-column inside a 3-col grid. Header is
+ * Lizzon-style: "1. Identificação ✓" / "2. Pagamento" with an
+ * "ALTERAR" link on done cards.
+ */
+function ExpressCard({
+  stepNum,
+  label,
+  state,
+  children,
+  onEdit,
+}: {
+  stepNum: number;
+  label: string;
+  state: 'active' | 'done' | 'pending';
+  children: React.ReactNode;
+  onEdit?: () => void;
+}) {
+  return (
+    <section
+      className={clsx(
+        'glass-card relative overflow-hidden p-5 transition',
+        state === 'active' && 'ring-1 ring-[var(--dop-hairline)]',
+        state === 'pending' && 'opacity-60',
+      )}
+    >
+      <header
+        className={clsx(
+          'mb-5 flex items-center justify-between border-[var(--hairline)] border-b pb-4',
+          state === 'active' && 'text-[var(--dop-600)]',
+        )}
+      >
+        <span className="flex items-center gap-2 font-semibold text-[14px]">
+          <span className="font-bold">{stepNum}.</span>
+          <span className={state === 'pending' ? 'text-[var(--ink-50)]' : ''}>{label}</span>
+          {state === 'done' ? (
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--dop-500)] text-white">
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.6"
+                aria-hidden="true"
+                className="size-3"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+              </svg>
+            </span>
+          ) : null}
+        </span>
+        {onEdit && state === 'done' ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex items-center gap-1 font-semibold text-[11px] text-[var(--ink-70)] uppercase tracking-[0.14em] hover:text-[var(--ink-100)]"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              aria-hidden="true"
+              className="size-3"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M2.5 13.5L5 13l8-8-2.5-2.5-8 8z"
+              />
+            </svg>
+            Alterar
+          </button>
+        ) : null}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function TrustItem({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-2">
+      <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--dop-500)] text-white">
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.6"
+          aria-hidden="true"
+          className="size-2.5"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+        </svg>
+      </span>
+      <span>{children}</span>
+    </li>
+  );
+}
+
+function LockIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="4" y="11" width="16" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
 
 function ProducerHeader({
   workspace,

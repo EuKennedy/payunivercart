@@ -100,9 +100,10 @@ export default function CheckoutConfigPage() {
     },
   });
 
-  const selectedTemplate: 'single' | 'stepper' = profile.data?.checkoutTemplate ?? 'single';
+  const selectedTemplate: 'single' | 'stepper' | 'express' =
+    profile.data?.checkoutTemplate ?? 'single';
   const acceptBoleto: boolean = profile.data?.acceptBoleto ?? true;
-  const pickTemplate = (next: 'single' | 'stepper') => {
+  const pickTemplate = (next: 'single' | 'stepper' | 'express') => {
     if (next === selectedTemplate) return;
     updateProfile.mutate({ checkoutTemplate: next });
   };
@@ -225,7 +226,7 @@ export default function CheckoutConfigPage() {
           Escolha o layout que o comprador vai ver em todos os seus produtos. O modelo de etapa
           única converte melhor em impulso; o passo-a-passo passa mais segurança em tickets altos.
         </p>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <TemplateOption
             templateId="single"
             title="Etapa única"
@@ -245,6 +246,16 @@ export default function CheckoutConfigPage() {
             pending={updateProfile.isPending}
             onPick={() => pickTemplate('stepper')}
             preview={<TemplatePreviewStepper />}
+          />
+          <TemplateOption
+            templateId="express"
+            title="Express 3 colunas"
+            tagline="Lizzon style"
+            description="Identificação, Pagamento e Resumo lado-a-lado. Buyer vê todo o contexto numa tela só — máxima conversão em desktop."
+            selected={selectedTemplate === 'express'}
+            pending={updateProfile.isPending}
+            onPick={() => pickTemplate('express')}
+            preview={<TemplatePreviewExpress />}
           />
         </div>
         {updateProfile.error ? (
@@ -355,7 +366,7 @@ function TemplateOption({
   preview,
   onPick,
 }: {
-  templateId: 'single' | 'stepper';
+  templateId: 'single' | 'stepper' | 'express';
   title: string;
   tagline: string;
   description: string;
@@ -491,6 +502,83 @@ function TemplatePreviewStepper() {
       <rect x="180" y="32" width="32" height="4" rx="1.5" fill="#94a3b8" />
       <rect x="180" y="42" width="40" height="4" rx="1.5" fill="#e2e8f0" />
       <rect x="180" y="92" width="40" height="8" rx="2" fill="#16a34a" />
+    </svg>
+  );
+}
+
+/** Wire-frame style preview: 3 columns side-by-side (Lizzon style). */
+function TemplatePreviewExpress() {
+  return (
+    <svg
+      viewBox="0 0 240 130"
+      className="h-[130px] w-full"
+      role="img"
+      aria-label="Preview do checkout em 3 colunas"
+    >
+      <title>Express 3 colunas</title>
+      <rect x="0" y="0" width="240" height="130" fill="transparent" />
+      {/* Header */}
+      <rect x="12" y="10" width="60" height="6" rx="2" fill="#cbd5e1" />
+
+      {/* Col 1 — Identificação (active) */}
+      <rect
+        x="12"
+        y="22"
+        width="68"
+        height="98"
+        rx="6"
+        fill="#fff"
+        stroke="#16a34a"
+        strokeOpacity="0.55"
+        strokeWidth="1.4"
+      />
+      <rect x="20" y="28" width="40" height="4" rx="1.5" fill="#0f172a" />
+      <circle cx="74" cy="30" r="2.5" fill="#16a34a" />
+      <rect x="20" y="40" width="52" height="6" rx="2" fill="#f1f5f9" />
+      <rect x="20" y="50" width="52" height="6" rx="2" fill="#f1f5f9" />
+      <rect x="20" y="60" width="24" height="6" rx="2" fill="#f1f5f9" />
+      <rect x="48" y="60" width="24" height="6" rx="2" fill="#f1f5f9" />
+      <rect x="20" y="74" width="22" height="3" rx="1" fill="#94a3b8" />
+      <rect
+        x="20"
+        y="82"
+        width="52"
+        height="14"
+        rx="3"
+        fill="#e2e8f0"
+        stroke="#16a34a"
+        strokeOpacity="0.45"
+      />
+      <rect x="20" y="100" width="52" height="14" rx="3" fill="#e2e8f0" />
+
+      {/* Col 2 — Pagamento */}
+      <rect x="86" y="22" width="68" height="98" rx="6" fill="#fff" stroke="#e2e8f0" />
+      <rect x="94" y="28" width="40" height="4" rx="1.5" fill="#0f172a" />
+      <rect x="94" y="42" width="52" height="10" rx="3" fill="#f8fafc" stroke="#e2e8f0" />
+      <rect x="94" y="60" width="22" height="3" rx="1" fill="#94a3b8" />
+      <rect x="94" y="68" width="52" height="14" rx="3" fill="#fff" stroke="#e2e8f0" />
+      <circle cx="100" cy="75" r="2.5" fill="none" stroke="#cbd5e1" />
+      <rect x="106" y="73" width="20" height="4" rx="1.5" fill="#0f172a" />
+      <rect x="94" y="86" width="52" height="14" rx="3" fill="#fff" stroke="#e2e8f0" />
+      <circle cx="100" cy="93" r="2.5" fill="none" stroke="#cbd5e1" />
+      <rect x="106" y="91" width="28" height="4" rx="1.5" fill="#0f172a" />
+      <rect x="94" y="106" width="52" height="10" rx="3" fill="#16a34a" />
+
+      {/* Col 3 — Resumo */}
+      <rect x="160" y="22" width="68" height="98" rx="6" fill="#fff" stroke="#e2e8f0" />
+      <rect x="168" y="28" width="32" height="3" rx="1" fill="#94a3b8" />
+      <rect x="168" y="36" width="12" height="12" rx="2" fill="#cbd5e1" />
+      <rect x="184" y="38" width="36" height="3.5" rx="1" fill="#0f172a" />
+      <rect x="184" y="44" width="22" height="3" rx="1" fill="#94a3b8" />
+      <rect x="168" y="56" width="52" height="0.5" fill="#e2e8f0" />
+      <rect x="168" y="62" width="34" height="3" rx="1" fill="#94a3b8" />
+      <rect x="208" y="62" width="12" height="3" rx="1" fill="#0f172a" />
+      <rect x="168" y="72" width="22" height="3" rx="1" fill="#94a3b8" />
+      <rect x="200" y="72" width="20" height="3" rx="1" fill="#16a34a" />
+      <rect x="168" y="82" width="52" height="0.5" fill="#e2e8f0" />
+      <rect x="168" y="88" width="20" height="4" rx="1.5" fill="#0f172a" />
+      <rect x="196" y="86" width="24" height="6" rx="1.5" fill="#0f172a" />
+      <rect x="168" y="106" width="52" height="8" rx="2" fill="#16a34a" />
     </svg>
   );
 }

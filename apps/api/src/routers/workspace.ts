@@ -108,7 +108,7 @@ export const workspaceRouter = router({
         locale: z.string(),
         timezone: z.string(),
         notificationPhoneE164: z.string().nullable(),
-        checkoutTemplate: z.enum(['single', 'stepper']),
+        checkoutTemplate: z.enum(['single', 'stepper', 'express']),
         acceptBoleto: z.boolean(),
       }),
     )
@@ -138,7 +138,11 @@ export const workspaceRouter = router({
         timezone: row.timezone,
         notificationPhoneE164: row.notificationPhoneE164,
         checkoutTemplate:
-          row.checkoutTemplate === 'stepper' ? ('stepper' as const) : ('single' as const),
+          row.checkoutTemplate === 'stepper'
+            ? ('stepper' as const)
+            : row.checkoutTemplate === 'express'
+              ? ('express' as const)
+              : ('single' as const),
         acceptBoleto: row.acceptBoleto,
       };
     }),
@@ -180,7 +184,7 @@ export const workspaceRouter = router({
          * layouts. Persisted on the workspace because every product
          * shares the same producer-facing brand surface.
          */
-        checkoutTemplate: z.enum(['single', 'stepper']).optional(),
+        checkoutTemplate: z.enum(['single', 'stepper', 'express']).optional(),
         /**
          * Toggle the Boleto option in the public checkout. Default
          * true on insert; producer flips off for digital-only flows.

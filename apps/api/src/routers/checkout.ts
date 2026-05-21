@@ -91,7 +91,7 @@ const WorkspacePublicShape = z.object({
    * on the same page, `stepper` walks through 3 numbered cards. The
    * producer picks under Configurações → Meu checkout.
    */
-  checkoutTemplate: z.enum(['single', 'stepper']),
+  checkoutTemplate: z.enum(['single', 'stepper', 'express']),
   /**
    * When false the public checkout hides the Boleto method tab —
    * producer set this in Configurações → Meu checkout.
@@ -306,7 +306,9 @@ export const checkoutRouter = router({
           checkoutTemplate:
             row.workspaceCheckoutTemplate === 'stepper'
               ? ('stepper' as const)
-              : ('single' as const),
+              : row.workspaceCheckoutTemplate === 'express'
+                ? ('express' as const)
+                : ('single' as const),
           acceptBoleto: row.workspaceAcceptBoleto,
         },
       };
