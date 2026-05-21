@@ -101,6 +101,7 @@ COPY packages/auth/package.json packages/auth/
 COPY packages/shared/package.json packages/shared/
 COPY packages/crypto/package.json packages/crypto/
 COPY packages/audit/package.json packages/audit/
+COPY packages/connect/package.json packages/connect/
 COPY packages/db/package.json packages/db/
 COPY packages/payments/package.json packages/payments/
 COPY packages/emails/package.json packages/emails/
