@@ -206,7 +206,7 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
             </Field>
           </div>
         ) : (
-          <SubscriptionPlansSection productId={id} />
+          <SubscriptionPlansSection productId={id} productSlug={product.data.slug} />
         )}
 
         <label className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
@@ -394,8 +394,25 @@ function TypeCard({
  * add a new one. Edit happens via a small popover, delete via the
  * deleteRow action with the FK restriction handled server-side.
  */
-function SubscriptionPlansSection({ productId }: { productId: string }) {
+function SubscriptionPlansSection({
+  productId,
+  productSlug,
+}: {
+  productId: string;
+  productSlug: string;
+}) {
   const utils = trpc.useUtils();
+  const [copiedPlanId, setCopiedPlanId] = useState<string | null>(null);
+  const copyPlanLink = async (planId: string) => {
+    const url = `${CHECKOUT_URL}/c/${productSlug}?plan=${planId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedPlanId(planId);
+      window.setTimeout(() => setCopiedPlanId((prev) => (prev === planId ? null : prev)), 1800);
+    } catch {
+      window.prompt('Copie o link manualmente:', url);
+    }
+  };
   const plans = trpc.subscriptions.listPlans.useQuery({ productId }, { staleTime: 15_000 });
   const create = trpc.subscriptions.createPlan.useMutation({
     onSuccess: () => utils.subscriptions.listPlans.invalidate({ productId }),
@@ -501,6 +518,47 @@ function SubscriptionPlansSection({ productId }: { productId: string }) {
                 </span>
               </span>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => copyPlanLink(p.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium text-[12px] transition ${
+                    copiedPlanId === p.id
+                      ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
+                      : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
+                  }`}
+                  title="Link de checkout pré-selecionando este plano"
+                >
+                  {copiedPlanId === p.id ? (
+                    <>
+                      <svg
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.4"
+                        aria-hidden="true"
+                        className="size-3"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+                      </svg>
+                      Link copiado
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        aria-hidden="true"
+                        className="size-3.5"
+                      >
+                        <rect x="4" y="4" width="9" height="9" rx="1.5" />
+                        <path d="M11 4V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
+                      </svg>
+                      Copiar link
+                    </>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => update.mutate({ id: p.id, isHighlighted: !p.isHighlighted })}

@@ -3,6 +3,7 @@
 import type { AppRouter } from '@payunivercart/api/routers';
 import type { inferRouterOutputs } from '@trpc/server';
 import clsx from 'clsx';
+import { useSearchParams } from 'next/navigation';
 import { use, useMemo, useState } from 'react';
 import { ThemeToggle } from '../../../components/ThemeToggle';
 import {
@@ -67,9 +68,11 @@ export default function CheckoutPage({ params }: { params: Promise<{ slug: strin
     );
   }
 
-  // Subscription products short-circuit to a dedicated plan picker
-  // + recurring card flow. The template choice (single / stepper /
-  // express) only governs one-time products today.
+  // Subscription products use a dedicated plan picker + recurring
+  // card flow. The view itself branches on workspace.checkoutTemplate:
+  //  - `express`  → 3-col Lizzon layout (Plano | Identificação+Cartão | Resumo)
+  //  - `stepper`  → 3-step accordion (Plano → Identificação → Cartão)
+  //  - `single`   → 2-col single-page (default)
   if (product.data.product.isSubscription) {
     return <SubscriptionCheckoutView slug={slug} data={product.data} />;
   }
@@ -694,10 +697,25 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 function SubscriptionCheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
 
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(() => {
-    const highlighted = product.plans.find((p) => p.isHighlighted);
-    return (highlighted ?? product.plans[0])?.id ?? null;
-  });
+  /**
+   * Per-plan deep link. Producers can share `/c/<slug>?plan=<planId>`
+   * so the buyer lands directly on a pre-selected plan and (for
+   * stepper template) skips straight to the identification step. The
+   * id is validated against the product's actual plans — a stale or
+   * tampered id silently falls back to the default highlighted plan.
+   */
+  const searchParams = useSearchParams();
+  const requestedPlanId = searchParams.get('plan');
+  const initialPlan = (() => {
+    if (requestedPlanId) {
+      const match = product.plans.find((p) => p.id === requestedPlanId);
+      if (match) return match;
+    }
+    return product.plans.find((p) => p.isHighlighted) ?? product.plans[0] ?? null;
+  })();
+  const planPrelocked = !!(requestedPlanId && initialPlan && initialPlan.id === requestedPlanId);
+
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(initialPlan?.id ?? null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [doc, setDoc] = useState('');
@@ -706,6 +724,12 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvc, setCardCvc] = useState('');
   const [cardHolder, setCardHolder] = useState('');
+  // Stepper template walks the buyer through 3 cards sequentially:
+  // Plano → Identificação → Cartão. When a deep link pre-selects the
+  // plan, jump straight to identification so the buyer doesn't re-pick.
+  const [stepperStep, setStepperStep] = useState<'plan' | 'identify' | 'pay'>(
+    planPrelocked ? 'identify' : 'plan',
+  );
 
   const subscribe = trpc.subscriptions.subscribe.useMutation();
 
@@ -792,6 +816,647 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
 
   const brandTone = workspace.brandPrimaryColor;
   const brandPalette = brandTone ? deriveBrandPalette(brandTone) : null;
+
+  // Express 3-column variant for subscriptions. Mirrors the
+  // ExpressCheckoutView shape (Plano | Identificação+Cartão | Resumo)
+  // but tailored to the recurring flow: only credit card, plan picker
+  // gates the payment column instead of an identification step.
+  if (workspace.checkoutTemplate === 'express') {
+    const planChosen = !!selectedPlan;
+    const planState: 'active' | 'done' = planChosen ? 'done' : 'active';
+    const payState: 'active' | 'pending' = planChosen ? 'active' : 'pending';
+    return (
+      <main
+        className="min-h-screen"
+        style={
+          brandPalette
+            ? ({
+                '--dop-400': brandPalette.light,
+                '--dop-500': brandPalette.mid,
+                '--dop-600': brandPalette.dark,
+                '--dop-soft': `${brandPalette.mid}10`,
+                '--dop-glow': `${brandPalette.mid}38`,
+                '--dop-hairline': `${brandPalette.mid}38`,
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
+        <ProducerHeader workspace={workspace} brandTone={brandTone} />
+
+        <form
+          onSubmit={onSubmit}
+          className="container-x mx-auto w-full max-w-[1400px] py-6 sm:py-10"
+        >
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr_0.9fr]">
+            {/* ===== Col 1 — Plano ===== */}
+            <ExpressCard stepNum={1} label="Plano" state={planState}>
+              {product.plans.length === 0 ? (
+                <p className="rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
+                  Nenhum plano ativo. Avise o produtor.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {product.plans.map((p) => (
+                    <PlanPickCard
+                      key={p.id}
+                      plan={p}
+                      selected={p.id === selectedPlanId}
+                      onPick={() => setSelectedPlanId(p.id)}
+                      annualSavings={
+                        p.billingPeriod === 'yearly' && annualSavingsPct > 0 ? annualSavingsPct : 0
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </ExpressCard>
+
+            {/* ===== Col 2 — Identificação + Cartão ===== */}
+            <ExpressCard stepNum={2} label="Pagamento" state={payState}>
+              {!planChosen ? (
+                <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
+                  Escolha um plano ao lado para continuar.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-5">
+                  <div className="flex flex-col gap-4">
+                    <Field label="Nome completo">
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="Como aparece no documento"
+                        autoComplete="name"
+                      />
+                    </Field>
+                    <Field label="Email">
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="voce@empresa.com"
+                        autoComplete="email"
+                        inputMode="email"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="CPF / CNPJ">
+                        <input
+                          type="text"
+                          value={doc}
+                          onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
+                          placeholder="000.000.000-00"
+                          inputMode="numeric"
+                        />
+                      </Field>
+                      <Field label="Telefone">
+                        <input
+                          type="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(maskBrPhone(e.target.value))}
+                          placeholder="(11) 91234-5678"
+                          inputMode="tel"
+                          autoComplete="tel"
+                        />
+                      </Field>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-[13px] text-[var(--ink-100)]">
+                        Cartão de crédito
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
+                        <ShieldIcon size={11} /> Renovação automática
+                      </span>
+                    </div>
+                    <Field label="Nome impresso no cartão">
+                      <input
+                        type="text"
+                        value={cardHolder}
+                        onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                        placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
+                        autoComplete="cc-name"
+                        maxLength={60}
+                      />
+                    </Field>
+                    <Field label="Número do cartão">
+                      <input
+                        type="text"
+                        value={cardNumber}
+                        onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                        placeholder="0000 0000 0000 0000"
+                        inputMode="numeric"
+                        autoComplete="cc-number"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Validade (MM/AA)">
+                        <input
+                          type="text"
+                          value={cardExpiry}
+                          onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
+                          placeholder="12/30"
+                          inputMode="numeric"
+                          autoComplete="cc-exp"
+                        />
+                      </Field>
+                      <Field label="CVV">
+                        <input
+                          type="text"
+                          value={cardCvc}
+                          onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
+                          placeholder="000"
+                          inputMode="numeric"
+                          autoComplete="cc-csc"
+                        />
+                      </Field>
+                    </div>
+                  </div>
+
+                  {subscribe.error ? (
+                    <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger-text)] leading-[1.5]">
+                      {subscribe.error.message}
+                    </p>
+                  ) : null}
+
+                  <button
+                    type="submit"
+                    disabled={!canSubmit}
+                    className="btn btn-primary inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
+                  >
+                    <LockIcon size={14} />{' '}
+                    {subscribe.isPending
+                      ? 'Confirmando assinatura…'
+                      : selectedPlan
+                        ? `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                        : 'Escolha um plano'}
+                  </button>
+                  <p className="text-center text-[11px] text-[var(--ink-50)] leading-[1.5]">
+                    Cobrança automática. Cancele quando quiser.
+                  </p>
+                </div>
+              )}
+            </ExpressCard>
+
+            {/* ===== Col 3 — Resumo + trust ===== */}
+            <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+              <div className="glass-card p-5">
+                <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
+                  Sua assinatura
+                </p>
+                <div className="mt-4 flex items-start gap-3 border-[var(--hairline)] border-b pb-4">
+                  {product.coverImageUrl ? (
+                    <img
+                      src={product.coverImageUrl}
+                      alt={product.name}
+                      className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="grid h-14 w-14 shrink-0 place-items-center rounded-xl font-semibold text-[16px] text-white"
+                      style={{
+                        background:
+                          brandTone ??
+                          'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
+                      }}
+                    >
+                      {(product.name[0] ?? '·').toUpperCase()}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-[13px] text-[var(--ink-100)] leading-tight">
+                      {product.name}
+                    </p>
+                    <p className="mt-1 text-[12px] text-[var(--ink-50)]">
+                      {selectedPlan?.name ?? 'Selecione um plano'}
+                    </p>
+                  </div>
+                </div>
+
+                <dl className="mt-4 space-y-2 text-[13px]">
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-[var(--ink-70)]">Periodicidade</dt>
+                    <dd className="font-semibold text-[var(--ink-90)]">
+                      {selectedPlan?.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
+                    </dd>
+                  </div>
+                  {selectedPlan && selectedPlan.trialDays > 0 ? (
+                    <div className="flex items-baseline justify-between">
+                      <dt className="text-[var(--ink-70)]">Trial grátis</dt>
+                      <dd className="font-semibold text-[var(--dop-600)]">
+                        {selectedPlan.trialDays} dias
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+
+                <div className="mt-4 flex items-end justify-between border-[var(--hairline)] border-t pt-4">
+                  <span className="font-semibold text-[12px] text-[var(--ink-70)] uppercase tracking-[0.14em]">
+                    {selectedPlan?.billingPeriod === 'yearly' ? 'Por ano' : 'Por mês'}
+                  </span>
+                  <div className="text-right">
+                    <span className="font-semibold text-[26px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
+                      {selectedPlan
+                        ? formatCents(selectedPlan.amountCents, selectedPlan.currency)
+                        : '—'}
+                    </span>
+                    {selectedPlan?.billingPeriod === 'yearly' && annualSavingsPct > 0 ? (
+                      <p className="mt-1 font-semibold text-[11px] text-[var(--dop-600)]">
+                        economiza {annualSavingsPct}%
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <ul className="flex flex-col gap-2.5 rounded-2xl border border-[var(--hairline)] bg-[var(--bg-elev-1)] p-4 text-[12px] text-[var(--ink-70)]">
+                <TrustItem>Renovação automática segura</TrustItem>
+                <TrustItem>Cancele quando quiser</TrustItem>
+                <TrustItem>Suporte humano por WhatsApp</TrustItem>
+              </ul>
+            </aside>
+          </div>
+        </form>
+
+        <footer className="mt-6 border-[var(--hairline)] border-t bg-[var(--bg-elev-1)]/60">
+          <div className="container-x mx-auto flex w-full max-w-[1400px] flex-col items-center gap-1 py-5 text-center text-[11px] text-[var(--ink-50)]">
+            <p className="inline-flex flex-wrap items-center justify-center gap-1.5">
+              Pagamento processado por{' '}
+              <img
+                src="/payunivercart-logo.png"
+                alt="payunivercart"
+                className="inline-block h-[14px] w-auto opacity-80"
+              />
+              . Ao confirmar, você concorda com os termos do produtor.
+            </p>
+            <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>
+          </div>
+        </footer>
+      </main>
+    );
+  }
+
+  // Stepper template — 3-step Plano → Identificação → Cartão flow,
+  // mirrors StepperCheckoutView but tailored to recurring (no Pix/boleto).
+  if (workspace.checkoutTemplate === 'stepper') {
+    const planState: 'active' | 'done' | 'pending' =
+      stepperStep === 'plan' ? 'active' : selectedPlan ? 'done' : 'pending';
+    const identifyState: 'active' | 'done' | 'pending' =
+      stepperStep === 'identify'
+        ? 'active'
+        : stepperStep === 'pay' && identifyComplete
+          ? 'done'
+          : 'pending';
+    const payState: 'active' | 'done' | 'pending' = stepperStep === 'pay' ? 'active' : 'pending';
+    return (
+      <main
+        className="min-h-screen"
+        style={
+          brandPalette
+            ? ({
+                '--dop-400': brandPalette.light,
+                '--dop-500': brandPalette.mid,
+                '--dop-600': brandPalette.dark,
+                '--dop-soft': `${brandPalette.mid}10`,
+                '--dop-glow': `${brandPalette.mid}38`,
+                '--dop-hairline': `${brandPalette.mid}38`,
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
+        <ProducerHeader workspace={workspace} brandTone={brandTone} />
+
+        <form
+          onSubmit={onSubmit}
+          className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10"
+        >
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
+            <div className="flex flex-col gap-5">
+              <StitchStepCard
+                n={1}
+                label="Escolha seu plano"
+                state={planState}
+                onEdit={stepperStep !== 'plan' ? () => setStepperStep('plan') : undefined}
+              >
+                {stepperStep === 'plan' ? (
+                  <div className="flex flex-col gap-5">
+                    {product.plans.length === 0 ? (
+                      <p className="rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
+                        Nenhum plano ativo. Avise o produtor.
+                      </p>
+                    ) : (
+                      <div
+                        className={clsx(
+                          'grid gap-4',
+                          product.plans.length === 1 && 'grid-cols-1',
+                          product.plans.length === 2 && 'grid-cols-1 sm:grid-cols-2',
+                          product.plans.length >= 3 && 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                        )}
+                      >
+                        {product.plans.map((p) => (
+                          <PlanPickCard
+                            key={p.id}
+                            plan={p}
+                            selected={p.id === selectedPlanId}
+                            onPick={() => setSelectedPlanId(p.id)}
+                            annualSavings={
+                              p.billingPeriod === 'yearly' && annualSavingsPct > 0
+                                ? annualSavingsPct
+                                : 0
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => selectedPlan && setStepperStep('identify')}
+                      disabled={!selectedPlan}
+                      className="btn btn-primary mt-1 inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
+                    >
+                      Continuar →
+                    </button>
+                  </div>
+                ) : (
+                  <StitchSummaryGrid
+                    items={[
+                      { label: 'PLANO', value: selectedPlan?.name ?? '—' },
+                      {
+                        label: 'PREÇO',
+                        value: selectedPlan
+                          ? `${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                          : '—',
+                      },
+                    ]}
+                  />
+                )}
+              </StitchStepCard>
+
+              <StitchStepCard
+                n={2}
+                label="Identificação"
+                state={identifyState}
+                onEdit={
+                  stepperStep === 'pay' && identifyComplete
+                    ? () => setStepperStep('identify')
+                    : undefined
+                }
+              >
+                {stepperStep === 'identify' ? (
+                  <div className="flex flex-col gap-5">
+                    <Field label="Nome completo">
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="Como aparece no documento"
+                        autoComplete="name"
+                      />
+                    </Field>
+                    <Field label="Email">
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="voce@empresa.com"
+                        autoComplete="email"
+                        inputMode="email"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <Field label="CPF / CNPJ">
+                        <input
+                          type="text"
+                          value={doc}
+                          onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
+                          placeholder="000.000.000-00"
+                          inputMode="numeric"
+                        />
+                      </Field>
+                      <Field label="Telefone">
+                        <input
+                          type="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(maskBrPhone(e.target.value))}
+                          placeholder="(11) 91234-5678"
+                          inputMode="tel"
+                          autoComplete="tel"
+                        />
+                      </Field>
+                    </div>
+                    <p className="text-[12px] text-[var(--ink-50)] leading-[1.5]">
+                      Usaremos seu telefone para enviar o acesso por WhatsApp.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => identifyComplete && setStepperStep('pay')}
+                      disabled={!identifyComplete}
+                      className="btn btn-primary mt-1 inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
+                    >
+                      Continuar →
+                    </button>
+                  </div>
+                ) : stepperStep === 'pay' ? (
+                  <StitchSummaryGrid
+                    items={[
+                      { label: 'NOME COMPLETO', value: name },
+                      { label: 'E-MAIL', value: email },
+                      { label: 'CPF / CNPJ', value: doc },
+                      { label: 'TELEFONE', value: phone },
+                    ]}
+                  />
+                ) : (
+                  <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
+                    Escolha um plano para continuar.
+                  </p>
+                )}
+              </StitchStepCard>
+
+              <StitchStepCard n={3} label="Cartão de crédito" state={payState}>
+                {stepperStep !== 'pay' ? (
+                  <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
+                    Complete os passos acima para informar o cartão.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[13px] text-[var(--ink-70)] leading-[1.55]">
+                        Assinatura recorrente — cobrança automática no cartão.
+                      </p>
+                      <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
+                        <ShieldIcon size={11} /> Tokenizado
+                      </span>
+                    </div>
+                    <Field label="Nome impresso no cartão">
+                      <input
+                        type="text"
+                        value={cardHolder}
+                        onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                        placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
+                        autoComplete="cc-name"
+                        maxLength={60}
+                      />
+                    </Field>
+                    <Field label="Número do cartão">
+                      <input
+                        type="text"
+                        value={cardNumber}
+                        onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                        placeholder="0000 0000 0000 0000"
+                        inputMode="numeric"
+                        autoComplete="cc-number"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Validade (MM/AA)">
+                        <input
+                          type="text"
+                          value={cardExpiry}
+                          onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
+                          placeholder="12/30"
+                          inputMode="numeric"
+                          autoComplete="cc-exp"
+                        />
+                      </Field>
+                      <Field label="CVV">
+                        <input
+                          type="text"
+                          value={cardCvc}
+                          onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
+                          placeholder="000"
+                          inputMode="numeric"
+                          autoComplete="cc-csc"
+                        />
+                      </Field>
+                    </div>
+
+                    {subscribe.error ? (
+                      <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger-text)] leading-[1.5]">
+                        {subscribe.error.message}
+                      </p>
+                    ) : null}
+
+                    <button
+                      type="submit"
+                      disabled={!canSubmit}
+                      className="btn btn-primary inline-flex w-full items-center justify-center gap-3 py-4 text-[16px]"
+                    >
+                      {subscribe.isPending
+                        ? 'Confirmando assinatura…'
+                        : selectedPlan
+                          ? `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                          : 'Escolha um plano'}
+                    </button>
+                    <p className="text-center text-[11px] text-[var(--ink-50)] leading-[1.5]">
+                      Cobrança automática. Cancele quando quiser.
+                    </p>
+                  </div>
+                )}
+              </StitchStepCard>
+            </div>
+
+            <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+              <div className="glass-card p-6">
+                <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
+                  Sua assinatura
+                </p>
+                <div className="mt-5 flex items-start gap-4 border-[var(--hairline)] border-b pb-5">
+                  {product.coverImageUrl ? (
+                    <img
+                      src={product.coverImageUrl}
+                      alt={product.name}
+                      className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="grid h-14 w-14 shrink-0 place-items-center rounded-xl font-semibold text-[16px] text-white"
+                      style={{
+                        background:
+                          brandTone ??
+                          'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
+                      }}
+                    >
+                      {(product.name[0] ?? '·').toUpperCase()}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-[14px] text-[var(--ink-100)] leading-tight">
+                      {product.name}
+                    </p>
+                    <p className="mt-1 text-[12px] text-[var(--ink-50)]">
+                      {selectedPlan?.name ?? 'Selecione um plano'}
+                    </p>
+                  </div>
+                </div>
+
+                <dl className="mt-5 space-y-3 text-[13px]">
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-[var(--ink-70)]">Periodicidade</dt>
+                    <dd className="font-semibold text-[var(--ink-90)]">
+                      {selectedPlan?.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
+                    </dd>
+                  </div>
+                  {selectedPlan && selectedPlan.trialDays > 0 ? (
+                    <div className="flex items-baseline justify-between">
+                      <dt className="text-[var(--ink-70)]">Trial grátis</dt>
+                      <dd className="font-semibold text-[var(--dop-600)]">
+                        {selectedPlan.trialDays} dias
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+
+                <div className="mt-5 flex items-end justify-between border-[var(--hairline)] border-t pt-5">
+                  <span className="font-semibold text-[13px] text-[var(--ink-70)] uppercase tracking-[0.16em]">
+                    {selectedPlan?.billingPeriod === 'yearly' ? 'Por ano' : 'Por mês'}
+                  </span>
+                  <div className="text-right">
+                    <span className="font-semibold text-[28px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
+                      {selectedPlan
+                        ? formatCents(selectedPlan.amountCents, selectedPlan.currency)
+                        : '—'}
+                    </span>
+                    {selectedPlan?.billingPeriod === 'yearly' && annualSavingsPct > 0 ? (
+                      <p className="mt-1 font-semibold text-[12px] text-[var(--dop-600)]">
+                        você economiza {annualSavingsPct}%
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="glass-card flex flex-col gap-3 p-5 text-[12px] text-[var(--ink-70)]">
+                <div className="flex items-start gap-2">
+                  <ShieldIcon />
+                  <span>
+                    Cobrança recorrente via Mercado Pago. Cancele sem multa. Confirmação enviada pra
+                    seu email + WhatsApp.
+                  </span>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </form>
+
+        <footer className="mt-6 border-[var(--hairline)] border-t bg-[var(--bg-elev-1)]/60">
+          <div className="container-x mx-auto flex w-full max-w-[1180px] flex-col items-center gap-1 py-5 text-center text-[11px] text-[var(--ink-50)]">
+            <p className="inline-flex flex-wrap items-center justify-center gap-1.5">
+              Pagamento processado por{' '}
+              <img
+                src="/payunivercart-logo.png"
+                alt="payunivercart"
+                className="inline-block h-[14px] w-auto opacity-80"
+              />
+              . Ao confirmar, você concorda com os termos e a política de privacidade do produtor.
+            </p>
+            <p>🇧🇷 Essa compra está sendo feita no Brasil.</p>
+          </div>
+        </footer>
+      </main>
+    );
+  }
 
   return (
     <main
@@ -1080,15 +1745,13 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
 }
 
 /**
- * Plan card — vertical pricing-card layout for the buyer's plan
- * grid. Stacks period pill (top) → name → big price → period label
- * → trial hint → check pill (footer). Sits inside a CSS grid so 3
- * plans render side-by-side on desktop, collapse to 2-col on tablet,
- * 1-col on mobile.
- *
- * "Mais escolhido" plans get a floating pill ABOVE the card, a
- * stronger border, and a translate-up so the card visually wins the
- * eye even before the buyer reads anything.
+ * Plan card — compact pricing tile sized to live inside narrow grid
+ * columns (including Express Col-1 ~340px). Header row carries the
+ * period pill, optional "Top" highlight badge, and selection check.
+ * Body stacks plan name → price (tabular-nums, capped at 22px so it
+ * never overflows) → meta (monthly equivalent, savings, trial). No
+ * floating badges, no translate-y — the card stays inside its grid
+ * cell at every breakpoint.
  */
 function PlanPickCard({
   plan,
@@ -1110,33 +1773,35 @@ function PlanPickCard({
       onClick={onPick}
       aria-pressed={selected}
       className={clsx(
-        'group relative flex flex-col items-stretch gap-4 rounded-2xl border bg-[var(--surface-1)] p-6 text-left transition-all duration-200',
-        plan.isHighlighted && !selected && 'lg:-translate-y-2 lg:shadow-[var(--sh-md)]',
+        'group relative flex flex-col items-stretch overflow-hidden rounded-2xl border bg-[var(--surface-1)] p-4 text-left transition-all duration-200 sm:p-5',
         selected
-          ? 'lg:-translate-y-2 border-[var(--dop-500)] bg-[var(--dop-soft)] shadow-[0_12px_32px_-8px_var(--dop-glow)]'
-          : 'border-[var(--hairline)] hover:border-[var(--hairline-strong)] hover:bg-white/40 hover:shadow-[var(--sh-sm)]',
+          ? 'border-[var(--dop-500)] bg-[var(--dop-soft)] shadow-[0_8px_24px_-12px_var(--dop-glow)]'
+          : plan.isHighlighted
+            ? 'border-[var(--dop-hairline)] shadow-[var(--sh-sm)] hover:border-[var(--dop-500)]'
+            : 'border-[var(--hairline)] hover:border-[var(--hairline-strong)] hover:bg-[var(--surface-2)]',
       )}
     >
-      {plan.isHighlighted ? (
-        <span className="-top-3 -translate-x-1/2 absolute left-1/2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[var(--dop-500)] px-3 py-1 font-semibold text-[10px] text-white uppercase tracking-[0.14em] shadow-[var(--sh-sm)]">
-          ★ Mais escolhido
-        </span>
-      ) : null}
-
-      <header className="flex items-center justify-between gap-3">
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span
+            className={clsx(
+              'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 font-semibold text-[10px] uppercase tracking-[0.12em]',
+              plan.billingPeriod === 'yearly'
+                ? 'bg-[var(--dop-soft)] text-[var(--dop-600)]'
+                : 'bg-[var(--surface-2)] text-[var(--ink-70)]',
+            )}
+          >
+            {plan.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
+          </span>
+          {plan.isHighlighted ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--dop-500)] px-2 py-0.5 font-semibold text-[10px] text-white uppercase tracking-[0.12em]">
+              ★ Top
+            </span>
+          ) : null}
+        </div>
         <span
           className={clsx(
-            'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-semibold text-[10px] uppercase tracking-[0.14em]',
-            plan.billingPeriod === 'yearly'
-              ? 'bg-[var(--dop-soft)] text-[var(--dop-600)]'
-              : 'bg-[var(--surface-2)] text-[var(--ink-70)]',
-          )}
-        >
-          {plan.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
-        </span>
-        <span
-          className={clsx(
-            'flex h-6 w-6 items-center justify-center rounded-full border-2 transition',
+            'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition',
             selected
               ? 'border-[var(--dop-500)] bg-[var(--dop-500)] text-white'
               : 'border-[var(--hairline-strong)] text-transparent group-hover:border-[var(--ink-50)]',
@@ -1150,46 +1815,41 @@ function PlanPickCard({
             strokeWidth="2.6"
             aria-hidden="true"
             focusable="false"
-            className="size-3.5"
+            className="size-3"
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
           </svg>
         </span>
       </header>
 
-      <div>
-        <p className="font-semibold text-[16px] text-[var(--ink-100)]">{plan.name}</p>
-        <p className="mt-1 flex items-baseline gap-1">
-          <span className="font-semibold text-[32px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
-            {formatCents(plan.amountCents, plan.currency)}
-          </span>
-          <span className="text-[13px] text-[var(--ink-50)]">/{perWord}</span>
-        </p>
-        {monthlyEquivalent !== null ? (
-          <p className="mt-1.5 text-[12px] text-[var(--ink-50)]">
-            equivale a {formatCents(monthlyEquivalent, plan.currency)}/mês
-          </p>
-        ) : null}
-        {annualSavings > 0 ? (
-          <p className="mt-1.5 font-semibold text-[12px] text-[var(--dop-600)]">
-            economize {annualSavings}% vs mensal
-          </p>
-        ) : null}
+      <p className="mt-4 truncate font-semibold text-[13px] text-[var(--ink-100)] capitalize leading-tight tracking-[-0.005em]">
+        {plan.name}
+      </p>
+
+      <div className="mt-1.5 flex items-baseline gap-1">
+        <span className="font-semibold text-[20px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
+          {formatCents(plan.amountCents, plan.currency)}
+        </span>
+        <span className="text-[11px] text-[var(--ink-50)]">/{perWord}</span>
       </div>
 
-      <footer className="mt-auto flex items-center justify-between gap-2 border-[var(--hairline)] border-t pt-4">
-        <span className="text-[12px] text-[var(--ink-70)]">
-          {plan.trialDays > 0 ? `${plan.trialDays} dias de trial` : 'Cancele quando quiser'}
-        </span>
-        <span
-          className={clsx(
-            'font-semibold text-[11px] uppercase tracking-[0.14em] transition',
-            selected ? 'text-[var(--dop-600)]' : 'text-[var(--ink-50)]',
-          )}
-        >
-          {selected ? 'Selecionado' : 'Escolher'}
-        </span>
-      </footer>
+      {monthlyEquivalent !== null || annualSavings > 0 || plan.trialDays > 0 ? (
+        <div className="mt-2 flex flex-col gap-0.5 text-[11px] leading-[1.35]">
+          {monthlyEquivalent !== null ? (
+            <span className="text-[var(--ink-50)] tabular-nums">
+              ≈ {formatCents(monthlyEquivalent, plan.currency)}/mês
+            </span>
+          ) : null}
+          {annualSavings > 0 ? (
+            <span className="font-semibold text-[var(--dop-600)]">
+              economize {annualSavings}% vs mensal
+            </span>
+          ) : null}
+          {plan.trialDays > 0 ? (
+            <span className="text-[var(--ink-70)]">{plan.trialDays} dias grátis</span>
+          ) : null}
+        </div>
+      ) : null}
     </button>
   );
 }
