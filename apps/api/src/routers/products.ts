@@ -232,14 +232,41 @@ export const productsRouter = router({
         name: z.string().trim().min(1, 'Nome obrigatório').max(120),
         description: z.string().trim().max(2000).optional(),
         type: ProductType.default('one_time'),
+        /** Required for one-time products; ignored when isSubscription
+         *  is true (plans own pricing in that case). */
         priceCents: z.number().int().nonnegative().max(10_000_000),
         currency: Currency.default('BRL'),
         maxInstallments: z.number().int().min(1).max(24).default(12),
         cover: CoverUploadInput,
+        /** Post-purchase delivery info — wired into the receipt email +
+         *  WhatsApp on the paid-event fan-out. Optional. */
+        deliveryUrl: z.string().trim().max(500).optional(),
+        deliveryInstructions: z.string().trim().max(1000).optional(),
+        /** Flip into recurring billing mode. When true, `plans` MUST
+         *  carry at least one row; the one-time offer is skipped. */
+        isSubscription: z.boolean().default(false),
+        plans: z
+          .array(
+            z.object({
+              name: z.string().trim().min(1).max(80),
+              billingPeriod: z.enum(['monthly', 'yearly']),
+              amountCents: z.number().int().min(100).max(10_000_000),
+              trialDays: z.number().int().min(0).max(365).default(0),
+              isHighlighted: z.boolean().default(false),
+              sortOrder: z.number().int().min(0).max(999).default(0),
+            }),
+          )
+          .optional(),
       }),
     )
     .output(z.object({ id: z.string().uuid(), slug: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      if (input.isSubscription && (!input.plans || input.plans.length === 0)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Assinatura precisa de pelo menos 1 plano.',
+        });
+      }
       const { bytes: coverBytes, mime: coverMime } = decodeCover(input.cover);
       for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
         const candidateSlug =
@@ -258,6 +285,9 @@ export const productsRouter = router({
                 type: input.type,
                 coverImage: coverBytes,
                 coverImageMime: coverMime,
+                deliveryUrl: input.deliveryUrl ?? null,
+                deliveryInstructions: input.deliveryInstructions ?? null,
+                isSubscription: input.isSubscription,
                 isActive: true,
               })
               .returning({ id: schema.products.id, slug: schema.products.slug });
@@ -267,16 +297,36 @@ export const productsRouter = router({
                 message: 'products insert returned no row',
               });
             }
-            await tx.insert(schema.productOffers).values({
-              productId: product.id,
-              workspaceId: ctx.workspaceId,
-              name: 'Padrão',
-              amountCents: BigInt(input.priceCents),
-              currency: input.currency,
-              maxInstallments: input.maxInstallments,
-              isActive: true,
-              isDefault: true,
-            });
+            // Subscription products skip the legacy single-offer row —
+            // the plan picker on /c/<slug> reads from subscription_plans
+            // directly. One-time products keep the default offer so
+            // existing checkout flows stay untouched.
+            if (input.isSubscription && input.plans) {
+              await tx.insert(schema.subscriptionPlans).values(
+                input.plans.map((p) => ({
+                  workspaceId: ctx.workspaceId,
+                  productId: product.id,
+                  name: p.name,
+                  billingPeriod: p.billingPeriod,
+                  amountCents: BigInt(p.amountCents),
+                  currency: input.currency,
+                  trialDays: p.trialDays,
+                  isHighlighted: p.isHighlighted,
+                  sortOrder: p.sortOrder,
+                })),
+              );
+            } else {
+              await tx.insert(schema.productOffers).values({
+                productId: product.id,
+                workspaceId: ctx.workspaceId,
+                name: 'Padrão',
+                amountCents: BigInt(input.priceCents),
+                currency: input.currency,
+                maxInstallments: input.maxInstallments,
+                isActive: true,
+                isDefault: true,
+              });
+            }
             return { id: product.id, slug: product.slug };
           });
         } catch (cause) {

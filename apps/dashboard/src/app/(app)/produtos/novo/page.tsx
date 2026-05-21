@@ -8,28 +8,39 @@ import { formatCents, parseCentsBRL } from '../../../../lib/money';
 import { trpc } from '../../../../lib/trpc';
 
 /**
- * Cadastrar produto — single-screen form.
- *
- * Why one screen and not a multi-step wizard?
- *   The producer is paying R$ 99,90/month for this surface to NOT
- *   waste their time. Stripe's product create form is one screen.
- *   Shopify's is one screen. The platforms that turned product-create
- *   into a 5-step wizard (Hotmart, Eduzz) are who the founder is
- *   replacing — keep the screen flat.
+ * Cadastrar produto — single-screen form. Producer picks
+ * compra-única OR assinatura right here; for subscriptions, plans
+ * (Mensal/Anual + price) live inline and ship in the SAME mutation
+ * so the producer never has to "create then edit to finish setup".
  *
  * Fields:
- *   - Nome (required, 1-120 chars)
- *   - Descrição (optional, 0-2000 chars)
- *   - Tipo (one_time | subscription | course | physical)
- *   - Preço em R$ (parsed to cents on submit)
- *   - Parcelas máx (1-24, default 12)
+ *   - Nome (required, 1-120)
+ *   - Descrição (optional)
+ *   - Capa (required, 1:1 ≤2 MB)
+ *   - Tipo: compra única OU assinatura recorrente
+ *   - Preço + parcelas (compra única) OU planos array (assinatura)
+ *   - Link de entrega + instruções (optional, ambos tipos)
  */
-const PRODUCT_TYPES = [
-  { value: 'one_time', label: 'Pagamento único' },
-  { value: 'subscription', label: 'Assinatura' },
-  { value: 'course', label: 'Curso' },
-  { value: 'physical', label: 'Produto físico' },
-] as const;
+
+type PlanDraft = {
+  id: string;
+  name: string;
+  billingPeriod: 'monthly' | 'yearly';
+  priceInput: string;
+  trialDays: number;
+  isHighlighted: boolean;
+};
+
+function emptyPlan(billingPeriod: 'monthly' | 'yearly' = 'monthly'): PlanDraft {
+  return {
+    id: globalThis.crypto.randomUUID(),
+    name: billingPeriod === 'yearly' ? 'Anual' : 'Mensal',
+    billingPeriod,
+    priceInput: '',
+    trialDays: 0,
+    isHighlighted: false,
+  };
+}
 
 export default function NovoProdutoPage() {
   const router = useRouter();
@@ -43,23 +54,45 @@ export default function NovoProdutoPage() {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [type, setType] = useState<(typeof PRODUCT_TYPES)[number]['value']>('one_time');
+  const [isSubscription, setIsSubscription] = useState(false);
   const [priceInput, setPriceInput] = useState('');
   const [maxInstallments, setMaxInstallments] = useState(12);
   const [cover, setCover] = useState<ImageUpload | null>(null);
+  const [deliveryUrl, setDeliveryUrl] = useState('');
+  const [deliveryInstructions, setDeliveryInstructions] = useState('');
+  const [plans, setPlans] = useState<PlanDraft[]>([emptyPlan('monthly')]);
 
   const priceCents = useMemo(() => parseCentsBRL(priceInput), [priceInput]);
   const previewFormatted =
     Number.isFinite(priceCents) && priceCents > 0 ? formatCents(priceCents, 'BRL') : null;
+
+  const parsedPlans = useMemo(
+    () =>
+      plans.map((p) => {
+        const cents = parseCentsBRL(p.priceInput);
+        return { ...p, amountCents: Number.isFinite(cents) ? cents : Number.NaN };
+      }),
+    [plans],
+  );
 
   const trimmedName = name.trim();
   const validationError = (() => {
     if (trimmedName.length === 0) return 'Informe o nome do produto.';
     if (trimmedName.length > 120) return 'Nome muito longo (máx 120 caracteres).';
     if (description.trim().length > 2000) return 'Descrição muito longa (máx 2000 caracteres).';
-    if (!Number.isFinite(priceCents) || priceCents <= 0) return 'Informe um preço válido.';
-    if (priceCents > 10_000_000) return 'Preço acima do limite (R$ 100.000,00).';
     if (!cover) return 'Selecione uma capa para o produto.';
+    if (!isSubscription) {
+      if (!Number.isFinite(priceCents) || priceCents <= 0) return 'Informe um preço válido.';
+      if (priceCents > 10_000_000) return 'Preço acima do limite (R$ 100.000,00).';
+    } else {
+      if (parsedPlans.length === 0) return 'Adicione pelo menos um plano.';
+      for (const p of parsedPlans) {
+        if (!p.name.trim()) return 'Cada plano precisa de um nome.';
+        if (!Number.isFinite(p.amountCents) || p.amountCents <= 0)
+          return `Plano "${p.name}" sem preço válido.`;
+        if (p.amountCents < 100) return `Plano "${p.name}" abaixo do mínimo (R$ 1,00).`;
+      }
+    }
     return null;
   })();
   const apiError = create.error?.message ?? null;
@@ -70,13 +103,41 @@ export default function NovoProdutoPage() {
     create.mutate({
       name: trimmedName,
       description: description.trim() || undefined,
-      type,
-      priceCents,
+      type: isSubscription ? 'subscription' : 'one_time',
+      // Server ignores priceCents when isSubscription=true, but the
+      // input schema still requires it as a number — pass 0 then.
+      priceCents: isSubscription ? 0 : priceCents,
       currency: 'BRL',
       maxInstallments,
       cover,
+      deliveryUrl: deliveryUrl.trim() || undefined,
+      deliveryInstructions: deliveryInstructions.trim() || undefined,
+      isSubscription,
+      plans: isSubscription
+        ? parsedPlans.map((p, idx) => ({
+            name: p.name.trim(),
+            billingPeriod: p.billingPeriod,
+            amountCents: p.amountCents,
+            trialDays: p.trialDays,
+            isHighlighted: p.isHighlighted,
+            sortOrder: idx,
+          }))
+        : undefined,
     });
   };
+
+  const addPlan = () => {
+    // Default the second plan to yearly so the producer ends up with
+    // the typical "Mensal + Anual" combo without thinking.
+    const next = plans.some((p) => p.billingPeriod === 'yearly') ? 'monthly' : 'yearly';
+    setPlans((curr) => [...curr, emptyPlan(next)]);
+  };
+  const updatePlan = (id: string, patch: Partial<PlanDraft>) =>
+    setPlans((curr) => curr.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const removePlan = (id: string) =>
+    setPlans((curr) => (curr.length <= 1 ? curr : curr.filter((p) => p.id !== id)));
+  const setHighlighted = (id: string) =>
+    setPlans((curr) => curr.map((p) => ({ ...p, isHighlighted: p.id === id })));
 
   return (
     <div className="flex flex-col gap-10">
@@ -119,69 +180,66 @@ export default function NovoProdutoPage() {
           onChange={setCover}
         />
 
-        <Field label="Tipo">
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            {PRODUCT_TYPES.map((option) => {
-              const active = type === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setType(option.value)}
-                  className={`rounded-xl border px-4 py-3 text-left font-medium text-[13px] transition ${
-                    active
-                      ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
-                      : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-        </Field>
+        <ProductTypeSegment value={isSubscription} onChange={setIsSubscription} />
 
-        <div className="grid grid-cols-1 gap-7 md:grid-cols-2">
-          <Field
-            label="Preço"
-            hint={
-              previewFormatted
-                ? `Cliente paga ${previewFormatted}.`
-                : 'Use vírgula como separador decimal.'
-            }
-          >
-            <div className="relative">
-              <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
-                R$
-              </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={priceInput}
-                onChange={(e) => setPriceInput(e.target.value)}
-                placeholder="99,90"
-                className={`${fieldInputClass} pl-10`}
-              />
-            </div>
-          </Field>
-
-          <Field
-            label="Parcelamento máximo"
-            hint="No cartão de crédito; PIX e boleto são à vista por padrão."
-          >
-            <select
-              value={maxInstallments}
-              onChange={(e) => setMaxInstallments(Number.parseInt(e.target.value, 10))}
-              className={`${fieldInputClass} appearance-none`}
+        {!isSubscription ? (
+          <div className="grid grid-cols-1 gap-7 md:grid-cols-2">
+            <Field
+              label="Preço"
+              hint={
+                previewFormatted
+                  ? `Cliente paga ${previewFormatted}.`
+                  : 'Use vírgula como separador decimal.'
+              }
             >
-              {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  {n}×{n === 1 ? ' (à vista)' : ''}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
+              <div className="relative">
+                <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
+                  R$
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={priceInput}
+                  onChange={(e) => setPriceInput(e.target.value)}
+                  placeholder="99,90"
+                  className={`${fieldInputClass} pl-10`}
+                />
+              </div>
+            </Field>
+
+            <Field
+              label="Parcelamento máximo"
+              hint="No cartão de crédito; PIX e boleto são à vista por padrão."
+            >
+              <select
+                value={maxInstallments}
+                onChange={(e) => setMaxInstallments(Number.parseInt(e.target.value, 10))}
+                className={`${fieldInputClass} appearance-none`}
+              >
+                {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n}×{n === 1 ? ' (à vista)' : ''}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        ) : (
+          <PlansEditor
+            plans={plans}
+            onAdd={addPlan}
+            onUpdate={updatePlan}
+            onRemove={removePlan}
+            onHighlight={setHighlighted}
+          />
+        )}
+
+        <DeliverySection
+          deliveryUrl={deliveryUrl}
+          deliveryInstructions={deliveryInstructions}
+          onUrlChange={setDeliveryUrl}
+          onInstructionsChange={setDeliveryInstructions}
+        />
 
         {validationError ? (
           <p className="text-[13px] text-[var(--color-danger)]">{validationError}</p>
@@ -198,6 +256,279 @@ export default function NovoProdutoPage() {
         </div>
       </form>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Type segment — "Compra única" vs "Assinatura"                              */
+/* -------------------------------------------------------------------------- */
+
+function ProductTypeSegment({
+  value,
+  onChange,
+}: {
+  value: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-3 font-medium text-[13px] text-[var(--color-fg-muted)]">Tipo de produto</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <TypeCard
+          selected={!value}
+          onClick={() => onChange(false)}
+          title="Compra única"
+          subtitle="Cobrança avulsa"
+          description="Pix, cartão ou boleto. Buyer paga uma vez e recebe o acesso."
+        />
+        <TypeCard
+          selected={value}
+          onClick={() => onChange(true)}
+          title="Assinatura"
+          subtitle="Cobrança recorrente"
+          description="Cartão de crédito mensal ou anual. Mercado Pago renova automaticamente."
+        />
+      </div>
+    </div>
+  );
+}
+
+function TypeCard({
+  selected,
+  onClick,
+  title,
+  subtitle,
+  description,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle: string;
+  description: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={
+        selected
+          ? 'group flex flex-col items-start gap-2 rounded-2xl border-2 border-[var(--color-brand-500)] bg-[var(--color-surface)] p-5 text-left ring-4 ring-[var(--color-brand-500)]/10 transition'
+          : 'group flex flex-col items-start gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-left transition hover:border-[var(--color-border-strong)] hover:shadow-[var(--shadow-md)]'
+      }
+    >
+      <div className="flex w-full items-start justify-between gap-3">
+        <div className="flex flex-col">
+          <span className="font-semibold text-[15px] text-[var(--color-fg)]">{title}</span>
+          <span className="text-[12px] text-[var(--color-fg-subtle)]">{subtitle}</span>
+        </div>
+        {selected ? (
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-brand-500)] text-white">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              aria-hidden="true"
+              className="size-3.5"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+            </svg>
+          </span>
+        ) : null}
+      </div>
+      <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.5]">{description}</p>
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Plans editor — inline array of subscription plans                          */
+/* -------------------------------------------------------------------------- */
+
+function PlansEditor({
+  plans,
+  onAdd,
+  onUpdate,
+  onRemove,
+  onHighlight,
+}: {
+  plans: PlanDraft[];
+  onAdd: () => void;
+  onUpdate: (id: string, patch: Partial<PlanDraft>) => void;
+  onRemove: (id: string) => void;
+  onHighlight: (id: string) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="font-medium text-[13px] text-[var(--color-fg)]">
+            Planos da assinatura
+          </span>
+          <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
+            Crie 1 ou mais planos (ex: Mensal R$ 49,90 + Anual R$ 499). Buyer escolhe no checkout.
+            Estrela = "Mais escolhido" no destaque.
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onAdd}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--color-brand-500)] px-3 py-2 font-semibold text-[13px] text-white transition hover:bg-[var(--color-brand-600)]"
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+            className="size-3.5"
+          >
+            <path strokeLinecap="round" d="M8 3v10M3 8h10" />
+          </svg>
+          Novo plano
+        </button>
+      </header>
+
+      <ul className="flex flex-col gap-4">
+        {plans.map((p) => (
+          <li
+            key={p.id}
+            className="flex flex-col gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+          >
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.4fr_140px_140px_100px]">
+              <Field label="Nome">
+                <input
+                  type="text"
+                  value={p.name}
+                  onChange={(e) => onUpdate(p.id, { name: e.target.value })}
+                  className={fieldInputClass}
+                  placeholder="Ex.: Mensal Premium"
+                  maxLength={80}
+                />
+              </Field>
+              <Field label="Período">
+                <select
+                  value={p.billingPeriod}
+                  onChange={(e) =>
+                    onUpdate(p.id, {
+                      billingPeriod: e.target.value as 'monthly' | 'yearly',
+                    })
+                  }
+                  className={`${fieldInputClass} appearance-none`}
+                >
+                  <option value="monthly">Mensal</option>
+                  <option value="yearly">Anual</option>
+                </select>
+              </Field>
+              <Field label="Preço">
+                <div className="relative">
+                  <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
+                    R$
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={p.priceInput}
+                    onChange={(e) => onUpdate(p.id, { priceInput: e.target.value })}
+                    className={`${fieldInputClass} pl-10`}
+                    placeholder="49,90"
+                  />
+                </div>
+              </Field>
+              <Field label="Trial (dias)">
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={p.trialDays}
+                  onChange={(e) =>
+                    onUpdate(p.id, {
+                      trialDays: Math.max(0, Number.parseInt(e.target.value, 10) || 0),
+                    })
+                  }
+                  className={fieldInputClass}
+                />
+              </Field>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => onHighlight(p.id)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium text-[12px] transition ${
+                  p.isHighlighted
+                    ? 'bg-[var(--color-brand-500)] text-white hover:bg-[var(--color-brand-600)]'
+                    : 'border border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]'
+                }`}
+              >
+                {p.isHighlighted ? '★ Destaque' : '☆ Destacar'}
+              </button>
+              {plans.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => onRemove(p.id)}
+                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-danger)] transition hover:border-[var(--color-danger)]"
+                >
+                  Remover
+                </button>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Delivery section — works for both one-time + subscription                  */
+/* -------------------------------------------------------------------------- */
+
+function DeliverySection({
+  deliveryUrl,
+  deliveryInstructions,
+  onUrlChange,
+  onInstructionsChange,
+}: {
+  deliveryUrl: string;
+  deliveryInstructions: string;
+  onUrlChange: (v: string) => void;
+  onInstructionsChange: (v: string) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
+      <header className="flex flex-col gap-1">
+        <span className="font-medium text-[13px] text-[var(--color-fg)]">Entrega pós-compra</span>
+        <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
+          Quando o pagamento for confirmado, mandamos esses dados pro comprador por email e
+          WhatsApp. Use o link da área de membros, do grupo, do Drive — o que servir como entrega.
+        </span>
+      </header>
+      <Field label="Link de entrega" hint="Opcional. Pode ser área de membros, Drive, Discord…">
+        <input
+          type="url"
+          value={deliveryUrl}
+          onChange={(e) => onUrlChange(e.target.value)}
+          className={fieldInputClass}
+          placeholder="https://"
+          maxLength={500}
+          inputMode="url"
+        />
+      </Field>
+      <Field
+        label="Instruções"
+        hint="Opcional. Texto curto que aparece junto ao link no email + WhatsApp."
+      >
+        <textarea
+          value={deliveryInstructions}
+          onChange={(e) => onInstructionsChange(e.target.value)}
+          rows={3}
+          className={`${fieldInputClass} resize-none`}
+          placeholder="Ex.: acesse com o mesmo email que você usou na compra…"
+          maxLength={1000}
+        />
+      </Field>
+    </section>
   );
 }
 
