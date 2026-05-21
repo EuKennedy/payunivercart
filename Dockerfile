@@ -61,13 +61,14 @@ ARG PNPM_VERSION=9.12.3
 # -----------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-bookworm-slim AS base
 # `dist-upgrade` is stronger than plain `upgrade`: it can add/remove
-# packages to resolve dependency conflicts on security patches. We
-# also force the security feed (`bookworm-security`) so we pick up
-# Debian Security Team's latest u7+ patches the moment they land,
-# without waiting for the slim image rebuild on Docker Hub.
-RUN echo 'deb https://deb.debian.org/debian-security bookworm-security main' \
-      > /etc/apt/sources.list.d/security.list \
-    && apt-get update \
+# packages to resolve dependency conflicts on security patches.
+# `bookworm-slim` already ships `bookworm-security` inside its
+# deb822-formatted `/etc/apt/sources.list.d/debian.sources` with the
+# correct `Signed-By` key — no need to add a legacy `.list` file (and
+# doing so trips an apt "Conflicting values set for option Signed-By"
+# error). `apt-get update` here therefore pulls from main + security
+# in one shot.
+RUN apt-get update \
     && apt-get -y --no-install-recommends dist-upgrade \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
