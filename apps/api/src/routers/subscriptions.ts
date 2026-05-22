@@ -565,29 +565,31 @@ export const subscriptionsRouter = router({
           });
         }
         const [pan, mm, yyyy, cvv] = parts as [string, string, string, string];
-        const tokenizeFn = (
-          adapter as unknown as {
-            tokenizeCard?: (
-              creds: unknown,
-              card: {
-                cardNumber: string;
-                expirationMonth: number;
-                expirationYear: number;
-                securityCode: string;
-                holderName: string;
-                holderDocument: string;
-              },
-            ) => Promise<string>;
-          }
-        ).tokenizeCard;
-        if (!tokenizeFn) {
+        // Call the adapter method on `adapter` directly so `this`
+        // binds to the MercadoPagoAdapter instance — otherwise the
+        // private `this.request` call inside tokenizeCard explodes
+        // with "Cannot read properties of undefined (reading 'request')".
+        const adapterWithToken = adapter as unknown as {
+          tokenizeCard?: (
+            creds: unknown,
+            card: {
+              cardNumber: string;
+              expirationMonth: number;
+              expirationYear: number;
+              securityCode: string;
+              holderName: string;
+              holderDocument: string;
+            },
+          ) => Promise<string>;
+        };
+        if (typeof adapterWithToken.tokenizeCard !== 'function') {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: 'Tokenização server-side não suportada por este gateway.',
           });
         }
         try {
-          cardToken = await tokenizeFn(credentials, {
+          cardToken = await adapterWithToken.tokenizeCard(credentials, {
             cardNumber: pan,
             expirationMonth: Number(mm),
             expirationYear: Number(yyyy),
