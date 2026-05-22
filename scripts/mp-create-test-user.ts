@@ -30,8 +30,15 @@ function arg(name: string): string {
   return process.argv[idx + 1] as string;
 }
 
+function optArg(name: string, fallback: string): string {
+  const idx = process.argv.indexOf(`--${name}`);
+  if (idx === -1 || !process.argv[idx + 1]) return fallback;
+  return process.argv[idx + 1] as string;
+}
+
 async function main() {
   const workspaceName = arg('workspace');
+  const siteId = optArg('site', 'MLB');
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL required');
   if (!process.env.ENCRYPTION_KEYS) throw new Error('ENCRYPTION_KEYS required');
 
@@ -84,13 +91,14 @@ async function main() {
     `[mp] workspace=${credRow.workspaceName} accessToken=${creds.accessToken.slice(0, 12)}...`,
   );
 
+  console.info(`[mp] using site_id=${siteId}`);
   const res = await fetch('https://api.mercadopago.com/users/test', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${creds.accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ site_id: 'MLB' }),
+    body: JSON.stringify({ site_id: siteId }),
   });
   if (!res.ok) {
     const body = await res.text();
