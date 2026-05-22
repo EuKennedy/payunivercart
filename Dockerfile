@@ -118,6 +118,10 @@ FROM deps AS src
 
 COPY apps apps
 COPY packages packages
+# One-shot operational scripts (partner bootstrap, MP test-user
+# generator). Kept out of the per-app builders to avoid changing the
+# Next build hashes whenever a script lands.
+COPY scripts scripts
 
 # -----------------------------------------------------------------------------
 # Stage: migrate
