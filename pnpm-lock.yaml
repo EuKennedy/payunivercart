@@ -17,6 +17,7 @@ overrides:
   '@better-auth/core>zod': ^4.3.5
   '@better-fetch/fetch>zod': ^4.3.5
   uuid: ^11.1.1
+  qs: ^6.15.2
 
 importers:
 
@@ -2496,8 +2497,8 @@ packages:
   proto-list@1.2.4:
     resolution: {integrity: sha512-vtK/94akxsTMhe0/cbfpR+syPuszcuwhqVjJq26CuNDgFGj682oRBXOP5MJpv2r7JtE8MsiepGIqvvOTBwn2vA==}
 
-  qs@6.15.1:
-    resolution: {integrity: sha512-6YHEFRL9mfgcAvql/XhwTvf5jKcOiiupt2FiJxHkiX1z4j7WL8J/jRHYLluORvc1XxB5rV20KoeK00gVJamspg==}
+  qs@6.15.2:
+    resolution: {integrity: sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==}
     engines: {node: '>=0.6'}
 
   react-dom@19.2.0:
@@ -4461,7 +4462,7 @@ snapshots:
 
   proto-list@1.2.4: {}
 
-  qs@6.15.1:
+  qs@6.15.2:
     dependencies:
       side-channel: 1.1.0
 
@@ -4663,7 +4664,7 @@ snapshots:
   stripe@17.4.0:
     dependencies:
       '@types/node': 22.10.5
-      qs: 6.15.1
+      qs: 6.15.2
 
   styled-jsx@5.1.6(react@19.2.0):
     dependencies:

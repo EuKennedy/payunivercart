@@ -44,7 +44,8 @@
       "better-call>zod": "^4.3.5",
       "@better-auth/core>zod": "^4.3.5",
       "@better-fetch/fetch>zod": "^4.3.5",
-      "uuid": "^11.1.1"
+      "uuid": "^11.1.1",
+      "qs": "^6.15.2"
     }
   }
 }
