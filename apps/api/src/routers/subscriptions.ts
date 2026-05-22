@@ -549,6 +549,61 @@ export const subscriptionsRouter = router({
         ? `${ctx.services.env.API_PUBLIC_URL.replace(/\/$/, '')}/webhooks/gateway/${credRow.gatewayId}`
         : undefined;
 
+      // The browser may forward either:
+      //  (a) a real MP card_token_id (preferred — tokenized via MP.js v2)
+      //  (b) a legacy placeholder `RAW:<pan>:<mm>:<yy>:<cvv>` produced
+      //      by the bootstrap checkout. We tokenize server-side via
+      //      MercadoPagoAdapter.tokenizeCard so the `/preapproval`
+      //      call below receives a real token id.
+      let cardToken = input.cardToken;
+      if (cardToken.startsWith('RAW:') && credRow.gatewayId === 'mercadopago') {
+        const parts = cardToken.slice(4).split(':');
+        if (parts.length !== 4) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Cartão em formato inválido. Recarregue a página e tente novamente.',
+          });
+        }
+        const [pan, mm, yyyy, cvv] = parts as [string, string, string, string];
+        const tokenizeFn = (
+          adapter as unknown as {
+            tokenizeCard?: (
+              creds: unknown,
+              card: {
+                cardNumber: string;
+                expirationMonth: number;
+                expirationYear: number;
+                securityCode: string;
+                holderName: string;
+                holderDocument: string;
+              },
+            ) => Promise<string>;
+          }
+        ).tokenizeCard;
+        if (!tokenizeFn) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Tokenização server-side não suportada por este gateway.',
+          });
+        }
+        try {
+          cardToken = await tokenizeFn(credentials, {
+            cardNumber: pan,
+            expirationMonth: Number(mm),
+            expirationYear: Number(yyyy),
+            securityCode: cvv,
+            holderName: input.cardHolderName,
+            holderDocument: docDigits,
+          });
+        } catch (cause) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Cartão recusado pelo gateway: ${cause instanceof Error ? cause.message : String(cause)}`,
+            cause,
+          });
+        }
+      }
+
       const frequency = row.planBillingPeriod === 'yearly' ? 12 : 1;
       const subscriptionInput: CreateSubscriptionInput = {
         workspaceId: row.workspaceId,
@@ -563,7 +618,7 @@ export const subscriptionsRouter = router({
           document: docDigits,
           phoneE164: phone.e164,
         },
-        cardToken: input.cardToken,
+        cardToken,
         frequency,
         frequencyType: 'months',
         trialDays: row.planTrialDays > 0 ? row.planTrialDays : undefined,

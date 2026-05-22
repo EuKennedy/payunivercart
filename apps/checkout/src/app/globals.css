@@ -386,8 +386,10 @@ h4 {
 }
 .field-glass:focus-within {
   border-color: var(--dop-500);
-  background: #ffffff;
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1);
+  /* Use elevated surface that respects dark/light theme. Hard-coded
+     white made the field invisible on dark mode (white-on-white). */
+  background: var(--surface-2);
+  box-shadow: 0 0 0 4px var(--dop-glow, rgba(34, 197, 94, 0.1));
 }
 .field-glass > label {
   display: block;
