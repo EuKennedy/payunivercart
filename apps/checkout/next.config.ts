@@ -3,6 +3,12 @@ import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Skip ESLint + tsc inside `next build`. CI runs both jobs
+  // separately so the same checks still gate every PR; disabling
+  // here cuts ~150–300 MB of peak build RAM and keeps the Coolify
+  // VPS from OOM-killing the deploy mid-typecheck.
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
   output: 'standalone',
   experimental: {
     outputFileTracingRoot: path.resolve(__dirname, '../../'),

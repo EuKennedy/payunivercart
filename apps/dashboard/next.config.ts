@@ -3,6 +3,12 @@ import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Skip ESLint + tsc inside `next build`. The CI runs both jobs
+  // separately so the same checks are still enforced on every PR;
+  // disabling here cuts ~150–300 MB of peak RAM out of the build,
+  // which kept OOM-killing the Coolify VPS mid-deploy.
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
   // Standalone output: self-contained bundle with only required deps.
   // Runtime image copies .next/standalone + .next/static + public —
   // ~150 MB instead of the full 1 GB /repo tree.
