@@ -92,6 +92,11 @@ export const partnersRouter = router({
         status: schema.partnerAccounts.status,
         trialAccessEnabled: schema.partnerAccounts.trialAccessEnabled,
         setupBaseUrl: schema.partnerAccounts.setupBaseUrl,
+        // JWT signing secret is returned so the admin UI can surface
+        // it via the reveal+copy widget. Plaintext is necessary
+        // because partners need to verify magic-link tokens with the
+        // exact same secret we sign with (HS256, symmetric).
+        jwtSigningSecret: schema.partnerAccounts.jwtSigningSecret,
         createdAt: schema.partnerAccounts.createdAt,
       })
       .from(schema.partnerAccounts)

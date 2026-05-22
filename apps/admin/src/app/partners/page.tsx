@@ -244,6 +244,38 @@ function PartnerDetail({ partner }: { partner: AdminPartner }) {
         <PartnerStatusActions partner={partner} />
       </header>
 
+      {/* JWT secret + setup URL — needed pelo partner pra implementar
+          o lado SaaS. Plaintext aqui é OK (superadmin-only screen). */}
+      <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <h3 className="mb-3 font-semibold text-[15px] text-[var(--color-fg)]">
+          Credenciais do partner
+        </h3>
+        <dl className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <dt className="w-[140px] text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
+              Partner ID
+            </dt>
+            <dd>
+              <SecretReveal value={partner.id} />
+            </dd>
+          </div>
+          <div className="flex items-center gap-3">
+            <dt className="w-[140px] text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
+              JWT signing secret
+            </dt>
+            <dd>
+              <SecretReveal value={partner.jwtSigningSecret} />
+            </dd>
+          </div>
+          <div className="flex items-center gap-3">
+            <dt className="w-[140px] text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
+              Setup URL
+            </dt>
+            <dd className="font-mono text-[12px] text-[var(--color-fg)]">{partner.setupBaseUrl}</dd>
+          </div>
+        </dl>
+      </section>
+
       <ApiKeysSection partnerId={partner.id} />
       <WebhookEndpointsSection partnerId={partner.id} />
       <RolesSection partnerId={partner.id} />
