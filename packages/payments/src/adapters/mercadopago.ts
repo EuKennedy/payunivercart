@@ -136,6 +136,16 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
       holderDocument: string;
     },
   ): Promise<string> {
+    // Guard: publicKey is required for server-side tokenization via
+    // the /v1/card_tokens public route. If the producer cadastrou
+    // gateway credentials without the publicKey, surface a clear
+    // error instead of letting MP return a confusing 404.
+    if (!credentials.publicKey || credentials.publicKey.length < 8) {
+      throw new PaymentError(
+        'Mercado Pago publicKey missing in gateway credentials. Producer must re-add the gateway with both accessToken AND publicKey.',
+        { gatewayId: this.id, declineCode: 'AUTH_FAILED' },
+      );
+    }
     const body = {
       card_number: card.cardNumber.replace(/\s+/g, ''),
       expiration_month: card.expirationMonth,
@@ -146,12 +156,9 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
         identification: documentTo(card.holderDocument),
       },
     };
-    // MP `/v1/card_tokens` is the PUBLIC-KEY-authenticated route, not
-    // the Bearer-authenticated one. Calling it with `Authorization:
-    // Bearer <accessToken>` returns 404 "Card token service not found"
-    // because MP routes that path through the public gateway. Use a
-    // direct fetch with `?public_key=<publicKey>` instead of the
-    // private `this.request` helper.
+    // MP `/v1/card_tokens` is the PUBLIC-KEY-authenticated route. Use
+    // a direct fetch with `?public_key=<publicKey>` (NOT Bearer) — the
+    // Bearer path returns 404 "Card token service not found".
     const url = `${API.prod}/v1/card_tokens?public_key=${encodeURIComponent(credentials.publicKey)}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUTS_MS.payment);
@@ -172,7 +179,21 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
     } finally {
       clearTimeout(timeout);
     }
-    if (!res.ok) throw await this.mapHttpError(res, 'INVALID_CARD');
+    if (!res.ok) {
+      // Read the body for diagnostics — MP includes a `message` and
+      // `cause[]` array which is otherwise lost on the 4xx path.
+      let mpDetail = '';
+      try {
+        const txt = await res.text();
+        mpDetail = txt.slice(0, 400);
+      } catch {
+        /* ignore */
+      }
+      throw new PaymentError(
+        `Mercado Pago tokenization failed (HTTP ${res.status}): ${mpDetail || 'no body'}`,
+        { gatewayId: this.id, declineCode: 'INVALID_CARD' },
+      );
+    }
     const json = (await res.json()) as { id?: string };
     if (!json.id) {
       throw new PaymentError('Mercado Pago tokenization returned no id', {
