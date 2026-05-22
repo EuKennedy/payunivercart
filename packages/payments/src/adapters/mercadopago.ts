@@ -146,9 +146,32 @@ export class MercadoPagoAdapter implements PaymentGateway<MercadoPagoCredentials
         identification: documentTo(card.holderDocument),
       },
     };
-    const res = await this.request(credentials, 'POST', '/v1/card_tokens', body, {
-      timeoutMs: TIMEOUTS_MS.payment,
-    });
+    // MP `/v1/card_tokens` is the PUBLIC-KEY-authenticated route, not
+    // the Bearer-authenticated one. Calling it with `Authorization:
+    // Bearer <accessToken>` returns 404 "Card token service not found"
+    // because MP routes that path through the public gateway. Use a
+    // direct fetch with `?public_key=<publicKey>` instead of the
+    // private `this.request` helper.
+    const url = `${API.prod}/v1/card_tokens?public_key=${encodeURIComponent(credentials.publicKey)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUTS_MS.payment);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (cause) {
+      throw new PaymentError(
+        'Mercado Pago tokenization upstream unreachable',
+        { gatewayId: this.id, declineCode: 'GATEWAY_TIMEOUT', retryable: true },
+        cause,
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!res.ok) throw await this.mapHttpError(res, 'INVALID_CARD');
     const json = (await res.json()) as { id?: string };
     if (!json.id) {
