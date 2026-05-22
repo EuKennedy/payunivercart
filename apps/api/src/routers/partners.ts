@@ -288,6 +288,12 @@ export const partnersRouter = router({
           id: schema.partnerWebhookEndpoints.id,
           signingSecret: schema.partnerWebhookEndpoints.signingSecret,
         });
+      if (!row) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Falha ao criar webhook endpoint.',
+        });
+      }
       return row;
     }),
 

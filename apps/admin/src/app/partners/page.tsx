@@ -429,11 +429,13 @@ function ApiKeysSection({ partnerId }: { partnerId: string }) {
 function WebhookEndpointsSection({ partnerId }: { partnerId: string }) {
   const utils = trpc.useUtils();
   const endpoints = trpc.partners.adminListWebhookEndpoints.useQuery({ partnerId });
+  const [justCreatedSecret, setJustCreatedSecret] = useState<string | null>(null);
   const create = trpc.partners.adminCreateWebhookEndpoint.useMutation({
-    onSuccess: () => {
+    onSuccess: (res) => {
       utils.partners.adminListWebhookEndpoints.invalidate({ partnerId });
       setUrl('');
       setDescription('');
+      setJustCreatedSecret(res.signingSecret);
     },
   });
   const toggle = trpc.partners.adminToggleWebhookEndpoint.useMutation({
@@ -448,6 +450,24 @@ function WebhookEndpointsSection({ partnerId }: { partnerId: string }) {
       title="Webhook endpoints"
       subtitle="URLs do SaaS que recebem entitlement.*. Signing secret único por endpoint."
     >
+      {justCreatedSecret ? (
+        <div className="mb-4 rounded-xl border border-[var(--color-warning)] bg-[var(--color-warning-bg)] p-3">
+          <p className="font-semibold text-[12px] text-[var(--color-warning)]">
+            Endpoint criado. Signing secret abaixo — copie agora ou consulte na lista.
+          </p>
+          <code className="mt-2 block break-all rounded bg-[var(--color-surface-muted)] p-2 font-mono text-[12px]">
+            {justCreatedSecret}
+          </code>
+          <button
+            type="button"
+            onClick={() => setJustCreatedSecret(null)}
+            className="mt-2 text-[11px] text-[var(--color-fg-muted)] underline"
+          >
+            Fechar
+          </button>
+        </div>
+      ) : null}
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -522,9 +542,7 @@ function WebhookEndpointsSection({ partnerId }: { partnerId: string }) {
           },
           {
             label: 'Secret',
-            render: (e) => (
-              <code className="font-mono text-[11px]">{e.signingSecret.slice(0, 16)}…</code>
-            ),
+            render: (e) => <SecretReveal value={e.signingSecret} />,
           },
           {
             label: 'Status',
@@ -797,6 +815,48 @@ function Table<T>({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Secret reveal — click eye icon to expose full value, click "copy" to
+ * copy to clipboard. Default state shows truncated prefix + dots. Used
+ * for webhook signing secrets which are retrievable (not hashed).
+ */
+function SecretReveal({ value }: { value: string }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      window.prompt('Copie manualmente:', value);
+    }
+  };
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <code className="max-w-[260px] truncate font-mono text-[11px]">
+        {revealed ? value : `${value.slice(0, 12)}…`}
+      </code>
+      <button
+        type="button"
+        onClick={() => setRevealed((v) => !v)}
+        className="text-[10px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+        title={revealed ? 'Esconder' : 'Mostrar'}
+      >
+        {revealed ? '🙈' : '👁'}
+      </button>
+      <button
+        type="button"
+        onClick={copy}
+        className="text-[10px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+        title="Copiar"
+      >
+        {copied ? '✓' : '📋'}
+      </button>
+    </span>
   );
 }
 
