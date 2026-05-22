@@ -607,6 +607,17 @@ export const subscriptionsRouter = router({
       }
 
       const frequency = row.planBillingPeriod === 'yearly' ? 12 : 1;
+      // MP /preapproval and /preapproval_plan REQUIRE back_url even
+      // when we pre-authorize the subscription via card_token_id
+      // (which skips the MP-hosted approval flow). Without it MP
+      // returns 404 "Card token service not found" — misleading
+      // error that is really "missing required field back_url".
+      const checkoutBase = (
+        ctx.services.env.CHECKOUT_PUBLIC_URL ??
+        ctx.services.env.API_PUBLIC_URL ??
+        'https://pay.univercart.com'
+      ).replace(/\/$/, '');
+      const backUrl = `${checkoutBase}/c/${row.productSlug}?subscription=ok`;
       const subscriptionInput: CreateSubscriptionInput = {
         workspaceId: row.workspaceId,
         subscriptionId,
@@ -625,6 +636,7 @@ export const subscriptionsRouter = router({
         frequencyType: 'months',
         trialDays: row.planTrialDays > 0 ? row.planTrialDays : undefined,
         webhookUrl,
+        backUrl,
         metadata: {
           public_reference: publicReference,
           product_slug: row.productSlug,
