@@ -59,8 +59,8 @@ export function Button({
 
   const variants: Record<ButtonVariant, string> = {
     primary:
-      'bg-[var(--color-fg)] text-[var(--color-fg-inverse)] hover:bg-[#000] active:bg-[#000] ' +
-      'shadow-[0_1px_2px_rgba(0,0,0,0.08)]',
+      'bg-[var(--color-brand-600)] text-white hover:bg-[var(--color-brand-700)] active:bg-[var(--color-brand-700)] ' +
+      'shadow-[0_1px_3px_rgba(22,163,74,0.30)]',
     secondary:
       'bg-[var(--color-surface)] text-[var(--color-fg)] border border-[var(--color-border)] ' +
       'hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-border-strong)]',

@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { type ImageUpload, ImageUploadField } from '../../../../components/ImageUploadField';
 import { Button, Heading, Kicker } from '../../../../components/ui';
 import { API_URL, CHECKOUT_URL } from '../../../../lib/env';
@@ -29,8 +30,10 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
   const update = trpc.products.update.useMutation({
     onSuccess: async () => {
       await Promise.all([utils.products.list.invalidate(), utils.products.byId.invalidate({ id })]);
+      toast.success('Produto salvo');
       router.push('/produtos');
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const [name, setName] = useState('');
@@ -403,6 +406,7 @@ function SubscriptionPlansSection({
 }) {
   const utils = trpc.useUtils();
   const [copiedPlanId, setCopiedPlanId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const copyPlanLink = async (planId: string) => {
     const url = `${CHECKOUT_URL}/c/${productSlug}?plan=${planId}`;
     try {
@@ -471,6 +475,40 @@ function SubscriptionPlansSection({
   };
 
   return (
+    <>
+    {deleteTarget && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+        onClick={() => setDeleteTarget(null)}
+      >
+        <div
+          className="mx-4 w-full max-w-sm rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="font-semibold text-[16px] text-[var(--color-fg)]">Excluir plano?</h3>
+          <p className="mt-2 text-[14px] text-[var(--color-fg-muted)] leading-[1.5]">
+            <span className="font-medium text-[var(--color-fg)]">"{deleteTarget.name}"</span> será
+            removido permanentemente.
+          </p>
+          <div className="mt-5 flex justify-end gap-3">
+            <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                remove.mutate({ id: deleteTarget.id });
+                setDeleteTarget(null);
+              }}
+              disabled={remove.isPending}
+            >
+              Excluir
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
     <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
@@ -605,9 +643,7 @@ function SubscriptionPlansSection({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (confirm(`Excluir o plano "${p.name}"?`)) remove.mutate({ id: p.id });
-                  }}
+                  onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
                   className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-danger)] transition hover:border-[var(--color-danger)]"
                 >
                   Excluir
@@ -729,5 +765,6 @@ function SubscriptionPlansSection({
         </div>
       ) : null}
     </section>
+    </>
   );
 }
