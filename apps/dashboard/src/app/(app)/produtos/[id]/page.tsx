@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { type ImageUpload, ImageUploadField } from '../../../../components/ImageUploadField';
 import { Button, Heading, Kicker } from '../../../../components/ui';
@@ -423,6 +423,7 @@ function SubscriptionPlansSection({
   });
   const update = trpc.subscriptions.updatePlan.useMutation({
     onSuccess: () => utils.subscriptions.listPlans.invalidate({ productId }),
+    onError: (err) => toast.error(err.message),
   });
   const remove = trpc.subscriptions.deletePlan.useMutation({
     onSuccess: () => utils.subscriptions.listPlans.invalidate({ productId }),
@@ -574,12 +575,18 @@ function SubscriptionPlansSection({
                   ) : null}
                 </span>
               </div>
-              <span className="font-semibold text-[16px] text-[var(--color-fg)] tabular-nums">
-                {formatCents(p.amountCents, 'BRL')}
-                <span className="text-[11px] text-[var(--color-fg-subtle)]">
-                  /{p.billingPeriod === 'yearly' ? 'ano' : 'mês'}
-                </span>
-              </span>
+              <PlanPriceEditor
+                planId={p.id}
+                amountCents={p.amountCents}
+                period={p.billingPeriod as 'monthly' | 'yearly'}
+                onSave={(cents) =>
+                  update.mutate(
+                    { id: p.id, amountCents: cents },
+                    { onSuccess: () => toast.success('Preço atualizado') },
+                  )
+                }
+                isSaving={update.isPending}
+              />
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -766,5 +773,102 @@ function SubscriptionPlansSection({
       ) : null}
     </section>
     </>
+  );
+}
+
+/**
+ * Inline price editor para planos de assinatura.
+ * Click no preço → input R$ → Enter/blur salva, Esc cancela.
+ */
+function PlanPriceEditor({
+  amountCents,
+  period,
+  onSave,
+  isSaving,
+}: {
+  planId: string;
+  amountCents: number;
+  period: 'monthly' | 'yearly';
+  onSave: (cents: number) => void;
+  isSaving: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = () => {
+    setVal((amountCents / 100).toFixed(2).replace('.', ','));
+    setEditing(true);
+    window.setTimeout(() => inputRef.current?.select(), 30);
+  };
+
+  const save = () => {
+    const cents = parseCentsBRL(val);
+    if (!Number.isFinite(cents) || cents < 100 || cents > 10_000_000) {
+      toast.error('Preço inválido (mín R$ 1,00 / máx R$ 100.000)');
+      setEditing(false);
+      return;
+    }
+    if (cents === amountCents) {
+      setEditing(false);
+      return;
+    }
+    onSave(cents);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="relative">
+          <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 font-medium text-[13px] text-[var(--color-fg-subtle)]">
+            R$
+          </span>
+          <input
+            ref={inputRef}
+            type="text"
+            inputMode="decimal"
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') save();
+              if (e.key === 'Escape') setEditing(false);
+            }}
+            onBlur={save}
+            disabled={isSaving}
+            className="w-28 rounded-lg border border-[var(--color-brand-500)] bg-[var(--color-surface)] py-1.5 pl-8 pr-2 font-semibold text-[14px] text-[var(--color-fg)] outline-none ring-2 ring-[var(--color-brand-500)]/20 tabular-nums"
+          />
+        </div>
+        <span className="text-[11px] text-[var(--color-fg-subtle)]">
+          /{period === 'yearly' ? 'ano' : 'mês'}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={startEdit}
+      title="Clique para editar o preço"
+      className="group flex items-baseline gap-1 rounded-md px-1 py-0.5 transition hover:bg-[var(--color-surface-muted)]"
+    >
+      <span className="font-semibold text-[16px] text-[var(--color-fg)] tabular-nums group-hover:text-[var(--color-brand-600)]">
+        {formatCents(amountCents, 'BRL')}
+      </span>
+      <span className="text-[11px] text-[var(--color-fg-subtle)]">
+        /{period === 'yearly' ? 'ano' : 'mês'}
+      </span>
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        className="ml-1 size-3 text-[var(--color-brand-600)] opacity-0 transition group-hover:opacity-100"
+        aria-hidden
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11.5 2.5l2 2L5 13l-3 .5.5-3 9-8z" />
+      </svg>
+    </button>
   );
 }
