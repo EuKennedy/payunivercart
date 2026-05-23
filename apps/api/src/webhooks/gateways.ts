@@ -411,6 +411,7 @@ async function handleMpSubscriptionEvent(
   try {
     const fresh = await adapter.getSubscription(credentials as never, ctx.resourceId);
     const now = new Date();
+    const previousStatus = sub.status;
     await services.db.db
       .update(schema.subscriptions)
       .set({
@@ -421,6 +422,13 @@ async function handleMpSubscriptionEvent(
         updatedAt: now,
       })
       .where(eq(schema.subscriptions.id, sub.id));
+
+    // Buyer + producer fan-out on first activation (pending → active/trialing).
+    // Emits delivery email + WhatsApp using subscription-side customer data.
+    const activated = fresh.status === 'active' && previousStatus !== 'active';
+    if (activated) {
+      await dispatchSubscriptionActivatedFanOut(services, sub.id);
+    }
 
     // Dispatch Univercart Connect entitlement event when the status
     // transition is meaningful for a 3rd-party SaaS partner. Mapping:
@@ -707,6 +715,151 @@ export async function dispatchPaidFanOut(services: AppServices, orderId: string)
           level: 'warn',
           event: 'orderPaid.producerWhatsapp.failed',
           orderId,
+          error: cause instanceof Error ? cause.message : String(cause),
+        })}\n`,
+      );
+    }
+  }
+}
+
+/**
+ * Subscription activation fan-out — same shape as `dispatchPaidFanOut`
+ * but reads from `subscriptions` instead of `orders`. Fires when the
+ * recurring engine transitions a subscription from pending → active or
+ * trialing for the first time. Sends:
+ *
+ *   1. Welcome / receipt email to the buyer (delivery link if set).
+ *   2. WhatsApp confirmation to the buyer.
+ *   3. Producer ping for the new MRR signal.
+ *
+ * Renewal events (`subscription_authorized_payment` topic) currently log
+ * only; if we ever start creating per-cycle `subscription_charges` rows
+ * we can add a thinner "renewal" fan-out from here.
+ */
+export async function dispatchSubscriptionActivatedFanOut(
+  services: AppServices,
+  subscriptionId: string,
+): Promise<void> {
+  const [row] = await services.db.db
+    .select({
+      email: schema.subscriptions.customerEmail,
+      name: schema.subscriptions.customerName,
+      ref: schema.subscriptions.publicReference,
+      customerWahaChatId: schema.subscriptions.customerWahaChatId,
+      workspaceId: schema.subscriptions.workspaceId,
+      productId: schema.subscriptions.productId,
+      planAmount: schema.subscriptionPlans.amountCents,
+      planPeriod: schema.subscriptionPlans.billingPeriod,
+      productName: schema.products.name,
+      deliveryUrl: schema.products.deliveryUrl,
+      deliveryInstructions: schema.products.deliveryInstructions,
+      workspaceName: schema.workspaces.name,
+      workspaceCompanyName: schema.workspaces.companyName,
+      notificationPhoneE164: schema.workspaces.notificationPhoneE164,
+    })
+    .from(schema.subscriptions)
+    .innerJoin(
+      schema.subscriptionPlans,
+      eq(schema.subscriptionPlans.id, schema.subscriptions.planId),
+    )
+    .innerJoin(schema.products, eq(schema.products.id, schema.subscriptions.productId))
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.subscriptions.workspaceId))
+    .where(eq(schema.subscriptions.id, subscriptionId))
+    .limit(1);
+  if (!row) return;
+
+  const brand = row.workspaceCompanyName?.trim() || row.workspaceName;
+  const amountFormatted = new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+  }).format(Number(row.planAmount) / 100);
+  const periodLabel = row.planPeriod === 'yearly' ? '/ano' : '/mês';
+  const productName = row.productName;
+  const deliveryUrl = row.deliveryUrl ?? null;
+  const deliveryInstructions = row.deliveryInstructions ?? null;
+
+  // -- 1. Welcome / activation email ---------------------------------------
+  try {
+    await services.emails.sendOrderPaid({
+      to: row.email,
+      customerName: row.name,
+      publicReference: row.ref,
+      productName,
+      amountFormatted: `${amountFormatted}${periodLabel}`,
+      brand,
+      deliveryUrl,
+      deliveryInstructions,
+    });
+  } catch (cause) {
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'subscription.activation.email.failed',
+        subscriptionId,
+        error: cause instanceof Error ? cause.message : String(cause),
+      })}\n`,
+    );
+  }
+
+  // -- 2/3. WhatsApp dispatch ----------------------------------------------
+  const [sessionRow] = await services.db.db
+    .select({ sessionName: schema.whatsappSessions.wahaSessionId })
+    .from(schema.whatsappSessions)
+    .where(eq(schema.whatsappSessions.workspaceId, row.workspaceId))
+    .limit(1);
+  if (!sessionRow) return;
+  const sessionName = sessionRow.sessionName;
+
+  const firstName = row.name.split(/\s+/)[0] ?? row.name;
+  const deliveryLine = deliveryUrl
+    ? `\n\n👉 Acesso: ${deliveryUrl}${deliveryInstructions ? `\n\n${deliveryInstructions}` : ''}`
+    : deliveryInstructions
+      ? `\n\n${deliveryInstructions}`
+      : '';
+  const buyerText =
+    `Oi ${firstName}! Assinatura de *${productName}* ativada ✅\n` +
+    `Plano ${amountFormatted}${periodLabel} · Pedido ${row.ref}.${deliveryLine}\n\n— ${brand}`;
+
+  if (row.customerWahaChatId) {
+    try {
+      await services.waha.sendText({
+        session: sessionName,
+        chatId: row.customerWahaChatId as `${string}@c.us`,
+        text: buyerText,
+        linkPreview: !!deliveryUrl,
+      });
+    } catch (cause) {
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'warn',
+          event: 'subscription.activation.buyerWhatsapp.failed',
+          subscriptionId,
+          error: cause instanceof Error ? cause.message : String(cause),
+        })}\n`,
+      );
+    }
+  }
+
+  if (row.notificationPhoneE164) {
+    const producerChatId = `${row.notificationPhoneE164.replace(/\D+/g, '')}@c.us` as const;
+    const producerText =
+      `💰 Nova assinatura em *${brand}*\n` +
+      `${row.name} assinou *${productName}* por ${amountFormatted}${periodLabel}.\n` +
+      `Pedido ${row.ref}.`;
+    try {
+      await services.waha.sendText({
+        session: sessionName,
+        chatId: producerChatId,
+        text: producerText,
+        linkPreview: false,
+      });
+    } catch (cause) {
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'warn',
+          event: 'subscription.activation.producerWhatsapp.failed',
+          subscriptionId,
           error: cause instanceof Error ? cause.message : String(cause),
         })}\n`,
       );
