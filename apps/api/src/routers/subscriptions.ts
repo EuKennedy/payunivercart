@@ -10,7 +10,9 @@ import {
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
+import { ConnectDispatcher } from '../connect/dispatcher';
 import { publicProcedure, router, workspaceProcedure } from '../trpc';
+import { dispatchSubscriptionActivatedFanOut } from '../webhooks/gateways';
 
 /**
  * Subscriptions — recurring-billing surface.
@@ -689,8 +691,54 @@ export const subscriptionsRouter = router({
         })
         .returning({ id: schema.subscriptions.id });
 
+      // Activation fan-out (email + WhatsApp + Connect entitlement).
+      // The MP webhook handler ALSO has logic to fire this on the
+      // pending → active transition, but because we insert with the
+      // MP-returned status (already "active" 99% of the time), that
+      // transition never fires and the buyer gets nothing. Fire here
+      // unconditionally when status='active'. Idempotency on Connect
+      // events is handled by the dispatcher's dedupe on entitlement
+      // token table; email/WhatsApp are best-effort and harmless if
+      // duplicated (worst case: buyer gets two welcome messages).
+      const finalSubId = inserted?.id ?? subscriptionId;
+      if (charge.status === 'active') {
+        try {
+          await dispatchSubscriptionActivatedFanOut(ctx.services, finalSubId);
+        } catch (cause) {
+          // Don't fail the subscribe request if notifications fall over.
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'warn',
+              event: 'subscribe.fanout.failed',
+              subscriptionId: finalSubId,
+              error: cause instanceof Error ? cause.message : String(cause),
+            })}\n`,
+          );
+        }
+
+        // Univercart Connect — provision partner entitlement + magic link
+        // when the plan is wired to a SaaS partner. Skipped silently for
+        // non-Connect plans.
+        try {
+          const dispatcher = new ConnectDispatcher(ctx.services);
+          await dispatcher.dispatch({
+            type: 'entitlement.granted',
+            subscriptionId: finalSubId,
+          });
+        } catch (cause) {
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'warn',
+              event: 'subscribe.connect.failed',
+              subscriptionId: finalSubId,
+              error: cause instanceof Error ? cause.message : String(cause),
+            })}\n`,
+          );
+        }
+      }
+
       return {
-        subscriptionId: inserted?.id ?? subscriptionId,
+        subscriptionId: finalSubId,
         publicReference,
         status: narrowSubscriptionStatus(charge.status),
         gatewaySubscriptionId: charge.gatewaySubscriptionId,
