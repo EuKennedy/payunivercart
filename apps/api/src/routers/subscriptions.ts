@@ -635,6 +635,16 @@ export const subscriptionsRouter = router({
         frequency,
         frequencyType: 'months',
         trialDays: row.planTrialDays > 0 ? row.planTrialDays : undefined,
+        // Without start_date, MP schedules the first charge for
+        // `now + frequency` (i.e. ~1 month from now) and only does a
+        // card auth on creation. Buyer would see ZERO charge today and
+        // think the integration is broken. Forcing start_date=now (with
+        // 1 min buffer for MP's processing window) charges the first
+        // installment immediately when status=authorized + card_token_id.
+        startDate:
+          row.planTrialDays > 0
+            ? undefined
+            : new Date(Date.now() + 60_000),
         webhookUrl,
         backUrl,
         metadata: {
