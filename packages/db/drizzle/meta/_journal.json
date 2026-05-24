@@ -78,6 +78,13 @@
       "when": 1779403658042,
       "tag": "0010_amazing_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779653343329,
+      "tag": "0011_nifty_stranger",
+      "breakpoints": true
     }
   ]
 }

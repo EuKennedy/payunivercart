@@ -11,6 +11,7 @@ import {
   updatedAt,
 } from './common';
 import { productOffers, products } from './products';
+import { subscriptions } from './subscriptions';
 import { workspaces } from './workspaces';
 
 export const orders = pgTable(
@@ -21,6 +22,17 @@ export const orders = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     checkoutId: fk().references(() => checkouts.id, { onDelete: 'set null' }),
+    /**
+     * When this order is materialised from a subscription cycle (initial
+     * activation OR a recurring renewal), points back to the parent
+     * subscription. NULL for one-time purchases.
+     *
+     * `cycleNumber` starts at 1 for the activation charge and increments
+     * by 1 on every subsequent recurring charge — lets analytics + the
+     * Pedidos UI distinguish "first sale" from "renewal #3".
+     */
+    subscriptionId: fk().references(() => subscriptions.id, { onDelete: 'set null' }),
+    cycleNumber: integer(),
     publicReference: text().notNull(),
     status: orderStatusEnum().notNull().default('draft'),
     customerName: text().notNull(),
@@ -51,6 +63,12 @@ export const orders = pgTable(
     index('orders_status_idx').on(table.workspaceId, table.status),
     index('orders_email_idx').on(table.workspaceId, table.customerEmail),
     index('orders_workspace_expires_idx').on(table.workspaceId, table.expiresAt),
+    index('orders_subscription_idx').on(table.subscriptionId, table.cycleNumber),
+    // Prevent the same (subscription, cycle) being materialised twice when
+    // MP retries a webhook for the same authorized_payment event.
+    uniqueIndex('orders_subscription_cycle_unique')
+      .on(table.subscriptionId, table.cycleNumber)
+      .where(sql`${table.subscriptionId} IS NOT NULL`),
   ],
 );
 

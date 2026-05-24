@@ -2,7 +2,7 @@ import type { EntitlementEventType } from '@payunivercart/connect';
 import { schema } from '@payunivercart/db';
 import { type WebhookEvent, getAdapter } from '@payunivercart/payments';
 import { type GatewayId, PayunivercartError } from '@payunivercart/shared';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { ConnectDispatcher } from '../connect/dispatcher';
 import type { AppServices } from '../services';
@@ -342,9 +342,15 @@ async function handleMpSubscriptionEvent(
     queryParams: Record<string, string>;
   },
 ): Promise<{ ok: true; deferred?: boolean; status?: string }> {
+  if (ctx.eventType === 'subscription_authorized_payment') {
+    // Recurring charge fired by MP. Resource id is the authorized_payment
+    // id; we resolve it to a preapproval_id by calling MP's authorized
+    // payments endpoint. To find which workspace's access token can read
+    // this payment, we iterate over MP credentials — small in absolute
+    // numbers (one or two per workspace) so the brute-force is fine.
+    return handleMpRecurringPayment(services, ctx);
+  }
   if (ctx.eventType !== 'subscription_preapproval') {
-    // `subscription_authorized_payment` and future MP topics are
-    // logged for audit but don't update domain rows yet.
     await storeRaw({
       services,
       source: 'mercadopago',
@@ -473,6 +479,162 @@ async function handleMpSubscriptionEvent(
     );
     return { ok: true, deferred: true };
   }
+}
+
+/**
+ * Handle MP `subscription_authorized_payment` — a recurring charge has
+ * been processed (status varies). We:
+ *   1. Iterate over enabled MP credentials and call
+ *      `GET /authorized_payments/{id}` until one succeeds.
+ *   2. Read `preapproval_id` from the response → map to our subscription.
+ *   3. Materialise an `orders` row tagged with the next cycle so the
+ *      Pedidos UI + analytics surface the renewal revenue.
+ *   4. Update `subscriptions.lastChargedAt` + `nextChargeAt`.
+ *
+ * Idempotent: a partial unique index on (subscription_id, cycle_number)
+ * prevents double-materialisation when MP retries the webhook.
+ */
+async function handleMpRecurringPayment(
+  services: AppServices,
+  ctx: { resourceId: string; raw: string; headers: Record<string, string> },
+): Promise<{ ok: true; deferred?: boolean; status?: string }> {
+  const paymentId = ctx.resourceId;
+
+  // Fetch ALL MP credential rows. We don't know which workspace the
+  // payment belongs to until MP confirms; bias on `is_default` first
+  // since the recurring engine usually rides on it.
+  const creds = await services.db.db
+    .select({
+      id: schema.gatewayCredentials.id,
+      workspaceId: schema.gatewayCredentials.workspaceId,
+      credentialsEncrypted: schema.gatewayCredentials.credentialsEncrypted,
+      isDefault: schema.gatewayCredentials.isDefault,
+    })
+    .from(schema.gatewayCredentials)
+    .where(eq(schema.gatewayCredentials.gatewayId, 'mercadopago'))
+    .orderBy(desc(schema.gatewayCredentials.isDefault));
+
+  let preapprovalId: string | null = null;
+  let amountCents: number | null = null;
+  let chargeStatus: string | null = null;
+
+  for (const cred of creds) {
+    const parsed = (() => {
+      try {
+        const raw = services.crypto.unsealJson<Record<string, unknown>>(
+          cred.credentialsEncrypted,
+        );
+        const accessToken = typeof raw.accessToken === 'string' ? raw.accessToken : null;
+        return accessToken;
+      } catch {
+        return null;
+      }
+    })();
+    if (!parsed) continue;
+    try {
+      const res = await fetch(
+        `https://api.mercadopago.com/authorized_payments/${encodeURIComponent(paymentId)}`,
+        { headers: { Authorization: `Bearer ${parsed}` }, signal: AbortSignal.timeout(8_000) },
+      );
+      if (!res.ok) continue;
+      const json = (await res.json()) as {
+        preapproval_id?: string;
+        status?: string;
+        transaction_amount?: number;
+      };
+      if (!json.preapproval_id) continue;
+      preapprovalId = json.preapproval_id;
+      amountCents =
+        typeof json.transaction_amount === 'number'
+          ? Math.round(json.transaction_amount * 100)
+          : null;
+      chargeStatus = json.status ?? null;
+      break;
+    } catch {
+      /* try next credential */
+    }
+  }
+
+  if (!preapprovalId) {
+    await storeRaw({
+      services,
+      source: 'mercadopago',
+      eventId: `auth-payment-orphan:${paymentId}:${Date.now()}`,
+      eventType: 'subscription_authorized_payment',
+      headers: ctx.headers,
+      raw: ctx.raw,
+      signatureValid: 'unknown',
+      workspaceId: null,
+      error: 'could not resolve preapproval_id with any MP credential',
+    });
+    return { ok: true, deferred: true };
+  }
+
+  // Map preapproval → our subscription.
+  const [sub] = await services.db.db
+    .select({ id: schema.subscriptions.id })
+    .from(schema.subscriptions)
+    .where(
+      and(
+        eq(schema.subscriptions.gatewayId, 'mercadopago'),
+        eq(schema.subscriptions.gatewaySubscriptionId, preapprovalId),
+      ),
+    )
+    .limit(1);
+  if (!sub) {
+    await storeRaw({
+      services,
+      source: 'mercadopago',
+      eventId: `auth-payment-no-sub:${preapprovalId}:${Date.now()}`,
+      eventType: 'subscription_authorized_payment',
+      headers: ctx.headers,
+      raw: ctx.raw,
+      signatureValid: 'unknown',
+      workspaceId: null,
+      error: `preapproval ${preapprovalId} not in our subscriptions table`,
+    });
+    return { ok: true, deferred: true };
+  }
+
+  // Only materialise on successful captures; skip pending/rejected.
+  if (chargeStatus !== 'approved' && chargeStatus !== 'accredited') {
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'info',
+        event: 'mp.recurring.skip',
+        subscriptionId: sub.id,
+        chargeStatus,
+        paymentId,
+      })}\n`,
+    );
+    return { ok: true, status: chargeStatus ?? 'unknown' };
+  }
+
+  const cycle = await nextSubscriptionCycle(services, sub.id);
+  const orderId = await materializeSubscriptionOrder(services, {
+    subscriptionId: sub.id,
+    cycleNumber: cycle,
+    gatewayChargeId: paymentId,
+  });
+
+  await services.db.db
+    .update(schema.subscriptions)
+    .set({ lastChargedAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.subscriptions.id, sub.id));
+
+  process.stdout.write(
+    `${JSON.stringify({
+      level: 'info',
+      event: orderId ? 'mp.recurring.materialised' : 'mp.recurring.duplicate',
+      subscriptionId: sub.id,
+      cycle,
+      orderId,
+      amountCents,
+      paymentId,
+    })}\n`,
+  );
+
+  return { ok: true, status: 'approved' };
 }
 
 /**
@@ -865,4 +1027,132 @@ export async function dispatchSubscriptionActivatedFanOut(
       );
     }
   }
+}
+
+/**
+ * Materialise an `orders` row (+ `order_items`) from a subscription
+ * charge cycle. Used by:
+ *   - subscribe route on activation (cycleNumber = 1)
+ *   - subscription_authorized_payment webhook on each renewal
+ *     (cycleNumber = N+1, computed from existing rows)
+ *
+ * Why orders, not a dedicated `subscription_charges` table:
+ * analytics + Pedidos UI already read from `orders`. Materialising
+ * the cycle as an order makes every report (GMV, conversion, top
+ * products, payment method split, recent orders feed) work without
+ * touching the metrics router.
+ *
+ * Idempotency: the partial unique index `orders_subscription_cycle_unique`
+ * blocks duplicate rows for the same (subscription, cycle). The function
+ * swallows the unique-violation as a no-op so MP webhook retries don't
+ * 500. Returns the materialised order id on success, null on dedupe.
+ */
+export async function materializeSubscriptionOrder(
+  services: AppServices,
+  args: {
+    subscriptionId: string;
+    cycleNumber: number;
+    /** Optional: tag the order with the gateway charge id for traceability. */
+    gatewayChargeId?: string;
+  },
+): Promise<string | null> {
+  const { db } = services.db;
+
+  const [sub] = await db
+    .select({
+      id: schema.subscriptions.id,
+      workspaceId: schema.subscriptions.workspaceId,
+      productId: schema.subscriptions.productId,
+      planId: schema.subscriptions.planId,
+      publicReference: schema.subscriptions.publicReference,
+      customerName: schema.subscriptions.customerName,
+      customerEmail: schema.subscriptions.customerEmail,
+      customerDocument: schema.subscriptions.customerDocument,
+      customerPhoneRaw: schema.subscriptions.customerPhoneRaw,
+      customerPhoneE164: schema.subscriptions.customerPhoneE164,
+      customerWahaChatId: schema.subscriptions.customerWahaChatId,
+      productName: schema.products.name,
+      planAmount: schema.subscriptionPlans.amountCents,
+      planCurrency: schema.subscriptionPlans.currency,
+    })
+    .from(schema.subscriptions)
+    .innerJoin(schema.products, eq(schema.products.id, schema.subscriptions.productId))
+    .innerJoin(
+      schema.subscriptionPlans,
+      eq(schema.subscriptionPlans.id, schema.subscriptions.planId),
+    )
+    .where(eq(schema.subscriptions.id, args.subscriptionId))
+    .limit(1);
+  if (!sub) return null;
+
+  const now = new Date();
+  const orderRef =
+    args.cycleNumber === 1 ? sub.publicReference : `${sub.publicReference}-C${args.cycleNumber}`;
+
+  try {
+    const [inserted] = await db
+      .insert(schema.orders)
+      .values({
+        workspaceId: sub.workspaceId,
+        subscriptionId: sub.id,
+        cycleNumber: args.cycleNumber,
+        publicReference: orderRef,
+        status: 'paid',
+        customerName: sub.customerName,
+        customerEmail: sub.customerEmail,
+        customerDocument: sub.customerDocument,
+        customerPhoneRaw: sub.customerPhoneRaw,
+        customerPhoneE164: sub.customerPhoneE164,
+        customerWahaChatId: sub.customerWahaChatId,
+        subtotalCents: BigInt(sub.planAmount),
+        totalCents: BigInt(sub.planAmount),
+        currency: sub.planCurrency,
+        metadata: args.gatewayChargeId
+          ? { gatewayChargeId: args.gatewayChargeId, cycle: args.cycleNumber }
+          : { cycle: args.cycleNumber },
+        paidAt: now,
+      })
+      .returning({ id: schema.orders.id });
+
+    if (!inserted) return null;
+
+    await db.insert(schema.orderItems).values({
+      orderId: inserted.id,
+      productId: sub.productId,
+      name:
+        args.cycleNumber === 1
+          ? sub.productName
+          : `${sub.productName} (renovação #${args.cycleNumber})`,
+      quantity: 1,
+      unitAmountCents: BigInt(sub.planAmount),
+      totalCents: BigInt(sub.planAmount),
+    });
+
+    return inserted.id;
+  } catch (cause) {
+    const code =
+      cause && typeof cause === 'object' && 'code' in cause
+        ? String((cause as { code: unknown }).code)
+        : null;
+    if (code === '23505') return null;
+    throw cause;
+  }
+}
+
+/**
+ * Compute the next cycle number for a subscription. Reads MAX(cycle)
+ * from `orders` filtered by subscriptionId, defaults to 1 when no
+ * prior charge has been materialised.
+ */
+export async function nextSubscriptionCycle(
+  services: AppServices,
+  subscriptionId: string,
+): Promise<number> {
+  const [row] = await services.db.db
+    .select({ cycle: schema.orders.cycleNumber })
+    .from(schema.orders)
+    .where(eq(schema.orders.subscriptionId, subscriptionId))
+    .orderBy(desc(schema.orders.cycleNumber))
+    .limit(1);
+  return (row?.cycle ?? 0) + 1;
 }

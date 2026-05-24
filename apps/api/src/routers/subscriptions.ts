@@ -12,7 +12,10 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { ConnectDispatcher } from '../connect/dispatcher';
 import { publicProcedure, router, workspaceProcedure } from '../trpc';
-import { dispatchSubscriptionActivatedFanOut } from '../webhooks/gateways';
+import {
+  dispatchSubscriptionActivatedFanOut,
+  materializeSubscriptionOrder,
+} from '../webhooks/gateways';
 
 /**
  * Subscriptions — recurring-billing surface.
@@ -702,6 +705,27 @@ export const subscriptionsRouter = router({
       // duplicated (worst case: buyer gets two welcome messages).
       const finalSubId = inserted?.id ?? subscriptionId;
       if (charge.status === 'active') {
+        // Materialise the activation charge as an `orders` row so
+        // analytics + the Pedidos UI surface the sale immediately.
+        // Without this the producer sees nothing in their dashboard
+        // even though MP cobrou na hora.
+        try {
+          await materializeSubscriptionOrder(ctx.services, {
+            subscriptionId: finalSubId,
+            cycleNumber: 1,
+            gatewayChargeId: charge.gatewaySubscriptionId,
+          });
+        } catch (cause) {
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'warn',
+              event: 'subscribe.order.materialize.failed',
+              subscriptionId: finalSubId,
+              error: cause instanceof Error ? cause.message : String(cause),
+            })}\n`,
+          );
+        }
+
         try {
           await dispatchSubscriptionActivatedFanOut(ctx.services, finalSubId);
         } catch (cause) {
