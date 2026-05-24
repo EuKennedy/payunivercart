@@ -100,7 +100,14 @@ export default function GatewaysPage() {
     setIsSandbox(true);
   }
 
-  const mpConfigured = (list.data ?? []).find((g) => g.gatewayId === 'mercadopago');
+  // Producer can have multiple MP accounts wired (e.g. one sandbox for
+  // QA + one production for live charges; eventually multi-store setups
+  // with one production account per brand). We render every row so the
+  // producer can flip the default with one click instead of deleting +
+  // recreating, which would invalidate ongoing subscriptions tied to
+  // the old credential row.
+  const mpAccounts = (list.data ?? []).filter((g) => g.gatewayId === 'mercadopago');
+  const mpConfigured = mpAccounts[0];
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -240,64 +247,111 @@ export default function GatewaysPage() {
         })}
       </section>
 
-      {/* Configured Mercado Pago row + action menu */}
-      {mpConfigured ? (
+      {/* All configured Mercado Pago accounts. The row marked as default
+          is the one we use to charge buyers; the others sit on standby
+          for one-click swap (e.g. switch a producer's checkout from
+          sandbox to production without re-typing credentials). */}
+      {mpAccounts.length > 0 ? (
         <section className="flex flex-col gap-3">
-          <h2 className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
-            Conexão ativa
-          </h2>
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-            <div className="flex items-center gap-4">
-              <img
-                src="/gateways/mercadopago.png"
-                alt="Mercado Pago"
-                className="h-9 max-w-[120px] object-contain"
-              />
-              <div className="flex flex-col gap-1">
-                <span className="font-semibold text-[15px] text-[var(--color-fg)]">
-                  {mpConfigured.label}
-                </span>
-                <span className="text-[12px] text-[var(--color-fg-subtle)]">
-                  {mpConfigured.lastValidatedAt
-                    ? `Validado em ${new Date(mpConfigured.lastValidatedAt).toLocaleString('pt-BR')}`
-                    : mpConfigured.validationError
-                      ? `Falha: ${mpConfigured.validationError}`
-                      : 'Aguardando validação'}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => test.mutate({ id: mpConfigured.id })}
-                disabled={test.isPending}
-              >
-                Testar
-              </Button>
-              {!mpConfigured.isDefault ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDefault.mutate({ id: mpConfigured.id })}
-                  disabled={setDefault.isPending}
-                >
-                  Tornar padrão
-                </Button>
-              ) : null}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  if (!confirm(`Remover "${mpConfigured.label}"?`)) return;
-                  remove.mutate({ id: mpConfigured.id });
-                }}
-                disabled={remove.isPending}
-              >
-                Remover
-              </Button>
-            </div>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
+              Contas Mercado Pago {mpAccounts.length > 1 ? `(${mpAccounts.length} conectadas)` : ''}
+            </h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowForm(true);
+                resetForm();
+                setTimeout(() => {
+                  document
+                    .getElementById('mp-connect-form')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 50);
+              }}
+            >
+              + Nova conta
+            </Button>
           </div>
+          <ul className="flex flex-col gap-3">
+            {mpAccounts.map((acc) => (
+              <li
+                key={acc.id}
+                className={
+                  acc.isDefault
+                    ? 'flex flex-wrap items-center justify-between gap-4 rounded-2xl border-2 border-[var(--color-brand-500)] bg-[var(--color-surface)] p-5 ring-4 ring-[var(--color-brand-500)]/10'
+                    : 'flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5'
+                }
+              >
+                <div className="flex items-center gap-4">
+                  <img
+                    src="/gateways/mercadopago.png"
+                    alt="Mercado Pago"
+                    className="h-9 max-w-[120px] object-contain"
+                  />
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[15px] text-[var(--color-fg)]">
+                        {acc.label}
+                      </span>
+                      {acc.isDefault ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-brand-50)] px-2 py-0.5 font-semibold text-[10px] text-[var(--color-brand-700)] uppercase tracking-wider">
+                          ★ Padrão
+                        </span>
+                      ) : null}
+                      {acc.isSandbox ? (
+                        <span className="rounded-full bg-[var(--color-warning-bg)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-warning)] uppercase tracking-wider">
+                          Sandbox
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-[var(--color-success-bg)] px-2 py-0.5 font-medium text-[10px] text-[var(--color-success)] uppercase tracking-wider">
+                          Produção
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[12px] text-[var(--color-fg-subtle)]">
+                      {acc.lastValidatedAt
+                        ? `Validada em ${new Date(acc.lastValidatedAt).toLocaleString('pt-BR')}`
+                        : acc.validationError
+                          ? `Falha: ${acc.validationError}`
+                          : 'Aguardando validação'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => test.mutate({ id: acc.id })}
+                    disabled={test.isPending}
+                  >
+                    Testar
+                  </Button>
+                  {!acc.isDefault ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setDefault.mutate({ id: acc.id })}
+                      disabled={setDefault.isPending}
+                    >
+                      Tornar padrão
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (!confirm(`Remover "${acc.label}"?`)) return;
+                      remove.mutate({ id: acc.id });
+                    }}
+                    disabled={remove.isPending}
+                  >
+                    Remover
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
@@ -350,22 +404,30 @@ export default function GatewaysPage() {
                 className={inputClass}
               />
             </FormField>
-            <FormField label="Access Token" className="sm:col-span-2">
+            <FormField
+              label="Public Key"
+              hint="Chave pública usada pelo navegador do comprador para tokenizar cartões."
+              className="sm:col-span-2"
+            >
               <input
-                type="password"
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
+                type="text"
+                value={publicKey}
+                onChange={(e) => setPublicKey(e.target.value)}
                 placeholder="APP_USR-... ou TEST-..."
                 className={inputClass}
                 autoComplete="off"
                 required
               />
             </FormField>
-            <FormField label="Public Key" className="sm:col-span-2">
+            <FormField
+              label="Access Token"
+              hint="Chave secreta do backend. Nunca compartilhe — fica criptografada no nosso servidor."
+              className="sm:col-span-2"
+            >
               <input
-                type="text"
-                value={publicKey}
-                onChange={(e) => setPublicKey(e.target.value)}
+                type="password"
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
                 placeholder="APP_USR-... ou TEST-..."
                 className={inputClass}
                 autoComplete="off"
