@@ -570,11 +570,24 @@ function SubscriptionPlansSection({
                     {p.partnerAccountId && p.partnerRoleSlug ? (
                       <>
                         {' · '}
-                        <span className="font-mono text-[11px] text-[var(--color-brand-700)]">
+                        <span
+                          className="inline-flex items-center gap-1 rounded-md bg-[var(--color-brand-50)] px-1.5 py-0.5 font-medium text-[10px] text-[var(--color-brand-700)] uppercase tracking-wider"
+                          title="Plano provisiona acesso no SaaS parceiro via Univercart Connect"
+                        >
                           Connect → {p.partnerRoleSlug}
                         </span>
                       </>
-                    ) : null}
+                    ) : (
+                      <>
+                        {' · '}
+                        <span
+                          className="inline-flex items-center gap-1 rounded-md bg-[var(--color-warning-bg)] px-1.5 py-0.5 font-medium text-[10px] text-[var(--color-warning)] uppercase tracking-wider"
+                          title="Buyer só recebe email com deliveryUrl estático. Sem auto-login no SaaS parceiro."
+                        >
+                          ⚠ Sem Connect
+                        </span>
+                      </>
+                    )}
                   </span>
                 </div>
                 <PlanPriceEditor

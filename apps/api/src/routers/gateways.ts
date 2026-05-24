@@ -117,10 +117,47 @@ export const gatewaysRouter = router({
       const sealed = ctx.services.crypto.sealJson(input.credentials);
 
       const result = await withWorkspace(ctx.services.db.db, ctx.workspaceId, async (tx) => {
-        // Demote any other default for the same gatewayId so the partial
-        // unique index `gateway_credentials_default_unique` doesn't
-        // 23505 us on insert.
-        if (input.isDefault) {
+        // Real upsert: if a credential already exists for this
+        // (workspace, gateway, sandbox) tuple we update it in place.
+        // Without this we'd accumulate one row per save attempt and the
+        // dashboard would have to babysit the `is_default` flag to keep
+        // charges firing on the right credential.
+        const [existing] = await tx
+          .select({
+            id: schema.gatewayCredentials.id,
+            isDefault: schema.gatewayCredentials.isDefault,
+          })
+          .from(schema.gatewayCredentials)
+          .where(
+            and(
+              eq(schema.gatewayCredentials.workspaceId, ctx.workspaceId),
+              eq(schema.gatewayCredentials.gatewayId, input.gatewayId),
+              eq(schema.gatewayCredentials.isSandbox, input.isSandbox),
+            ),
+          )
+          .limit(1);
+
+        // Auto-default: when the workspace has zero credentials for this
+        // gateway (regardless of sandbox), the first one wired up always
+        // becomes the default. Prevents the producer from saving a
+        // credential and then watching every checkout fail because they
+        // forgot to tick a checkbox.
+        const [anyForGateway] = await tx
+          .select({ count: schema.gatewayCredentials.id })
+          .from(schema.gatewayCredentials)
+          .where(
+            and(
+              eq(schema.gatewayCredentials.workspaceId, ctx.workspaceId),
+              eq(schema.gatewayCredentials.gatewayId, input.gatewayId),
+            ),
+          )
+          .limit(1);
+        const shouldDefault = input.isDefault || (!anyForGateway && !existing);
+
+        // Demote other rows for the same gatewayId only if we're about to
+        // promote this one. The partial unique index `default_unique`
+        // requires exactly zero or one default per (workspace, gateway).
+        if (shouldDefault) {
           await tx
             .update(schema.gatewayCredentials)
             .set({ isDefault: false })
@@ -132,13 +169,37 @@ export const gatewaysRouter = router({
             );
         }
 
+        if (existing) {
+          const [updated] = await tx
+            .update(schema.gatewayCredentials)
+            .set({
+              label: input.label,
+              isDefault: shouldDefault,
+              credentialsEncrypted: sealed.blob,
+              keyId: sealed.keyId,
+              encVersion: 'v1',
+              lastValidatedAt: validated ? new Date() : null,
+              validationError,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.gatewayCredentials.id, existing.id))
+            .returning({ id: schema.gatewayCredentials.id });
+          if (!updated) {
+            throw new TRPCError({
+              code: 'INTERNAL_SERVER_ERROR',
+              message: 'gateway_credentials update returned no row',
+            });
+          }
+          return updated;
+        }
+
         const [row] = await tx
           .insert(schema.gatewayCredentials)
           .values({
             workspaceId: ctx.workspaceId,
             gatewayId: input.gatewayId,
             label: input.label,
-            isDefault: input.isDefault,
+            isDefault: shouldDefault,
             isSandbox: input.isSandbox,
             credentialsEncrypted: sealed.blob,
             keyId: sealed.keyId,

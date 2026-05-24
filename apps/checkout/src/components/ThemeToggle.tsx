@@ -16,7 +16,6 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
 
   return (
     <div
-      // biome-ignore lint/a11y/useSemanticElements: <fieldset>+<legend> adds visual baggage we don't want on a 3-pill toggle; the radiogroup role is the semantic equivalent.
       role="radiogroup"
       aria-label="Tema"
       className="inline-flex items-center gap-1 rounded-full border border-[var(--hairline)] bg-[var(--bg-elev-1)] p-1"
