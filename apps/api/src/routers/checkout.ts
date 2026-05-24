@@ -787,9 +787,7 @@ export const checkoutRouter = router({
       // the gateway rejected. PIX/Boleto stay in `pending_payment`
       // because they legitimately need buyer action after creation.
       const isDeclined =
-        charge.status === 'failed' ||
-        charge.status === 'cancelled' ||
-        charge.status === 'expired';
+        charge.status === 'failed' || charge.status === 'cancelled' || charge.status === 'expired';
       const apiStatus: 'paid' | 'pending_payment' | 'declined' =
         charge.status === 'paid' ? 'paid' : isDeclined ? 'declined' : 'pending_payment';
 

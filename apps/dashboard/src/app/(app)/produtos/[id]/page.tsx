@@ -477,301 +477,304 @@ function SubscriptionPlansSection({
 
   return (
     <>
-    {deleteTarget && (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
-        onClick={() => setDeleteTarget(null)}
-      >
+      {deleteTarget && (
+        // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismisses via Cancel button (keyboard-accessible); div onClick is a mouse-only convenience.
         <div
-          className="mx-4 w-full max-w-sm rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)]"
-          onClick={(e) => e.stopPropagation()}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+          onClick={() => setDeleteTarget(null)}
         >
-          <h3 className="font-semibold text-[16px] text-[var(--color-fg)]">Excluir plano?</h3>
-          <p className="mt-2 text-[14px] text-[var(--color-fg-muted)] leading-[1.5]">
-            <span className="font-medium text-[var(--color-fg)]">"{deleteTarget.name}"</span> será
-            removido permanentemente.
-          </p>
-          <div className="mt-5 flex justify-end gap-3">
-            <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
-              Cancelar
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => {
-                remove.mutate({ id: deleteTarget.id });
-                setDeleteTarget(null);
-              }}
-              disabled={remove.isPending}
-            >
-              Excluir
-            </Button>
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation; card content is interactive via real buttons. */}
+          <div
+            className="mx-4 w-full max-w-sm rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-semibold text-[16px] text-[var(--color-fg)]">Excluir plano?</h3>
+            <p className="mt-2 text-[14px] text-[var(--color-fg-muted)] leading-[1.5]">
+              <span className="font-medium text-[var(--color-fg)]">"{deleteTarget.name}"</span> será
+              removido permanentemente.
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
+                Cancelar
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => {
+                  remove.mutate({ id: deleteTarget.id });
+                  setDeleteTarget(null);
+                }}
+                disabled={remove.isPending}
+              >
+                Excluir
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
-    )}
-    <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="font-medium text-[13px] text-[var(--color-fg)]">
-            Planos da assinatura
-          </span>
-          <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
-            Crie 1 ou mais planos (ex: Mensal R$ 49,90 · Anual R$ 499). Buyer escolhe no checkout.
-            Marque um como "Mais escolhido" pra destacar.
-          </span>
-        </div>
-        {!adding ? (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--color-brand-500)] px-3 py-2 font-semibold text-[13px] text-white transition hover:bg-[var(--color-brand-600)]"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-              className="size-3.5"
-            >
-              <path strokeLinecap="round" d="M8 3v10M3 8h10" />
-            </svg>
-            Novo plano
-          </button>
-        ) : null}
-      </header>
-
-      {plans.isPending ? (
-        <p className="text-[13px] text-[var(--color-fg-subtle)]">Carregando planos…</p>
-      ) : plans.data && plans.data.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {plans.data.map((p) => (
-            <li
-              key={p.id}
-              className="flex flex-wrap items-center gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
-            >
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-semibold text-[10px] uppercase tracking-wider ${
-                  p.billingPeriod === 'yearly'
-                    ? 'bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
-                    : 'bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)]'
-                }`}
-              >
-                {p.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
-              </span>
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="font-semibold text-[14px] text-[var(--color-fg)]">{p.name}</span>
-                <span className="text-[12px] text-[var(--color-fg-subtle)]">
-                  {p.trialDays > 0 ? `${p.trialDays} dias de trial · ` : ''}
-                  {p.isActive ? 'Ativo' : 'Desativado'}
-                  {p.partnerAccountId && p.partnerRoleSlug ? (
-                    <>
-                      {' · '}
-                      <span className="font-mono text-[11px] text-[var(--color-brand-700)]">
-                        Connect → {p.partnerRoleSlug}
-                      </span>
-                    </>
-                  ) : null}
-                </span>
-              </div>
-              <PlanPriceEditor
-                planId={p.id}
-                amountCents={p.amountCents}
-                period={p.billingPeriod as 'monthly' | 'yearly'}
-                onSave={(cents) =>
-                  update.mutate(
-                    { id: p.id, amountCents: cents },
-                    { onSuccess: () => toast.success('Preço atualizado') },
-                  )
-                }
-                isSaving={update.isPending}
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => copyPlanLink(p.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium text-[12px] transition ${
-                    copiedPlanId === p.id
-                      ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
-                      : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
-                  }`}
-                  title="Link de checkout pré-selecionando este plano"
-                >
-                  {copiedPlanId === p.id ? (
-                    <>
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.4"
-                        aria-hidden="true"
-                        className="size-3"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
-                      </svg>
-                      Link copiado
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        aria-hidden="true"
-                        className="size-3.5"
-                      >
-                        <rect x="4" y="4" width="9" height="9" rx="1.5" />
-                        <path d="M11 4V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
-                      </svg>
-                      Copiar link
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => update.mutate({ id: p.id, isHighlighted: !p.isHighlighted })}
-                  className={`rounded-lg px-3 py-1.5 font-medium text-[12px] transition ${
-                    p.isHighlighted
-                      ? 'bg-[var(--color-brand-500)] text-white hover:bg-[var(--color-brand-600)]'
-                      : 'border border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]'
-                  }`}
-                  title="Destaca esse plano no checkout"
-                >
-                  {p.isHighlighted ? '★ Destaque' : '☆ Destacar'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => update.mutate({ id: p.id, isActive: !p.isActive })}
-                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)]"
-                >
-                  {p.isActive ? 'Desativar' : 'Ativar'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
-                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-danger)] transition hover:border-[var(--color-danger)]"
-                >
-                  Excluir
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="rounded-xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-5 py-4 text-[13px] text-[var(--color-fg-subtle)]">
-          Sem planos cadastrados ainda. Adicione pelo menos um pra abrir o checkout pra compradores.
-        </p>
       )}
-
-      {adding ? (
-        <div className="flex flex-col gap-4 rounded-xl border border-[var(--color-brand-500)]/40 bg-[var(--color-surface)] p-5 ring-4 ring-[var(--color-brand-500)]/10">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_140px_140px_100px]">
-            <Field label="Nome do plano">
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className={fieldInputClass}
-                placeholder="Ex.: Mensal Premium"
-                maxLength={80}
-              />
-            </Field>
-            <Field label="Período">
-              <select
-                value={period}
-                onChange={(e) => setPeriod(e.target.value as 'monthly' | 'yearly')}
-                className={`${fieldInputClass} appearance-none`}
+      <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <span className="font-medium text-[13px] text-[var(--color-fg)]">
+              Planos da assinatura
+            </span>
+            <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
+              Crie 1 ou mais planos (ex: Mensal R$ 49,90 · Anual R$ 499). Buyer escolhe no checkout.
+              Marque um como "Mais escolhido" pra destacar.
+            </span>
+          </div>
+          {!adding ? (
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--color-brand-500)] px-3 py-2 font-semibold text-[13px] text-white transition hover:bg-[var(--color-brand-600)]"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+                className="size-3.5"
               >
-                <option value="monthly">Mensal</option>
-                <option value="yearly">Anual</option>
-              </select>
-            </Field>
-            <Field label="Preço">
-              <div className="relative">
-                <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
-                  R$
+                <path strokeLinecap="round" d="M8 3v10M3 8h10" />
+              </svg>
+              Novo plano
+            </button>
+          ) : null}
+        </header>
+
+        {plans.isPending ? (
+          <p className="text-[13px] text-[var(--color-fg-subtle)]">Carregando planos…</p>
+        ) : plans.data && plans.data.length > 0 ? (
+          <ul className="flex flex-col gap-3">
+            {plans.data.map((p) => (
+              <li
+                key={p.id}
+                className="flex flex-wrap items-center gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+              >
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-semibold text-[10px] uppercase tracking-wider ${
+                    p.billingPeriod === 'yearly'
+                      ? 'bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
+                      : 'bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)]'
+                  }`}
+                >
+                  {p.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
                 </span>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="font-semibold text-[14px] text-[var(--color-fg)]">{p.name}</span>
+                  <span className="text-[12px] text-[var(--color-fg-subtle)]">
+                    {p.trialDays > 0 ? `${p.trialDays} dias de trial · ` : ''}
+                    {p.isActive ? 'Ativo' : 'Desativado'}
+                    {p.partnerAccountId && p.partnerRoleSlug ? (
+                      <>
+                        {' · '}
+                        <span className="font-mono text-[11px] text-[var(--color-brand-700)]">
+                          Connect → {p.partnerRoleSlug}
+                        </span>
+                      </>
+                    ) : null}
+                  </span>
+                </div>
+                <PlanPriceEditor
+                  planId={p.id}
+                  amountCents={p.amountCents}
+                  period={p.billingPeriod as 'monthly' | 'yearly'}
+                  onSave={(cents) =>
+                    update.mutate(
+                      { id: p.id, amountCents: cents },
+                      { onSuccess: () => toast.success('Preço atualizado') },
+                    )
+                  }
+                  isSaving={update.isPending}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => copyPlanLink(p.id)}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium text-[12px] transition ${
+                      copiedPlanId === p.id
+                        ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
+                        : 'border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
+                    }`}
+                    title="Link de checkout pré-selecionando este plano"
+                  >
+                    {copiedPlanId === p.id ? (
+                      <>
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.4"
+                          aria-hidden="true"
+                          className="size-3"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+                        </svg>
+                        Link copiado
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          aria-hidden="true"
+                          className="size-3.5"
+                        >
+                          <rect x="4" y="4" width="9" height="9" rx="1.5" />
+                          <path d="M11 4V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
+                        </svg>
+                        Copiar link
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update.mutate({ id: p.id, isHighlighted: !p.isHighlighted })}
+                    className={`rounded-lg px-3 py-1.5 font-medium text-[12px] transition ${
+                      p.isHighlighted
+                        ? 'bg-[var(--color-brand-500)] text-white hover:bg-[var(--color-brand-600)]'
+                        : 'border border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)]'
+                    }`}
+                    title="Destaca esse plano no checkout"
+                  >
+                    {p.isHighlighted ? '★ Destaque' : '☆ Destacar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update.mutate({ id: p.id, isActive: !p.isActive })}
+                    className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)]"
+                  >
+                    {p.isActive ? 'Desativar' : 'Ativar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
+                    className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-danger)] transition hover:border-[var(--color-danger)]"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-5 py-4 text-[13px] text-[var(--color-fg-subtle)]">
+            Sem planos cadastrados ainda. Adicione pelo menos um pra abrir o checkout pra
+            compradores.
+          </p>
+        )}
+
+        {adding ? (
+          <div className="flex flex-col gap-4 rounded-xl border border-[var(--color-brand-500)]/40 bg-[var(--color-surface)] p-5 ring-4 ring-[var(--color-brand-500)]/10">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_140px_140px_100px]">
+              <Field label="Nome do plano">
                 <input
                   type="text"
-                  inputMode="decimal"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  className={`${fieldInputClass} pl-10`}
-                  placeholder="49,90"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={fieldInputClass}
+                  placeholder="Ex.: Mensal Premium"
+                  maxLength={80}
                 />
-              </div>
-            </Field>
-            <Field label="Trial (dias)">
-              <input
-                type="number"
-                min={0}
-                max={365}
-                value={trial}
-                onChange={(e) => setTrial(Math.max(0, Number.parseInt(e.target.value, 10) || 0))}
-                className={fieldInputClass}
-              />
-            </Field>
-          </div>
+              </Field>
+              <Field label="Período">
+                <select
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value as 'monthly' | 'yearly')}
+                  className={`${fieldInputClass} appearance-none`}
+                >
+                  <option value="monthly">Mensal</option>
+                  <option value="yearly">Anual</option>
+                </select>
+              </Field>
+              <Field label="Preço">
+                <div className="relative">
+                  <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
+                    R$
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    className={`${fieldInputClass} pl-10`}
+                    placeholder="49,90"
+                  />
+                </div>
+              </Field>
+              <Field label="Trial (dias)">
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={trial}
+                  onChange={(e) => setTrial(Math.max(0, Number.parseInt(e.target.value, 10) || 0))}
+                  className={fieldInputClass}
+                />
+              </Field>
+            </div>
 
-          {/* Univercart Connect: optional SaaS partner mapping. */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field
-              label="Univercart Connect (opcional)"
-              hint="SaaS parceiro liberado quando o pagamento for confirmado."
-            >
-              <select
-                value={partnerAccountId ?? ''}
-                onChange={(e) => {
-                  const next = e.target.value || null;
-                  setPartnerAccountId(next);
-                  setPartnerRoleSlug(null);
-                }}
-                className={`${fieldInputClass} appearance-none`}
+            {/* Univercart Connect: optional SaaS partner mapping. */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field
+                label="Univercart Connect (opcional)"
+                hint="SaaS parceiro liberado quando o pagamento for confirmado."
               >
-                <option value="">Nenhum (entrega manual)</option>
-                {(partnersQuery.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field
-              label="Papel no SaaS"
-              hint="Slug que o SaaS espera receber (entry / medium / ultra...)."
-            >
-              <select
-                value={partnerRoleSlug ?? ''}
-                onChange={(e) => setPartnerRoleSlug(e.target.value || null)}
-                disabled={!partnerAccountId}
-                className={`${fieldInputClass} appearance-none disabled:opacity-50`}
+                <select
+                  value={partnerAccountId ?? ''}
+                  onChange={(e) => {
+                    const next = e.target.value || null;
+                    setPartnerAccountId(next);
+                    setPartnerRoleSlug(null);
+                  }}
+                  className={`${fieldInputClass} appearance-none`}
+                >
+                  <option value="">Nenhum (entrega manual)</option>
+                  {(partnersQuery.data ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field
+                label="Papel no SaaS"
+                hint="Slug que o SaaS espera receber (entry / medium / ultra...)."
               >
-                <option value="">{partnerAccountId ? 'Escolher papel…' : '—'}</option>
-                {(partnerRolesQuery.data ?? []).map((r) => (
-                  <option key={r.slug} value={r.slug}>
-                    {r.displayName} ({r.slug})
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
+                <select
+                  value={partnerRoleSlug ?? ''}
+                  onChange={(e) => setPartnerRoleSlug(e.target.value || null)}
+                  disabled={!partnerAccountId}
+                  className={`${fieldInputClass} appearance-none disabled:opacity-50`}
+                >
+                  <option value="">{partnerAccountId ? 'Escolher papel…' : '—'}</option>
+                  {(partnerRolesQuery.data ?? []).map((r) => (
+                    <option key={r.slug} value={r.slug}>
+                      {r.displayName} ({r.slug})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
 
-          {create.error ? (
-            <p className="text-[13px] text-[var(--color-danger)]">{create.error.message}</p>
-          ) : null}
-          <div className="flex items-center gap-3">
-            <Button type="button" onClick={submit} disabled={create.isPending}>
-              {create.isPending ? 'Criando…' : 'Adicionar plano'}
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setAdding(false)}>
-              Cancelar
-            </Button>
+            {create.error ? (
+              <p className="text-[13px] text-[var(--color-danger)]">{create.error.message}</p>
+            ) : null}
+            <div className="flex items-center gap-3">
+              <Button type="button" onClick={submit} disabled={create.isPending}>
+                {create.isPending ? 'Criando…' : 'Adicionar plano'}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setAdding(false)}>
+                Cancelar
+              </Button>
+            </div>
           </div>
-        </div>
-      ) : null}
-    </section>
+        ) : null}
+      </section>
     </>
   );
 }
@@ -836,7 +839,7 @@ function PlanPriceEditor({
             }}
             onBlur={save}
             disabled={isSaving}
-            className="w-28 rounded-lg border border-[var(--color-brand-500)] bg-[var(--color-surface)] py-1.5 pl-8 pr-2 font-semibold text-[14px] text-[var(--color-fg)] outline-none ring-2 ring-[var(--color-brand-500)]/20 tabular-nums"
+            className="w-28 rounded-lg border border-[var(--color-brand-500)] bg-[var(--color-surface)] py-1.5 pr-2 pl-8 font-semibold text-[14px] text-[var(--color-fg)] tabular-nums outline-none ring-2 ring-[var(--color-brand-500)]/20"
           />
         </div>
         <span className="text-[11px] text-[var(--color-fg-subtle)]">
@@ -867,6 +870,7 @@ function PlanPriceEditor({
         className="ml-1 size-3 text-[var(--color-brand-600)] opacity-0 transition group-hover:opacity-100"
         aria-hidden
       >
+        <title>Editar preço</title>
         <path strokeLinecap="round" strokeLinejoin="round" d="M11.5 2.5l2 2L5 13l-3 .5.5-3 9-8z" />
       </svg>
     </button>

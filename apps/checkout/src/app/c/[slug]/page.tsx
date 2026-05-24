@@ -3785,8 +3785,8 @@ function DeclinedView({
         Seu cartão foi recusado pela operadora.
       </h1>
       <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
-        Verifique os dados (número, validade, CVV), o limite disponível ou tente outro cartão. Se
-        o problema persistir, contate o emissor.
+        Verifique os dados (número, validade, CVV), o limite disponível ou tente outro cartão. Se o
+        problema persistir, contate o emissor.
       </p>
       {gatewayStatus ? (
         <p className="mt-2 font-mono text-[11px] text-[var(--ink-50)]">

@@ -646,10 +646,7 @@ export const subscriptionsRouter = router({
         // think the integration is broken. Forcing start_date=now (with
         // 1 min buffer for MP's processing window) charges the first
         // installment immediately when status=authorized + card_token_id.
-        startDate:
-          row.planTrialDays > 0
-            ? undefined
-            : new Date(Date.now() + 60_000),
+        startDate: row.planTrialDays > 0 ? undefined : new Date(Date.now() + 60_000),
         webhookUrl,
         backUrl,
         metadata: {

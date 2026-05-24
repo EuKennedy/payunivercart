@@ -521,9 +521,7 @@ async function handleMpRecurringPayment(
   for (const cred of creds) {
     const parsed = (() => {
       try {
-        const raw = services.crypto.unsealJson<Record<string, unknown>>(
-          cred.credentialsEncrypted,
-        );
+        const raw = services.crypto.unsealJson<Record<string, unknown>>(cred.credentialsEncrypted);
         const accessToken = typeof raw.accessToken === 'string' ? raw.accessToken : null;
         return accessToken;
       } catch {

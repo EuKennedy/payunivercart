@@ -23,7 +23,9 @@ async function main() {
   console.log('==========================================');
   console.log('TEST EMAIL DISPATCH');
   console.log('==========================================');
-  console.log(`RESEND_API_KEY: ${apiKey ? `${apiKey.slice(0, 8)}…` : '(NOT SET → stdout fallback)'}`);
+  console.log(
+    `RESEND_API_KEY: ${apiKey ? `${apiKey.slice(0, 8)}…` : '(NOT SET → stdout fallback)'}`,
+  );
   console.log(`EMAIL_FROM:     ${from}`);
   console.log(`TO:             ${to}`);
   console.log('==========================================\n');

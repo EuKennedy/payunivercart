@@ -14,7 +14,8 @@ function SkeletonRow() {
   return (
     <tr>
       {[60, 80, 120, 50, 80].map((w, i) => (
-        <td key={i} className="px-5 py-4">
+        // biome-ignore lint/suspicious/noArrayIndexKey: skeleton row is a static array; widths repeat so index is the only stable key.
+        <td key={`skel-${i}`} className="px-5 py-4">
           <div
             className="h-4 animate-pulse rounded-md bg-[var(--color-surface-muted)]"
             style={{ width: w }}
@@ -51,11 +52,27 @@ function CopyButton({ text }: { text: string }) {
       }`}
     >
       {copied ? (
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4" className="size-3" aria-hidden>
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          className="size-3"
+          aria-hidden
+        >
+          <title>Link copiado</title>
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
         </svg>
       ) : (
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="size-3.5" aria-hidden>
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          className="size-3.5"
+          aria-hidden
+        >
+          <title>Copiar link</title>
           <rect x="4" y="4" width="9" height="9" rx="1.5" />
           <path d="M11 4V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
         </svg>
@@ -79,10 +96,12 @@ function ArchiveModal({
   loading: boolean;
 }) {
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismisses via Cancel button (keyboard-accessible) — div onClick is just a UX convenience for mouse users.
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
       onClick={onCancel}
     >
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only; card content is interactive via real buttons. */}
       <div
         className="mx-4 w-full max-w-sm rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}
@@ -134,9 +153,7 @@ function PriceCell({
   });
 
   if (isSubscription) {
-    return (
-      <span className="text-[13px] text-[var(--color-fg-muted)] italic">Ver planos</span>
-    );
+    return <span className="text-[13px] text-[var(--color-fg-muted)] italic">Ver planos</span>;
   }
 
   const startEdit = (e: React.MouseEvent) => {
@@ -164,6 +181,7 @@ function PriceCell({
 
   if (editing) {
     return (
+      // biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation guard; the editable input inside owns keyboard handlers (Enter/Escape).
       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
         <div className="relative">
           <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-[12px] text-[var(--color-fg-subtle)]">
@@ -180,7 +198,7 @@ function PriceCell({
               if (e.key === 'Escape') cancel();
             }}
             onBlur={() => save()}
-            className="w-24 rounded-lg border border-[var(--color-brand-500)] bg-[var(--color-surface)] py-1.5 pl-8 pr-2 text-[13px] text-[var(--color-fg)] outline-none ring-2 ring-[var(--color-brand-500)]/20"
+            className="w-24 rounded-lg border border-[var(--color-brand-500)] bg-[var(--color-surface)] py-1.5 pr-2 pl-8 text-[13px] text-[var(--color-fg)] outline-none ring-2 ring-[var(--color-brand-500)]/20"
             disabled={update.isPending}
           />
         </div>
@@ -198,12 +216,12 @@ function PriceCell({
       title="Clique para editar o preço"
       className="group flex flex-col items-start gap-0.5 text-left"
     >
-      <span className="font-medium text-[var(--color-fg)] group-hover:text-[var(--color-brand-600)] transition">
+      <span className="font-medium text-[var(--color-fg)] transition group-hover:text-[var(--color-brand-600)]">
         {formatCents(priceCents, currency as Currency)}
       </span>
       <span className="text-[11px] text-[var(--color-fg-subtle)]">
         em até {maxInstallments}×{' '}
-        <span className="text-[var(--color-brand-600)] opacity-0 group-hover:opacity-100 transition">
+        <span className="text-[var(--color-brand-600)] opacity-0 transition group-hover:opacity-100">
           · editar
         </span>
       </span>
@@ -304,7 +322,7 @@ export default function ProdutosPage() {
                 <th className="px-5 py-3 font-semibold">Produto</th>
                 <th className="px-5 py-3 font-semibold">
                   Preço{' '}
-                  <span className="normal-case text-[10px] tracking-normal opacity-60">
+                  <span className="text-[10px] normal-case tracking-normal opacity-60">
                     (clique pra editar)
                   </span>
                 </th>
@@ -318,6 +336,7 @@ export default function ProdutosPage() {
                 const publicUrl = `${CHECKOUT_URL}/c/${product.slug}`;
                 const checkoutHostLabel = publicUrl.replace(/^https?:\/\//, '');
                 return (
+                  // biome-ignore lint/a11y/useKeyWithClickEvents: convenience handler — the explicit "Editar" button in the row is the keyboard-accessible path.
                   <tr
                     key={product.id}
                     className="cursor-pointer transition hover:bg-[var(--color-surface-muted)]/50"
@@ -349,6 +368,7 @@ export default function ProdutosPage() {
                         </div>
                       </div>
                     </td>
+                    {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation guard so row navigation doesn't trigger when buyer interacts with the price cell. */}
                     <td className="px-5 py-4" onClick={(e) => e.stopPropagation()}>
                       <PriceCell
                         productId={product.id}
@@ -358,7 +378,11 @@ export default function ProdutosPage() {
                         isSubscription={product.isSubscription}
                       />
                     </td>
-                    <td className="px-5 py-4 text-[12px] text-[var(--color-fg-muted)]" onClick={(e) => e.stopPropagation()}>
+                    {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation guard; real link + Copy button inside are keyboard-accessible. */}
+                    <td
+                      className="px-5 py-4 text-[12px] text-[var(--color-fg-muted)]"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <div className="flex items-center">
                         <a
                           href={publicUrl}
@@ -384,6 +408,7 @@ export default function ProdutosPage() {
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right">
+                      {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation guard; real buttons inside handle keyboard. */}
                       <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
