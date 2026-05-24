@@ -378,7 +378,8 @@ export const checkoutRouter = router({
       z.object({
         orderId: z.string().uuid(),
         publicReference: z.string(),
-        status: z.string(),
+        status: z.enum(['paid', 'pending_payment', 'declined']),
+        gatewayStatus: z.string().nullable(),
         method: PaymentMethod,
         amountCents: z.number().int().nonnegative(),
         currency: z.enum(['BRL', 'USD', 'EUR']),
@@ -539,7 +540,8 @@ export const checkoutRouter = router({
         return {
           orderId: created.orderId,
           publicReference,
-          status: 'pending_payment',
+          status: 'pending_payment' as const,
+          gatewayStatus: null as string | null,
           method: input.method,
           amountCents: Number(totalCents),
           currency,
@@ -779,10 +781,23 @@ export const checkoutRouter = router({
         });
       }
 
+      // Map gateway status to a UI-friendly status. Critical: card
+      // declines (failed/cancelled/expired) MUST surface as `declined`
+      // so the checkout doesn't show a success page for a payment
+      // the gateway rejected. PIX/Boleto stay in `pending_payment`
+      // because they legitimately need buyer action after creation.
+      const isDeclined =
+        charge.status === 'failed' ||
+        charge.status === 'cancelled' ||
+        charge.status === 'expired';
+      const apiStatus: 'paid' | 'pending_payment' | 'declined' =
+        charge.status === 'paid' ? 'paid' : isDeclined ? 'declined' : 'pending_payment';
+
       return {
         orderId: created.orderId,
         publicReference,
-        status: charge.status === 'paid' ? 'paid' : 'pending_payment',
+        status: apiStatus,
+        gatewayStatus: charge.status,
         method: input.method,
         amountCents: Number(totalCents),
         currency,

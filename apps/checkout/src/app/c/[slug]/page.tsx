@@ -222,7 +222,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
               number: cardNumber,
               expiry: cardExpiry,
               cvc: cardCvc,
-              holderName: trimmedHolder || 'APRO',
+              holderName: trimmedHolder,
             }
           : undefined,
       address:
@@ -240,6 +240,22 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           : undefined,
     });
   };
+
+  // Card declined by gateway — show explicit error + retry, NOT success.
+  if (
+    createOrder.data &&
+    createOrder.data.method === 'credit_card' &&
+    createOrder.data.status === 'declined'
+  ) {
+    return (
+      <CenteredCard>
+        <DeclinedView
+          gatewayStatus={createOrder.data.gatewayStatus ?? undefined}
+          onRetry={() => createOrder.reset()}
+        />
+      </CenteredCard>
+    );
+  }
 
   if (createOrder.data) {
     return (
@@ -2034,7 +2050,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
               number: cardNumber,
               expiry: cardExpiry,
               cvc: cardCvc,
-              holderName: trimmedHolder || 'APRO',
+              holderName: trimmedHolder,
             }
           : undefined,
       address:
@@ -2052,6 +2068,22 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           : undefined,
     });
   };
+
+  // Card declined by gateway — show explicit error + retry, NOT success.
+  if (
+    createOrder.data &&
+    createOrder.data.method === 'credit_card' &&
+    createOrder.data.status === 'declined'
+  ) {
+    return (
+      <CenteredCard>
+        <DeclinedView
+          gatewayStatus={createOrder.data.gatewayStatus ?? undefined}
+          onRetry={() => createOrder.reset()}
+        />
+      </CenteredCard>
+    );
+  }
 
   if (createOrder.data) {
     return (
@@ -2919,7 +2951,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
               number: cardNumber,
               expiry: cardExpiry,
               cvc: cardCvc,
-              holderName: trimmedHolder || 'APRO',
+              holderName: trimmedHolder,
             }
           : undefined,
       address:
@@ -2937,6 +2969,22 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           : undefined,
     });
   };
+
+  // Card declined by gateway — show explicit error + retry, NOT success.
+  if (
+    createOrder.data &&
+    createOrder.data.method === 'credit_card' &&
+    createOrder.data.status === 'declined'
+  ) {
+    return (
+      <CenteredCard>
+        <DeclinedView
+          gatewayStatus={createOrder.data.gatewayStatus ?? undefined}
+          onRetry={() => createOrder.reset()}
+        />
+      </CenteredCard>
+    );
+  }
 
   if (createOrder.data) {
     return (
@@ -3709,6 +3757,49 @@ function ErrorView({ title, body }: { title: string; body: string }) {
       </p>
       <h1 className="mt-3 font-semibold text-[24px] text-[var(--ink-100)]">{title}</h1>
       <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">{body}</p>
+    </div>
+  );
+}
+
+/**
+ * DeclinedView — surfaced when the gateway explicitly rejects a card
+ * charge (status `failed` / `cancelled` / `expired`). The previous UX
+ * showed the SuccessView for any non-error response, so buyers saw
+ * "Compra recebida!" even when their card was refused. The retry
+ * button calls `mutation.reset()` so the form re-mounts with the
+ * data still typed in.
+ */
+function DeclinedView({
+  gatewayStatus,
+  onRetry,
+}: {
+  gatewayStatus?: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="text-center">
+      <p className="font-semibold text-[11px] text-[var(--danger-text)] uppercase tracking-[0.18em]">
+        Pagamento recusado
+      </p>
+      <h1 className="mt-3 font-semibold text-[24px] text-[var(--ink-100)]">
+        Seu cartão foi recusado pela operadora.
+      </h1>
+      <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
+        Verifique os dados (número, validade, CVV), o limite disponível ou tente outro cartão. Se
+        o problema persistir, contate o emissor.
+      </p>
+      {gatewayStatus ? (
+        <p className="mt-2 font-mono text-[11px] text-[var(--ink-50)]">
+          Status do gateway: {gatewayStatus}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-6 inline-flex items-center justify-center rounded-xl bg-[var(--dop-500)] px-6 py-3 font-semibold text-white shadow-[0_4px_12px_rgba(34,197,94,0.25)] transition hover:bg-[var(--dop-600)]"
+      >
+        Tentar outro cartão
+      </button>
     </div>
   );
 }
