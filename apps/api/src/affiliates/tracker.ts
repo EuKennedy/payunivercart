@@ -374,6 +374,35 @@ interface MaterializeCommissionInput {
  * Returns the new commission id, or NULL when no order/subscription
  * gross amount could be resolved (logged + skipped silently).
  */
+/**
+ * Pure commission-math kernel — extracted so it's covered by unit
+ * tests without standing up a database. Returns the commission in
+ * cents given the gross sale + the program's shape.
+ *
+ * Rules:
+ *   - `flat`     → fixed `flatCents` (clamped to >=0)
+ *   - `percent`  → integer-truncated `grossCents * percent / 100`
+ *   - Negative inputs collapse to 0; never returns a negative bigint.
+ */
+export function computeCommissionCents(
+  grossCents: bigint,
+  type: 'flat' | 'percent' | 'recurring' | 'lifetime',
+  percent: number | null,
+  flatCents: bigint | null,
+): bigint {
+  if (grossCents <= 0n) return 0n;
+  if (type === 'flat') {
+    return flatCents != null && flatCents > 0n ? flatCents : 0n;
+  }
+  // percent | recurring | lifetime all use percentage math; the
+  // recurring / lifetime semantics (cycle limits, refund window) are
+  // enforced upstream by the caller — this kernel only computes "how
+  // much do they get THIS cycle".
+  const pct = percent ?? 0;
+  if (pct <= 0) return 0n;
+  return (grossCents * BigInt(pct)) / 100n;
+}
+
 export async function materializeCommission(
   services: AppServices,
   input: MaterializeCommissionInput,
@@ -403,14 +432,12 @@ export async function materializeCommission(
   }
   if (grossCents == null) return null;
 
-  // Compute commission amount.
-  let commissionCents: bigint;
-  if (input.commissionType === 'flat') {
-    commissionCents = input.commissionFlatCents ?? 0n;
-  } else {
-    const pct = input.commissionPercent ?? 0;
-    commissionCents = (grossCents * BigInt(pct)) / 100n;
-  }
+  const commissionCents = computeCommissionCents(
+    grossCents,
+    input.commissionType,
+    input.commissionPercent ?? null,
+    input.commissionFlatCents ?? null,
+  );
   if (commissionCents <= 0n) return null;
 
   const availableAt = new Date(Date.now() + input.refundWindowDays * 24 * 60 * 60 * 1000);
