@@ -266,6 +266,28 @@ export const gatewaysRouter = router({
     }),
 
   /**
+   * Flip the `isSandbox` flag on a single gateway credential. Useful
+   * when the producer mistakenly saved a production account as
+   * sandbox (or vice versa). Does NOT re-validate or touch the
+   * encrypted credentials — only the env flag.
+   */
+  setSandboxFlag: workspaceProcedure
+    .input(z.object({ id: z.string().uuid(), isSandbox: z.boolean() }))
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.db.db
+        .update(schema.gatewayCredentials)
+        .set({ isSandbox: input.isSandbox, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.gatewayCredentials.id, input.id),
+            eq(schema.gatewayCredentials.workspaceId, ctx.workspaceId),
+          ),
+        );
+      return { ok: true as const };
+    }),
+
+  /**
    * Re-validate stored credentials by hitting the gateway's auth check.
    * Updates `lastValidatedAt` / `validationError` on success/failure.
    */

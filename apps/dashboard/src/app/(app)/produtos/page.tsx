@@ -262,6 +262,45 @@ export default function ProdutosPage() {
   });
   const [archiveTarget, setArchiveTarget] = useState<{ id: string; name: string } | null>(null);
 
+  // Bulk select state. Set<string> for O(1) toggle, persists across
+  // refetches. Bulk action bar appears when >= 1 row checked.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkArchiving, setBulkArchiving] = useState(false);
+  const visibleIds = (list.data ?? []).map((p) => p.id);
+  const allChecked = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someChecked = visibleIds.some((id) => selectedIds.has(id));
+
+  const toggleAll = () => {
+    setSelectedIds(() => (allChecked ? new Set() : new Set(visibleIds)));
+  };
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const bulkArchive = async () => {
+    if (selectedIds.size === 0) return;
+    if (
+      !confirm(
+        `Arquivar ${selectedIds.size} ${selectedIds.size === 1 ? 'produto' : 'produtos'} selecionados?`,
+      )
+    )
+      return;
+    setBulkArchiving(true);
+    try {
+      await Promise.all(Array.from(selectedIds).map((id) => archive.mutateAsync({ id })));
+      setSelectedIds(new Set());
+      toast.success(`${selectedIds.size} produtos arquivados.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao arquivar lote.');
+    } finally {
+      setBulkArchiving(false);
+    }
+  };
+
   if (list.isPending) {
     return (
       <div className="flex flex-col gap-8">
@@ -336,10 +375,48 @@ export default function ProdutosPage() {
           <Button onClick={() => router.push('/produtos/novo')}>Cadastrar produto</Button>
         </header>
 
+        {someChecked ? (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-brand-500)]/40 bg-[var(--color-brand-50)]/30 px-4 py-3"
+          >
+            <span className="font-semibold text-[13px] text-[var(--color-fg)]">
+              {selectedIds.size} {selectedIds.size === 1 ? 'selecionado' : 'selecionados'}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedIds(new Set())}
+                disabled={bulkArchiving}
+              >
+                Limpar seleção
+              </Button>
+              <Button variant="danger" size="sm" onClick={bulkArchive} disabled={bulkArchiving}>
+                {bulkArchiving ? 'Arquivando…' : `Arquivar ${selectedIds.size}`}
+              </Button>
+            </div>
+          </motion.div>
+        ) : null}
+
         <div className="overflow-x-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
           <table className="w-full min-w-[700px] text-[14px]">
             <thead className="bg-[var(--color-surface-muted)] text-left text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
               <tr>
+                <th className="px-3 py-3 font-semibold">
+                  <input
+                    type="checkbox"
+                    aria-label="Selecionar todos"
+                    checked={allChecked}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allChecked && someChecked;
+                    }}
+                    onChange={toggleAll}
+                    className="size-4 cursor-pointer accent-[var(--color-brand-500)]"
+                  />
+                </th>
                 <th className="px-5 py-3 font-semibold">Produto</th>
                 <th className="px-5 py-3 font-semibold">
                   Preço{' '}
@@ -360,9 +437,23 @@ export default function ProdutosPage() {
                   // biome-ignore lint/a11y/useKeyWithClickEvents: convenience handler — the explicit "Editar" button in the row is the keyboard-accessible path.
                   <tr
                     key={product.id}
-                    className="cursor-pointer transition hover:bg-[var(--color-surface-muted)]/50"
+                    className={
+                      selectedIds.has(product.id)
+                        ? 'cursor-pointer bg-[var(--color-brand-50)]/30 transition hover:bg-[var(--color-brand-50)]/50'
+                        : 'cursor-pointer transition hover:bg-[var(--color-surface-muted)]/50'
+                    }
                     onClick={() => router.push(`/produtos/${product.id}`)}
                   >
+                    {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation guard — checkbox is keyboard-accessible on its own. */}
+                    <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Selecionar ${product.name}`}
+                        checked={selectedIds.has(product.id)}
+                        onChange={() => toggleOne(product.id)}
+                        className="size-4 cursor-pointer accent-[var(--color-brand-500)]"
+                      />
+                    </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         {product.hasCover ? (

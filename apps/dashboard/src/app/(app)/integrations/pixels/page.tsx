@@ -44,6 +44,8 @@ interface ProviderTile {
   /** Brand colors for the icon bubble. Both light/dark friendly. */
   brandFrom: string;
   brandTo: string;
+  /** Path to the official brand logo (served from /public/pixel-logos). */
+  logo: string;
   /** What the producer is going to actually configure. Shown as bullet
    *  list inside the tile so they know what they need before clicking. */
   needs: string[];
@@ -57,6 +59,7 @@ const TILES: ProviderTile[] = [
     tagline: 'Facebook + Instagram — Conversions API',
     brandFrom: '#0866FF',
     brandTo: '#0042A8',
+    logo: '/pixel-logos/metaads1por1.png',
     needs: ['Pixel ID', 'Access Token'],
     docsUrl: 'https://www.facebook.com/business/help/2041148702652965',
   },
@@ -66,6 +69,7 @@ const TILES: ProviderTile[] = [
     tagline: 'Measurement Protocol — purchase + begin_checkout',
     brandFrom: '#F9AB00',
     brandTo: '#E37400',
+    logo: '/pixel-logos/google-analytics-logo-1-1.webp',
     needs: ['Measurement ID', 'API Secret'],
     docsUrl: 'https://developers.google.com/analytics/devguides/collection/protocol/ga4',
   },
@@ -75,6 +79,7 @@ const TILES: ProviderTile[] = [
     tagline: 'Events API v1.3 — CompletePayment',
     brandFrom: '#25F4EE',
     brandTo: '#FE2C55',
+    logo: '/pixel-logos/tiktoklogo1po1.avif',
     needs: ['Pixel Code', 'Access Token'],
     docsUrl: 'https://business-api.tiktok.com/portal/docs?id=1771101303285761',
   },
@@ -84,6 +89,7 @@ const TILES: ProviderTile[] = [
     tagline: 'Enhanced Conversions for Web (server-side)',
     brandFrom: '#34A853',
     brandTo: '#1E8E3E',
+    logo: '/pixel-logos/googleadslogo1-1.webp',
     needs: ['Customer ID', 'Conversion Action', 'OAuth Refresh Token', 'Developer Token'],
     docsUrl: 'https://developers.google.com/google-ads/api/docs/conversions/enhance-conversions',
   },
@@ -93,6 +99,7 @@ const TILES: ProviderTile[] = [
     tagline: 'Conversions API v5',
     brandFrom: '#E60023',
     brandTo: '#AD081B',
+    logo: '/pixel-logos/pintereselogo1-1.webp',
     needs: ['Ad Account ID', 'Conversion Token', 'Tag ID'],
     docsUrl: 'https://developers.pinterest.com/docs/api/v5/events-create/',
   },
@@ -102,6 +109,7 @@ const TILES: ProviderTile[] = [
     tagline: 'Pixel API — PURCHASE + ADD_TO_CART',
     brandFrom: '#FF5500',
     brandTo: '#FF0050',
+    logo: '/pixel-logos/kwai-video-platform.svg',
     needs: ['Pixel ID', 'Access Token'],
     docsUrl: 'https://kwaiforbusiness.com/',
   },
@@ -1413,22 +1421,28 @@ function BrandBubble({
   size?: number;
 }) {
   const sizeCls = size === 12 ? 'size-12' : size === 11 ? 'size-11' : 'size-10';
+  const tile = TILES.find((t) => t.id === provider);
   return (
     <span
       aria-hidden
-      className={`relative grid ${sizeCls} shrink-0 place-items-center overflow-hidden rounded-2xl text-white shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35)] ring-1 ring-white/10`}
-      style={{
-        background: `linear-gradient(135deg, ${from}, ${to})`,
-      }}
+      className={`relative grid ${sizeCls} shrink-0 place-items-center overflow-hidden rounded-2xl bg-white shadow-[0_8px_24px_-12px_rgba(0,0,0,0.35)] ring-1 ring-[var(--color-border)]`}
     >
-      <ProviderGlyph provider={provider} />
+      {tile?.logo ? (
+        <img src={tile.logo} alt={tile.name} className="size-full object-contain p-1.5" />
+      ) : (
+        <span
+          className="grid size-full place-items-center text-white"
+          style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
+        >
+          <ProviderGlyph provider={provider} />
+        </span>
+      )}
     </span>
   );
 }
 
 function ProviderGlyph({ provider }: { provider: ProviderId }) {
-  // SVG monograms — recognizable enough without copying official logos.
-  // Stroke-only to keep visual weight consistent across all 6 tiles.
+  // Fallback monograms when logo asset is missing.
   const map: Record<ProviderId, string> = {
     meta: 'M',
     ga4: 'G',

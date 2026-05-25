@@ -249,14 +249,25 @@ export function Sidebar() {
         ))}
 
         {/* Pronto pra produção chip — appears once setup is done and
-            production checklist isn't fully checked. Hidden in
+            production checklist isn't fully checked. Click dispatches
+            a CustomEvent that OnboardingFloating listens for; the
+            widget opens directly on the production tab so producer
+            sees exactly what's missing without hunting. Hidden in
             collapsed mode (no room for inline progress bar). */}
         {showProdChip && !collapsed ? (
-          <motion.div
+          <motion.button
+            type="button"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-            className="mx-1 flex flex-col gap-2 rounded-xl border border-[var(--color-brand-500)]/30 bg-gradient-to-br from-[var(--color-brand-50)]/60 via-[var(--color-surface)] to-[var(--color-surface)] p-3"
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('onboarding:open-production'));
+              }
+            }}
+            className="mx-1 flex w-[calc(100%-0.5rem)] cursor-pointer flex-col gap-2 rounded-xl border border-[var(--color-brand-500)]/30 bg-gradient-to-br from-[var(--color-brand-50)]/60 via-[var(--color-surface)] to-[var(--color-surface)] p-3 text-left transition hover:border-[var(--color-brand-500)]/60 hover:shadow-[0_8px_20px_-12px_rgba(22,163,74,0.35)]"
           >
             <div className="flex items-center gap-2">
               <span
@@ -274,8 +285,11 @@ export function Sidebar() {
                   />
                 </svg>
               </span>
-              <span className="font-semibold text-[11px] text-[var(--color-brand-700)] uppercase tracking-[0.12em]">
+              <span className="flex-1 font-semibold text-[11px] text-[var(--color-brand-700)] uppercase tracking-[0.12em]">
                 Pronto pra produção
+              </span>
+              <span aria-hidden className="text-[var(--color-brand-700)]">
+                →
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -291,7 +305,10 @@ export function Sidebar() {
                 />
               </div>
             </div>
-          </motion.div>
+            <span className="text-[10px] text-[var(--color-fg-subtle)] leading-[1.4]">
+              Clique pra ver o que falta resolver
+            </span>
+          </motion.button>
         ) : null}
       </nav>
 

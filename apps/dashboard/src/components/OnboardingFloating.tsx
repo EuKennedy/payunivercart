@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { trpc } from '../lib/trpc';
 
 /**
@@ -186,6 +186,24 @@ export function OnboardingFloating() {
 
   const [activeTab, setActiveTab] = useState<'setup' | 'production'>('setup');
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
+
+  // External "open with production tab" trigger. The sidebar's
+  // "Pronto pra produção" chip dispatches this CustomEvent on click so
+  // the producer lands directly on the production checklist instead of
+  // hunting through the default setup tab.
+  useEffect(() => {
+    const handler = () => {
+      setActiveTab('production');
+      // If the widget is minimised/dismissed, restore it so the panel
+      // is visible after the tab switch.
+      if (state.data?.view !== 'full') {
+        act.mutate({ action: 'restore' });
+      }
+    };
+    if (typeof window === 'undefined') return;
+    window.addEventListener('onboarding:open-production', handler);
+    return () => window.removeEventListener('onboarding:open-production', handler);
+  }, [state.data?.view, act]);
 
   if (state.isPending || !state.data) return null;
   if (state.data.view === 'hidden') return null;

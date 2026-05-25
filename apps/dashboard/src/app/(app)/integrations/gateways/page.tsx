@@ -84,20 +84,37 @@ export default function GatewaysPage() {
   const setDefault = trpc.gateways.setDefault.useMutation({
     onSuccess: () => utils.gateways.list.invalidate(),
   });
+  const setSandboxFlag = trpc.gateways.setSandboxFlag.useMutation({
+    onSuccess: () => utils.gateways.list.invalidate(),
+  });
 
   const [showForm, setShowForm] = useState(false);
   const [accessToken, setAccessToken] = useState('');
   const [publicKey, setPublicKey] = useState('');
   const [webhookSecret, setWebhookSecret] = useState('');
   const [label, setLabel] = useState('Mercado Pago');
-  const [isSandbox, setIsSandbox] = useState(true);
+  const [isSandbox, setIsSandbox] = useState(false);
+  // Auto-detect sandbox from access token prefix. MP issues
+  // `APP_USR-...` for production credentials and `TEST-...` for
+  // sandbox. The producer can still override the checkbox manually if
+  // they're using a token type we don't recognize.
+  const [sandboxManuallySet, setSandboxManuallySet] = useState(false);
 
   function resetForm() {
     setAccessToken('');
     setPublicKey('');
     setWebhookSecret('');
     setLabel('Mercado Pago');
-    setIsSandbox(true);
+    setIsSandbox(false);
+    setSandboxManuallySet(false);
+  }
+
+  function handleAccessTokenChange(value: string) {
+    setAccessToken(value);
+    if (sandboxManuallySet) return;
+    const trimmed = value.trim();
+    if (trimmed.startsWith('TEST-')) setIsSandbox(true);
+    else if (trimmed.startsWith('APP_USR-')) setIsSandbox(false);
   }
 
   // Producer can have multiple MP accounts wired (e.g. one sandbox for
@@ -327,6 +344,22 @@ export default function GatewaysPage() {
                   >
                     Testar
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const target = !acc.isSandbox;
+                      if (
+                        !confirm(`Mudar "${acc.label}" para ${target ? 'sandbox' : 'produção'}?`)
+                      ) {
+                        return;
+                      }
+                      setSandboxFlag.mutate({ id: acc.id, isSandbox: target });
+                    }}
+                    disabled={setSandboxFlag.isPending}
+                  >
+                    {acc.isSandbox ? 'Marcar produção' : 'Marcar sandbox'}
+                  </Button>
                   {!acc.isDefault ? (
                     <Button
                       variant="secondary"
@@ -427,7 +460,7 @@ export default function GatewaysPage() {
               <input
                 type="password"
                 value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
+                onChange={(e) => handleAccessTokenChange(e.target.value)}
                 placeholder="APP_USR-... ou TEST-..."
                 className={inputClass}
                 autoComplete="off"
@@ -448,14 +481,32 @@ export default function GatewaysPage() {
                 autoComplete="off"
               />
             </FormField>
-            <label className="flex items-center gap-3 text-[14px] text-[var(--color-fg-muted)] sm:col-span-2">
+            <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[14px] text-[var(--color-fg-muted)] sm:col-span-2">
               <input
                 type="checkbox"
                 checked={isSandbox}
-                onChange={(e) => setIsSandbox(e.target.checked)}
-                className="size-4 accent-[var(--color-brand-500)]"
+                onChange={(e) => {
+                  setIsSandbox(e.target.checked);
+                  setSandboxManuallySet(true);
+                }}
+                className="mt-0.5 size-4 accent-[var(--color-brand-500)]"
               />
-              Ambiente sandbox (use chaves de teste para validar antes de ir pra produção)
+              <span className="flex flex-1 flex-col gap-1">
+                <span className="font-semibold text-[14px] text-[var(--color-fg)]">
+                  Ambiente sandbox
+                </span>
+                <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
+                  Detectamos automaticamente pelo prefixo do Access Token:{' '}
+                  <code className="rounded bg-[var(--color-surface-muted)] px-1.5 py-0.5 font-mono text-[11px]">
+                    APP_USR-
+                  </code>{' '}
+                  = produção,{' '}
+                  <code className="rounded bg-[var(--color-surface-muted)] px-1.5 py-0.5 font-mono text-[11px]">
+                    TEST-
+                  </code>{' '}
+                  = sandbox. Marque manualmente se sua chave não seguir esse padrão.
+                </span>
+              </span>
             </label>
 
             {upsert.error ? (
