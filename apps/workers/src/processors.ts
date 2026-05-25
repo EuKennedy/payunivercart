@@ -1,3 +1,4 @@
+import { CryptoService, loadKeyRegistryFromEnv } from '@payunivercart/crypto';
 import { createDatabaseClient } from '@payunivercart/db';
 import { WahaClient } from '@payunivercart/waha';
 import { Worker, type WorkerOptions } from 'bullmq';
@@ -5,6 +6,7 @@ import type IORedis from 'ioredis';
 import type { WorkersEnv } from './env';
 import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
 import { runRecoverySweep } from './handlers/recovery';
+import { runTrackingDispatchSweep } from './handlers/tracking-dispatch';
 import { QUEUE_NAMES } from './queues';
 
 /**
@@ -29,6 +31,16 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     baseUrl: ctx.env.WAHA_BASE_URL,
     apiKey: ctx.env.WAHA_API_KEY,
   });
+
+  // Shared CryptoService — Pilar 2 dispatcher unseals provider
+  // credentials per dispatch; constructing it once per process avoids
+  // re-loading the KEK registry on every worker tick.
+  const cryptoRegistry = loadKeyRegistryFromEnv({
+    keysEnv: ctx.env.ENCRYPTION_KEYS,
+    activeKeyIdEnv: ctx.env.ENCRYPTION_ACTIVE_KEY_ID,
+    envVarName: 'ENCRYPTION_KEYS',
+  });
+  const crypto = new CryptoService(cryptoRegistry);
 
   const webhookInbound = new Worker(
     QUEUE_NAMES.webhookInbound,
@@ -102,6 +114,20 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // Pilar 2 — server-side tracking dispatcher. 5 s sweep drains the
+  // tracking_dispatches queue, calls each provider's HTTP endpoint,
+  // and updates row status. Exponential backoff lives in the
+  // dispatcher core; the worker is a thin driver.
+  const trackingDispatch = new Worker(
+    QUEUE_NAMES.trackingDispatch,
+    async (job) => {
+      const result = await runTrackingDispatchSweep({ db: dbWrapper, crypto });
+      logEvent('tracking.dispatch.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   for (const w of [
     webhookInbound,
     webhookOutbox,
@@ -109,6 +135,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     auditVerify,
     connectDeliveries,
     affiliateRollover,
+    trackingDispatch,
   ]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
@@ -121,6 +148,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
   }
 
   return [
+    trackingDispatch,
     webhookInbound,
     webhookOutbox,
     recovery,

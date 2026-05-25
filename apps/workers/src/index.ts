@@ -92,6 +92,18 @@ async function main() {
     },
   );
 
+  // Pilar 2 — tracking dispatch sweep every 5 s. Ads optimization
+  // hates lag; firing Purchase events within seconds of the conversion
+  // gives Meta / GA4 / TikTok the highest-quality signal.
+  await queues.trackingDispatch.upsertJobScheduler(
+    'sweeper',
+    { every: 5 * 1000 },
+    {
+      name: 'tracking.dispatch.sweep',
+      data: {},
+    },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,

@@ -11,6 +11,7 @@ import { partnersRouter } from './partners';
 import { productsRouter } from './products';
 import { recoveryRouter } from './recovery';
 import { subscriptionsRouter } from './subscriptions';
+import { trackingRouter } from './tracking';
 import { whatsappRouter } from './whatsapp';
 import { workspaceRouter } from './workspace';
 
@@ -33,6 +34,7 @@ export const appRouter = router({
   subscriptions: subscriptionsRouter,
   partners: partnersRouter,
   affiliates: affiliatesRouter,
+  tracking: trackingRouter,
   admin: adminRouter,
 });
 

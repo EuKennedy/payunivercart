@@ -22,6 +22,10 @@ export const QUEUE_NAMES = {
   /** Affiliate commissions: flip pending → available when refund
    *  window passes. Hourly repeatable job. */
   affiliateRollover: 'affiliate.rollover',
+  /** Pilar 2 — server-side tracking dispatcher. 5 s sweep that drains
+   *  the `tracking_dispatches` queue, calls each provider's API, and
+   *  flips status accordingly. */
+  trackingDispatch: 'tracking.dispatch',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -34,6 +38,7 @@ export interface QueueBundle {
   auditVerify: Queue;
   connectDeliveries: Queue;
   affiliateRollover: Queue;
+  trackingDispatch: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -63,5 +68,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     auditVerify: new Queue(QUEUE_NAMES.auditVerify, opts),
     connectDeliveries: new Queue(QUEUE_NAMES.connectDeliveries, opts),
     affiliateRollover: new Queue(QUEUE_NAMES.affiliateRollover, opts),
+    trackingDispatch: new Queue(QUEUE_NAMES.trackingDispatch, opts),
   };
 }

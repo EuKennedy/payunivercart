@@ -551,18 +551,27 @@ function RevenueChart({
           strokeDasharray="2 4"
         />
       ))}
-      <path d={areaPath} fill="url(#revenueGradient)" />
-      <path
+      <motion.path
+        d={areaPath}
+        fill="url(#revenueGradient)"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1], delay: 0.18 }}
+      />
+      <motion.path
         d={linePath}
         fill="none"
         stroke="var(--color-brand-500)"
         strokeWidth="2"
         strokeLinejoin="round"
         strokeLinecap="round"
+        initial={{ pathLength: 0 }}
+        animate={{ pathLength: 1 }}
+        transition={{ duration: 0.95, ease: [0.16, 1, 0.3, 1] }}
       />
       {points.map((p, idx) =>
         p.d.revenueCents > 0 ? (
-          <circle
+          <motion.circle
             key={p.d.date}
             cx={p.x}
             cy={p.y}
@@ -570,6 +579,13 @@ function RevenueChart({
             fill="var(--color-surface)"
             stroke="var(--color-brand-500)"
             strokeWidth="1.6"
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{
+              duration: 0.24,
+              ease: [0.16, 1, 0.3, 1],
+              delay: 0.4 + idx * 0.018,
+            }}
           />
         ) : null,
       )}

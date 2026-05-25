@@ -3,6 +3,7 @@
 import type { AppRouter } from '@payunivercart/api/routers';
 import type { inferRouterOutputs } from '@trpc/server';
 import clsx from 'clsx';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { use, useMemo, useState } from 'react';
 import { ThemeToggle } from '../../../components/ThemeToggle';
@@ -2713,43 +2714,87 @@ function StitchStepCard({
   onEdit?: () => void;
 }) {
   return (
-    <section
+    <motion.section
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{
+        opacity: state === 'pending' ? 0.7 : 1,
+        y: 0,
+      }}
+      transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
       className={clsx(
-        'glass-card relative overflow-hidden p-6 transition',
+        'glass-card relative overflow-hidden p-6',
         state === 'active' &&
           'shadow-[0_4px_30px_-6px_rgba(15,23,42,0.10)] ring-1 ring-[var(--dop-hairline)]',
-        state === 'pending' && 'opacity-70',
       )}
     >
       <header className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span
+          <motion.span
+            layout
+            transition={{ type: 'spring', stiffness: 360, damping: 26 }}
             className={clsx(
-              'flex h-9 w-9 items-center justify-center rounded-full font-bold text-[14px] transition',
+              'flex h-9 w-9 items-center justify-center rounded-full font-bold text-[14px]',
               state === 'done' && 'bg-[var(--dop-500)] text-white',
               state === 'active' && 'bg-[var(--dop-500)] text-white',
               state === 'pending' &&
                 'border border-[var(--hairline)] bg-[var(--surface-2)] text-[var(--ink-50)]',
             )}
           >
-            {state === 'done' ? <CheckIcon /> : n}
-          </span>
+            <AnimatePresence mode="wait">
+              {state === 'done' ? (
+                <motion.span
+                  key="done"
+                  initial={{ scale: 0, rotate: -30 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  exit={{ scale: 0 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+                >
+                  <CheckIcon />
+                </motion.span>
+              ) : (
+                <motion.span
+                  key={`n-${n}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  {n}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.span>
           <h2 className="font-semibold text-[18px] text-[var(--ink-100)] tracking-tight">
             {label}
           </h2>
         </div>
         {onEdit && state === 'done' ? (
-          <button
+          <motion.button
             type="button"
             onClick={onEdit}
-            className="font-semibold text-[13px] text-[var(--dop-600)] hover:underline"
+            whileTap={{ scale: 0.94 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="cursor-pointer font-semibold text-[13px] text-[var(--dop-600)] hover:underline"
           >
             Editar
-          </button>
+          </motion.button>
         ) : null}
       </header>
-      <div className={state === 'done' ? 'pl-12' : undefined}>{children}</div>
-    </section>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={state}
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+          className={state === 'done' ? 'pl-12' : undefined}
+          style={{ overflow: 'hidden' }}
+        >
+          {children}
+        </motion.div>
+      </AnimatePresence>
+    </motion.section>
   );
 }
 

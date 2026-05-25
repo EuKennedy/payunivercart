@@ -1,5 +1,6 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Heading, Kicker } from '../../../components/ui';
@@ -77,11 +78,12 @@ export default function AssinaturasPage() {
         {FILTERS.map((f) => {
           const active = f.value === filter;
           return (
-            <button
+            <motion.button
               key={f.value}
               type="button"
               onClick={() => setFilter(f.value)}
-              className={`rounded-full border px-4 py-1.5 font-medium text-[12px] transition ${
+              whileTap={{ scale: 0.94 }}
+              className={`cursor-pointer rounded-full border px-4 py-1.5 font-medium text-[12px] transition ${
                 active
                   ? 'border-[var(--color-fg)] bg-[var(--color-fg)] text-[var(--color-fg-inverse)]'
                   : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
@@ -89,7 +91,7 @@ export default function AssinaturasPage() {
               aria-pressed={active}
             >
               {f.label}
-            </button>
+            </motion.button>
           );
         })}
       </div>

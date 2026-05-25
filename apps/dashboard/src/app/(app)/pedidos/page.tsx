@@ -1,5 +1,6 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button, EmptyState, Heading, Kicker } from '../../../components/ui';
@@ -89,20 +90,21 @@ export default function PedidosPage() {
             pra ver detalhes do cliente, valor, status e disparar uma mensagem direta no WhatsApp.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="relative flex gap-2">
           {STATUS_OPTIONS.map((opt) => (
-            <button
+            <motion.button
               key={opt.value}
               type="button"
               onClick={() => setFilter(opt.value)}
-              className={`rounded-full border px-3 py-1.5 font-medium text-[12px] transition ${
+              whileTap={{ scale: 0.94 }}
+              className={`relative rounded-full border px-3 py-1.5 font-medium text-[12px] transition ${
                 filter === opt.value
                   ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
                   : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
               }`}
             >
               {opt.label}
-            </button>
+            </motion.button>
           ))}
         </div>
       </header>

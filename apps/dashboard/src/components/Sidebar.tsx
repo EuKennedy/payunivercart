@@ -1,6 +1,7 @@
 'use client';
 
 import clsx from 'clsx';
+import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -90,15 +91,25 @@ export function Sidebar() {
                   key={item.href}
                   href={item.href}
                   className={clsx(
-                    'group flex items-center gap-3 rounded-xl px-3 py-2 font-medium text-[14px] transition',
+                    'group relative flex items-center gap-3 rounded-xl px-3 py-2 font-medium text-[14px] transition',
                     active
-                      ? 'bg-[var(--color-surface-muted)] text-[var(--color-fg)]'
+                      ? 'text-[var(--color-fg)]'
                       : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]',
                   )}
                 >
+                  {active ? (
+                    // Shared layoutId animates the active pill across
+                    // route changes — Linear-style sliding indicator.
+                    <motion.span
+                      layoutId="sidebar-active-pill"
+                      transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                      className="absolute inset-0 rounded-xl bg-[var(--color-surface-muted)]"
+                      aria-hidden
+                    />
+                  ) : null}
                   <span
                     className={clsx(
-                      'flex size-5 items-center justify-center transition',
+                      'relative flex size-5 items-center justify-center transition',
                       active
                         ? 'text-[var(--color-brand-600)]'
                         : 'text-[var(--color-fg-subtle)] group-hover:text-[var(--color-fg-muted)]',
@@ -106,7 +117,7 @@ export function Sidebar() {
                   >
                     {item.icon}
                   </span>
-                  {item.label}
+                  <span className="relative">{item.label}</span>
                 </Link>
               );
             })}

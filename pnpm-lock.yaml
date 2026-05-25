@@ -321,6 +321,9 @@ importers:
 
   apps/workers:
     dependencies:
+      '@payunivercart/api':
+        specifier: workspace:*
+        version: link:../api
       '@payunivercart/audit':
         specifier: workspace:*
         version: link:../../packages/audit

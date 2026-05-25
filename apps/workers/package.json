@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@payunivercart/api": "workspace:*",
     "@payunivercart/audit": "workspace:*",
     "@sentry/node": "8.51.0",
     "@payunivercart/connect": "workspace:*",

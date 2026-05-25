@@ -261,6 +261,21 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
         // dispatch, and a WAHA hiccup must not double-mark the order
         // as paid by failing the webhook ack.
         await dispatchPaidFanOut(services, tx.orderId);
+        // Pilar 2 — server-side tracking. Best-effort enqueue per
+        // pixel; the worker sweep handles the actual HTTP fire so a
+        // slow Meta CAPI call can't delay the webhook ack.
+        try {
+          await dispatchPurchaseTrackingEvent(services, tx.workspaceId, tx.orderId);
+        } catch (cause) {
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'warn',
+              event: 'tracking.purchase.enqueue.failed',
+              orderId: tx.orderId,
+              error: cause instanceof Error ? cause.message : String(cause),
+            })}\n`,
+          );
+        }
       } else if (charge.status === 'refunded') {
         await services.db.db
           .update(schema.orders)
@@ -308,6 +323,73 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
  * loop kicks in. The original promise keeps running unobserved; that's
  * fine — gateway SDKs are idempotent on read.
  */
+/**
+ * Pilar 2 — fire a Purchase event into the tracking dispatch queue
+ * for every active pixel of the workspace. We pull the buyer + amount
+ * directly from the paid order so the event payload is consistent
+ * across providers (Meta CAPI, GA4, TikTok). Per-pixel rows insert
+ * with ON CONFLICT DO NOTHING so webhook replays are no-ops.
+ */
+async function dispatchPurchaseTrackingEvent(
+  services: AppServices,
+  workspaceId: string,
+  orderId: string,
+): Promise<void> {
+  const [order] = await services.db.db
+    .select({
+      id: schema.orders.id,
+      total: schema.orders.totalCents,
+      currency: schema.orders.currency,
+      customerName: schema.orders.customerName,
+      customerEmail: schema.orders.customerEmail,
+      customerDocument: schema.orders.customerDocument,
+      customerPhoneE164: schema.orders.customerPhoneE164,
+    })
+    .from(schema.orders)
+    .where(eq(schema.orders.id, orderId))
+    .limit(1);
+  if (!order) return;
+  const [firstItem] = await services.db.db
+    .select({
+      productId: schema.orderItems.productId,
+      name: schema.orderItems.name,
+      qty: schema.orderItems.quantity,
+      unit: schema.orderItems.unitAmountCents,
+    })
+    .from(schema.orderItems)
+    .where(eq(schema.orderItems.orderId, orderId))
+    .limit(1);
+  const { dispatchEventToAllPixels } = await import('../tracking/dispatcher');
+  await dispatchEventToAllPixels(services, {
+    workspaceId,
+    eventType: 'purchase',
+    sourceType: 'order',
+    sourceId: orderId,
+    event: {
+      currency: order.currency,
+      value: Number(order.total) / 100,
+      contentId: firstItem?.productId ?? null,
+      contentName: firstItem?.name ?? null,
+      contents: firstItem
+        ? [
+            {
+              id: firstItem.productId,
+              quantity: firstItem.qty,
+              itemPrice: Number(firstItem.unit) / 100,
+            },
+          ]
+        : undefined,
+      user: {
+        email: order.customerEmail,
+        phoneE164: order.customerPhoneE164,
+        name: order.customerName,
+        document: order.customerDocument,
+        country: 'BR',
+      },
+    },
+  });
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);

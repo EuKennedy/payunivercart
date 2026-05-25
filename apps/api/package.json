@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/server.ts",
     "./routers": "./src/routers/index.ts",
-    "./trpc": "./src/trpc.ts"
+    "./trpc": "./src/trpc.ts",
+    "./tracking/dispatcher": "./src/tracking/dispatcher.ts"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
