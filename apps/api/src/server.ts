@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
+import { recordClick } from './affiliates/tracker';
 import { mountConnectApi } from './connect/router';
 import { loadEnv } from './env';
 import { authRateLimit, checkoutRateLimit, webhookRateLimit } from './rate-limit';
@@ -103,6 +104,54 @@ if (env.NODE_ENV !== 'production') {
  * Accept/Authorization headers; we avoid the tRPC envelope.
  */
 app.get('/health', (c) => c.json({ status: 'ok', uptimeSeconds: process.uptime() }));
+
+/**
+ * Public affiliate-link landing. The buyer clicks
+ * `https://api.univercart.com/a/<slug>` (or wherever this host is
+ * exposed); we record the click, drop a 1st-party cookie so the
+ * checkout's `createOrder` can resolve attribution later, and 302 to
+ * the product checkout (or platform home when the link is
+ * workspace-wide).
+ *
+ * No rate-limit middleware applied — captured separately by the
+ * webhook tier above (this path is /a/, not /webhooks/). Bots can spam
+ * but the dedupe in `recordClick` collapses same-day same-IP hits to
+ * one row.
+ */
+app.get('/a/:slug', async (c) => {
+  const slug = c.req.param('slug');
+  const ip =
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
+    c.req.header('x-real-ip')?.trim() ??
+    'unknown';
+  const result = await recordClick({
+    services,
+    slug,
+    ip,
+    fingerprint: c.req.header('x-fingerprint') ?? null,
+    userAgent: c.req.header('user-agent') ?? null,
+    referrer: c.req.header('referer') ?? null,
+    country: c.req.header('cf-ipcountry') ?? null,
+    // Audit HMAC keys are guaranteed present (env validator); reuse
+    // the first as the IP-hash salt so we don't add yet another
+    // secret to .env.
+    saltSecret: env.AUDIT_KEYS.split(',')[0]?.split(':')[1] ?? env.AUTH_SECRET,
+  });
+  if (!result) {
+    // Unknown slug, expired link, or program off. Redirect to platform
+    // home so the buyer isn't dead-ended.
+    const fallback = env.CHECKOUT_PUBLIC_URL ?? 'https://pay.univercart.com';
+    return c.redirect(fallback, 302);
+  }
+  // 1st-party cookie. Max-Age = attribution window so the cookie expires
+  // exactly when the producer's window would. SameSite=Lax = follows the
+  // buyer when they click through to the checkout subdomain.
+  c.header(
+    'Set-Cookie',
+    `payuniv_aff=${encodeURIComponent(result.cookieSlug)}; Path=/; Max-Age=${result.windowDays * 24 * 60 * 60}; SameSite=Lax; Secure; HttpOnly=false`,
+  );
+  return c.redirect(result.redirectTo, 302);
+});
 
 // Rate-limit sensitive surfaces. Order matters: middleware mounted
 // before the handler short-circuits the request once the cap is hit.

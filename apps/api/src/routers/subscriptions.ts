@@ -10,6 +10,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
+import { resolveAttribution } from '../affiliates/tracker';
 import { ConnectDispatcher } from '../connect/dispatcher';
 import { publicProcedure, router, workspaceProcedure } from '../trpc';
 import {
@@ -449,6 +450,10 @@ export const subscriptionsRouter = router({
          *  accepted on the recurring path — PCI scope is non-negotiable. */
         cardToken: z.string().min(8).max(200),
         cardHolderName: z.string().trim().min(2).max(60),
+        /** Affiliate slug from the `payuniv_aff` cookie (forwarded by
+         *  the checkout). Same attribution flow as one-time orders. */
+        affiliateRef: z.string().trim().min(1).max(80).optional(),
+        clientFingerprint: z.string().trim().max(128).optional(),
       }),
     )
     .output(
@@ -765,6 +770,40 @@ export const subscriptionsRouter = router({
               error: cause instanceof Error ? cause.message : String(cause),
             })}\n`,
           );
+        }
+
+        // Affiliate attribution — same shape as the one-time checkout
+        // flow. Best-effort: a failure here must NEVER bubble up and
+        // strand the buyer mid-subscription. IP from the request
+        // headers (Hono context); fingerprint from the input.
+        if (input.affiliateRef) {
+          const ip =
+            ctx.honoCtx.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
+            ctx.honoCtx.req.header('x-real-ip')?.trim() ??
+            'unknown';
+          try {
+            await resolveAttribution({
+              services: ctx.services,
+              affiliateSlug: input.affiliateRef,
+              workspaceId: row.workspaceId,
+              productId: row.productId,
+              subscriptionId: finalSubId,
+              ip,
+              fingerprint: input.clientFingerprint ?? null,
+              saltSecret:
+                ctx.services.env.AUDIT_KEYS.split(',')[0]?.split(':')[1] ??
+                ctx.services.env.AUTH_SECRET,
+            });
+          } catch (cause) {
+            process.stdout.write(
+              `${JSON.stringify({
+                level: 'warn',
+                event: 'subscribe.affiliate.attribution.failed',
+                subscriptionId: finalSubId,
+                error: cause instanceof Error ? cause.message : String(cause),
+              })}\n`,
+            );
+          }
         }
       }
 

@@ -17,6 +17,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
+import { resolveAttribution } from '../affiliates/tracker';
 import { publicProcedure, router } from '../trpc';
 
 /**
@@ -372,6 +373,17 @@ export const checkoutRouter = router({
             country: z.string().trim().length(2).default('BR'),
           })
           .optional(),
+        /**
+         * Affiliate slug carried by the `payuniv_aff` 1st-party cookie.
+         * Frontend reads it via `document.cookie` and passes here so
+         * the API can resolve the attribution inside the same
+         * transaction that creates the order — race-free.
+         */
+        affiliateRef: z.string().trim().min(1).max(80).optional(),
+        /** Buyer IP — frontend pulls from request headers and forwards
+         *  so the attribution match uses the SAME ip as the click. */
+        clientIp: z.string().trim().min(7).max(64).optional(),
+        clientFingerprint: z.string().trim().max(128).optional(),
       }),
     )
     .output(
@@ -790,6 +802,42 @@ export const checkoutRouter = router({
         charge.status === 'failed' || charge.status === 'cancelled' || charge.status === 'expired';
       const apiStatus: 'paid' | 'pending_payment' | 'declined' =
         charge.status === 'paid' ? 'paid' : isDeclined ? 'declined' : 'pending_payment';
+
+      // Affiliate attribution — best-effort. Fires when the buyer's
+      // `payuniv_aff` cookie reached the checkout. We trust the IP
+      // from the request headers over the body field so a malicious
+      // buyer can't fake their click signature.
+      if (input.affiliateRef && apiStatus !== 'declined') {
+        const ip =
+          ctx.honoCtx.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
+          ctx.honoCtx.req.header('x-real-ip')?.trim() ??
+          input.clientIp ??
+          'unknown';
+        try {
+          await resolveAttribution({
+            services: ctx.services,
+            affiliateSlug: input.affiliateRef,
+            workspaceId: productRow.workspaceId,
+            productId: productRow.productId,
+            orderId: created.orderId,
+            ip,
+            fingerprint: input.clientFingerprint ?? null,
+            saltSecret:
+              ctx.services.env.AUDIT_KEYS.split(',')[0]?.split(':')[1] ??
+              ctx.services.env.AUTH_SECRET,
+          });
+        } catch (cause) {
+          // Attribution must never break a successful checkout.
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'warn',
+              event: 'affiliate.attribution.failed',
+              orderId: created.orderId,
+              error: cause instanceof Error ? cause.message : String(cause),
+            })}\n`,
+          );
+        }
+      }
 
       return {
         orderId: created.orderId,
