@@ -4,6 +4,7 @@ import { type WebhookEvent, getAdapter } from '@payunivercart/payments';
 import { type GatewayId, PayunivercartError } from '@payunivercart/shared';
 import { and, desc, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
+import { materializeCommission } from '../affiliates/tracker';
 import { ConnectDispatcher } from '../connect/dispatcher';
 import type { AppServices } from '../services';
 
@@ -627,6 +628,17 @@ async function handleMpRecurringPayment(
     .set({ lastChargedAt: new Date(), updatedAt: new Date() })
     .where(eq(schema.subscriptions.id, sub.id));
 
+  // If the original sale had an affiliate attribution AND the program
+  // is recurring/lifetime, materialise the next-cycle commission row.
+  // We don't refire `resolveAttribution` (the attribution was set in
+  // stone at subscribe-time); we just compute a new commission row
+  // tied to the existing attribution + cycle.
+  await materializeRenewalCommissionIfApplicable(services, {
+    subscriptionId: sub.id,
+    cycleNumber: cycle,
+    orderId,
+  });
+
   process.stdout.write(
     `${JSON.stringify({
       level: 'info',
@@ -640,6 +652,60 @@ async function handleMpRecurringPayment(
   );
 
   return { ok: true, status: 'approved' };
+}
+
+/**
+ * For subscriptions that already have an affiliate attribution AND a
+ * recurring/lifetime commission program, write a fresh commission row
+ * for this cycle. Idempotent via the (attribution, cycle) unique
+ * index — webhook retries collapse silently.
+ */
+async function materializeRenewalCommissionIfApplicable(
+  services: AppServices,
+  args: { subscriptionId: string; cycleNumber: number; orderId: string | null },
+): Promise<void> {
+  const [attr] = await services.db.db
+    .select({
+      id: schema.affiliateAttributions.id,
+      workspaceId: schema.affiliateAttributions.workspaceId,
+      programId: schema.affiliateAttributions.programId,
+      affiliateId: schema.affiliateAttributions.affiliateId,
+      commissionType: schema.affiliatePrograms.commissionType,
+      commissionPercent: schema.affiliatePrograms.commissionPercent,
+      commissionFlatCents: schema.affiliatePrograms.commissionFlatCents,
+      refundWindowDays: schema.affiliatePrograms.refundWindowDays,
+      recurringCycleLimit: schema.affiliatePrograms.recurringCycleLimit,
+    })
+    .from(schema.affiliateAttributions)
+    .innerJoin(
+      schema.affiliatePrograms,
+      eq(schema.affiliatePrograms.id, schema.affiliateAttributions.programId),
+    )
+    .where(eq(schema.affiliateAttributions.subscriptionId, args.subscriptionId))
+    .limit(1);
+  if (!attr) return;
+  // Only recurring + lifetime accrue beyond cycle 1.
+  if (attr.commissionType !== 'recurring' && attr.commissionType !== 'lifetime') return;
+  if (
+    attr.commissionType === 'recurring' &&
+    attr.recurringCycleLimit != null &&
+    args.cycleNumber > attr.recurringCycleLimit
+  ) {
+    return;
+  }
+  await materializeCommission(services, {
+    workspaceId: attr.workspaceId,
+    programId: attr.programId,
+    affiliateId: attr.affiliateId,
+    attributionId: attr.id,
+    orderId: args.orderId,
+    subscriptionId: args.subscriptionId,
+    cycleNumber: args.cycleNumber,
+    commissionType: attr.commissionType as 'percent' | 'flat' | 'recurring' | 'lifetime',
+    commissionPercent: attr.commissionPercent,
+    commissionFlatCents: attr.commissionFlatCents != null ? BigInt(attr.commissionFlatCents) : null,
+    refundWindowDays: attr.refundWindowDays,
+  });
 }
 
 /**
