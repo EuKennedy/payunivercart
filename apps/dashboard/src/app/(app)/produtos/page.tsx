@@ -109,7 +109,6 @@ function ArchiveModal({
   loading: boolean;
 }) {
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismisses via Cancel button (keyboard-accessible) — div onClick is just a UX convenience for mouse users.
     <motion.div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
       onClick={onCancel}
@@ -118,7 +117,6 @@ function ArchiveModal({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
     >
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only; card content is interactive via real buttons. */}
       <motion.div
         className="mx-4 w-full max-w-sm rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}

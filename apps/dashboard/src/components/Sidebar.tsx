@@ -36,6 +36,7 @@ const NAV: NavGroup[] = [
       { href: '/pedidos', label: 'Pedidos', icon: <IconCard /> },
       { href: '/assinaturas', label: 'Assinaturas', icon: <IconRefresh /> },
       { href: '/clientes', label: 'Clientes', icon: <IconChat /> },
+      { href: '/marketplace', label: 'Marketplace', icon: <IconGrid /> },
     ],
   },
   {
@@ -52,6 +53,7 @@ const NAV: NavGroup[] = [
       { href: '/integrations/gateways', label: 'Pagamentos', icon: <IconCard /> },
       { href: '/integrations/whatsapp', label: 'WhatsApp', icon: <IconChat /> },
       { href: '/integrations/email', label: 'Email', icon: <IconMail /> },
+      { href: '/integrations/pixels', label: 'Pixels', icon: <IconGrid /> },
     ],
   },
 ];

@@ -1,5 +1,7 @@
 import type { TrackingAdapter, TrackingProvider } from '../types';
+import { ga4Adapter } from './ga4';
 import { metaAdapter } from './meta';
+import { tiktokAdapter } from './tiktok';
 
 /**
  * Provider registry. Add a new adapter here when its file lands. The
@@ -7,15 +9,15 @@ import { metaAdapter } from './meta';
  * (e.g. a router validation step) never has to switch on the provider
  * string directly.
  *
- * Why only Meta today: it covers the vast majority of BR producer
- * traffic. GA4 / TikTok / Pinterest land in follow-up PRs of Pilar 2
- * once Meta's plumbing is proven end-to-end against a real pixel.
+ * Currently shipped: Meta (CAPI), GA4 (Measurement Protocol),
+ * TikTok (Events API v1.3). Google Ads Enhanced Conversions,
+ * Pinterest Conversion API, and Kwai Pixel land in follow-up PRs.
  */
 const ADAPTERS: Record<TrackingProvider, TrackingAdapter | null> = {
   meta: metaAdapter,
+  ga4: ga4Adapter,
+  tiktok: tiktokAdapter,
   google_ads: null,
-  ga4: null,
-  tiktok: null,
   pinterest: null,
   kwai: null,
 };

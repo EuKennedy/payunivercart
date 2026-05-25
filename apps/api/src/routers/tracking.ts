@@ -29,10 +29,44 @@ const MetaCredentialsInput = z.object({
   testEventCode: z.string().trim().min(3).max(80).optional(),
 });
 
+const Ga4CredentialsInput = z.object({
+  // Same regex as the adapter; mirrored here to fail fast on the API
+  // boundary before we ever hit the adapter.
+  measurementId: z
+    .string()
+    .trim()
+    .regex(/^G-[A-Z0-9]{6,12}$/i, 'Use o formato G-XXXXXXXX.'),
+  apiSecret: z.string().trim().min(8).max(256),
+});
+
+const TikTokCredentialsInput = z.object({
+  pixelCode: z.string().trim().min(8).max(64),
+  accessToken: z.string().trim().min(20).max(512),
+  testEventCode: z.string().trim().min(3).max(80).optional(),
+});
+
 const CredentialsByProvider = z.discriminatedUnion('provider', [
   z.object({ provider: z.literal('meta'), credentials: MetaCredentialsInput }),
+  z.object({ provider: z.literal('ga4'), credentials: Ga4CredentialsInput }),
+  z.object({ provider: z.literal('tiktok'), credentials: TikTokCredentialsInput }),
   // Future providers slot in here once their adapter lands.
 ]);
+
+/**
+ * Extract the producer-visible "public id" of a credential blob. Each
+ * provider names it differently (pixelId / measurementId / pixelCode);
+ * this collapses that ambiguity for `tracking_pixels.publicPixelId`.
+ */
+function extractPublicPixelId(parsed: z.infer<typeof CredentialsByProvider>): string {
+  switch (parsed.provider) {
+    case 'meta':
+      return parsed.credentials.pixelId;
+    case 'ga4':
+      return parsed.credentials.measurementId;
+    case 'tiktok':
+      return parsed.credentials.pixelCode;
+  }
+}
 
 const PublicRow = z.object({
   id: z.string().uuid(),
@@ -122,7 +156,7 @@ export const trackingRouter = router({
       let lastError: string | null = null;
       if (input.validateBeforeSave) {
         const test = await adapter.test(parsed, {
-          publicPixelId: input.credentials.pixelId,
+          publicPixelId: extractPublicPixelId(input),
           testMode: input.testMode,
         });
         validated = test.ok;
@@ -159,7 +193,7 @@ export const trackingRouter = router({
             .update(schema.trackingPixels)
             .set({
               label: input.label,
-              publicPixelId: input.credentials.pixelId,
+              publicPixelId: extractPublicPixelId(input),
               credentialsEncrypted: sealed,
               keyId,
               encVersion: 1,
@@ -186,7 +220,7 @@ export const trackingRouter = router({
             workspaceId: ctx.workspaceId,
             provider: input.provider,
             label: input.label,
-            publicPixelId: input.credentials.pixelId,
+            publicPixelId: extractPublicPixelId(input),
             credentialsEncrypted: sealed,
             keyId,
             encVersion: 1,

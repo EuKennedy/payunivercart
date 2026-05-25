@@ -390,6 +390,83 @@ async function dispatchPurchaseTrackingEvent(
   });
 }
 
+/**
+ * Pilar 2 — fire a Subscribe / SubscriptionRenew tracking event for
+ * every active pixel of the workspace. Pulls amount + buyer from the
+ * subscription row + linked plan; for renewal we prefer the just-
+ * materialised order row's totalCents so refund-adjusted amounts
+ * propagate correctly when the producer cancelled and reissued.
+ */
+async function dispatchSubscriptionTrackingEvent(
+  services: AppServices,
+  workspaceId: string,
+  subscriptionId: string,
+  eventType: 'subscribe' | 'subscription_renew',
+  orderId?: string | null,
+): Promise<void> {
+  const [sub] = await services.db.db
+    .select({
+      id: schema.subscriptions.id,
+      planAmount: schema.subscriptionPlans.amountCents,
+      currency: schema.subscriptionPlans.currency,
+      productId: schema.subscriptions.productId,
+      productName: schema.products.name,
+      customerName: schema.subscriptions.customerName,
+      customerEmail: schema.subscriptions.customerEmail,
+      customerDocument: schema.subscriptions.customerDocument,
+      customerPhoneE164: schema.subscriptions.customerPhoneE164,
+    })
+    .from(schema.subscriptions)
+    .innerJoin(
+      schema.subscriptionPlans,
+      eq(schema.subscriptionPlans.id, schema.subscriptions.planId),
+    )
+    .leftJoin(schema.products, eq(schema.products.id, schema.subscriptions.productId))
+    .where(eq(schema.subscriptions.id, subscriptionId))
+    .limit(1);
+  if (!sub) return;
+
+  // Prefer the actual order total when present — handles refunded or
+  // partial recurring charges where plan-list price would lie.
+  let amountCents = sub.planAmount;
+  if (orderId) {
+    const [order] = await services.db.db
+      .select({ total: schema.orders.totalCents })
+      .from(schema.orders)
+      .where(eq(schema.orders.id, orderId))
+      .limit(1);
+    if (order) amountCents = order.total;
+  }
+
+  const { dispatchEventToAllPixels } = await import('../tracking/dispatcher');
+  await dispatchEventToAllPixels(services, {
+    workspaceId,
+    eventType,
+    sourceType: 'subscription',
+    sourceId: orderId ?? subscriptionId,
+    event: {
+      currency: sub.currency,
+      value: Number(amountCents) / 100,
+      contentId: sub.productId,
+      contentName: sub.productName,
+      contents: [
+        {
+          id: sub.productId,
+          quantity: 1,
+          itemPrice: Number(amountCents) / 100,
+        },
+      ],
+      user: {
+        email: sub.customerEmail,
+        phoneE164: sub.customerPhoneE164,
+        name: sub.customerName,
+        document: sub.customerDocument,
+        country: 'BR',
+      },
+    },
+  });
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
@@ -575,6 +652,21 @@ async function handleMpSubscriptionEvent(
     const activated = fresh.status === 'active' && previousStatus !== 'active';
     if (activated) {
       await dispatchSubscriptionActivatedFanOut(services, sub.id);
+      // Pilar 2 — fire `subscribe` tracking event the first time a
+      // subscription goes active. Wrapped so a tracking outage cannot
+      // block the activation fan-out itself.
+      try {
+        await dispatchSubscriptionTrackingEvent(services, sub.workspaceId, sub.id, 'subscribe');
+      } catch (cause) {
+        process.stdout.write(
+          `${JSON.stringify({
+            level: 'warn',
+            event: 'tracking.subscribe.enqueue.failed',
+            subscriptionId: sub.id,
+            error: cause instanceof Error ? cause.message : String(cause),
+          })}\n`,
+        );
+      }
     }
 
     // Dispatch Univercart Connect entitlement event when the status
@@ -711,7 +803,7 @@ async function handleMpRecurringPayment(
 
   // Map preapproval → our subscription.
   const [sub] = await services.db.db
-    .select({ id: schema.subscriptions.id })
+    .select({ id: schema.subscriptions.id, workspaceId: schema.subscriptions.workspaceId })
     .from(schema.subscriptions)
     .where(
       and(
@@ -771,6 +863,32 @@ async function handleMpRecurringPayment(
     cycleNumber: cycle,
     orderId,
   });
+
+  // Pilar 2 — fire `subscription_renew` tracking event for every
+  // recurring payment that materialised an order row. Cycle 1 is the
+  // initial activation (already handled by the `subscribe` event in
+  // the preapproval handler), so we only fire on cycle >= 2.
+  if (cycle >= 2 && orderId) {
+    try {
+      await dispatchSubscriptionTrackingEvent(
+        services,
+        sub.workspaceId,
+        sub.id,
+        'subscription_renew',
+        orderId,
+      );
+    } catch (cause) {
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'warn',
+          event: 'tracking.renewal.enqueue.failed',
+          subscriptionId: sub.id,
+          cycle,
+          error: cause instanceof Error ? cause.message : String(cause),
+        })}\n`,
+      );
+    }
+  }
 
   process.stdout.write(
     `${JSON.stringify({
