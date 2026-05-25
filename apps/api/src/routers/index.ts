@@ -7,6 +7,7 @@ import { gatewaysRouter } from './gateways';
 import { healthRouter } from './health';
 import { marketplaceRouter } from './marketplace';
 import { metricsRouter } from './metrics';
+import { notificationsRouter } from './notifications';
 import { ordersRouter } from './orders';
 import { partnersRouter } from './partners';
 import { productsRouter } from './products';
@@ -37,6 +38,7 @@ export const appRouter = router({
   affiliates: affiliatesRouter,
   tracking: trackingRouter,
   marketplace: marketplaceRouter,
+  notifications: notificationsRouter,
   admin: adminRouter,
 });
 

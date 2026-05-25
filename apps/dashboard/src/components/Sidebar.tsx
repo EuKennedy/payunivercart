@@ -8,6 +8,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { signOut, useSession } from '../lib/auth';
 import { trpc } from '../lib/trpc';
 import { MpAccountSwitcher } from './MpAccountSwitcher';
+import { NotificationBell } from './NotificationBell';
 import { ThemeToggle } from './ThemeToggle';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
@@ -138,16 +139,24 @@ export function Sidebar() {
         }
       >
         {collapsed ? (
-          <Link
-            href="/dashboard"
-            className="grid size-10 cursor-pointer place-items-center rounded-xl bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] font-bold text-[16px] text-white shadow-sm"
-            aria-label="Visão geral"
-          >
-            P
-          </Link>
+          <>
+            <Link
+              href="/dashboard"
+              className="grid size-10 cursor-pointer place-items-center rounded-xl bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] font-bold text-[16px] text-white shadow-sm"
+              aria-label="Visão geral"
+            >
+              P
+            </Link>
+            <NotificationBell />
+          </>
         ) : (
           <>
-            <WorkspaceSwitcher />
+            <div className="flex items-stretch gap-2">
+              <div className="flex-1">
+                <WorkspaceSwitcher />
+              </div>
+              <NotificationBell />
+            </div>
             <MpAccountSwitcher />
           </>
         )}

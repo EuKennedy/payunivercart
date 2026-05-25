@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Heading, Kicker } from '../../../components/ui';
@@ -55,8 +55,20 @@ export default function AssinaturasPage() {
     { staleTime: 10_000, refetchInterval: 15_000, refetchIntervalInBackground: false },
   );
   const cancel = trpc.subscriptions.cancelSubscription.useMutation({
-    onSuccess: () => utils.subscriptions.listSubscriptions.invalidate(),
+    onSuccess: () => {
+      utils.subscriptions.listSubscriptions.invalidate();
+      setCancelTarget(null);
+      setCancelReason('');
+    },
   });
+
+  // Confirm-modal state for the cancel flow. Holds the row being
+  // cancelled + the producer-supplied reason. Cleared on success.
+  const [cancelTarget, setCancelTarget] = useState<{
+    id: string;
+    customerName: string;
+  } | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
 
   if (session.isPending) {
     return <p className="text-[15px] text-[var(--color-fg-muted)]">Carregando…</p>;
@@ -167,12 +179,11 @@ export default function AssinaturasPage() {
                     {sub.status === 'active' || sub.status === 'pending' ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          if (!confirm(`Cancelar a assinatura de ${sub.customerName}?`)) return;
-                          cancel.mutate({ id: sub.id });
-                        }}
+                        onClick={() =>
+                          setCancelTarget({ id: sub.id, customerName: sub.customerName })
+                        }
                         disabled={cancel.isPending}
-                        className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-danger)] hover:text-[var(--color-danger)] disabled:opacity-50"
+                        className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-danger)] hover:text-[var(--color-danger)] disabled:opacity-50"
                       >
                         Cancelar
                       </button>
@@ -188,6 +199,105 @@ export default function AssinaturasPage() {
       {cancel.error ? (
         <p className="text-[13px] text-[var(--color-danger)]">{cancel.error.message}</p>
       ) : null}
+
+      <AnimatePresence>
+        {cancelTarget ? (
+          <CancelConfirmModal
+            customerName={cancelTarget.customerName}
+            reason={cancelReason}
+            onReasonChange={setCancelReason}
+            loading={cancel.isPending}
+            onConfirm={() => {
+              cancel.mutate({
+                id: cancelTarget.id,
+                reason: cancelReason.trim() || undefined,
+              });
+            }}
+            onCancel={() => {
+              setCancelTarget(null);
+              setCancelReason('');
+            }}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function CancelConfirmModal({
+  customerName,
+  reason,
+  onReasonChange,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  customerName: string;
+  reason: string;
+  onReasonChange: (value: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      onClick={onCancel}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+    >
+      <motion.div
+        className="mx-4 w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)]"
+        onClick={(e) => e.stopPropagation()}
+        initial={{ scale: 0.92, y: 12, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.92, y: 12, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+      >
+        <h3 className="font-semibold text-[16px] text-[var(--color-fg)]">Cancelar assinatura?</h3>
+        <p className="mt-2 text-[14px] text-[var(--color-fg-muted)] leading-[1.5]">
+          A assinatura de{' '}
+          <span className="font-semibold text-[var(--color-fg)]">{customerName}</span> será
+          cancelada no Mercado Pago e no banco. As cobranças futuras param imediatamente.
+        </p>
+        <label className="mt-5 flex flex-col gap-2">
+          <span className="font-medium text-[13px] text-[var(--color-fg-muted)]">
+            Motivo (opcional)
+          </span>
+          <textarea
+            value={reason}
+            onChange={(e) => onReasonChange(e.target.value)}
+            rows={3}
+            maxLength={500}
+            placeholder="Ex.: cliente pediu pelo WhatsApp, falha de pagamento recorrente, etc."
+            className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[13px] text-[var(--color-fg)] outline-none transition placeholder:text-[var(--color-fg-subtle)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-brand-500)] focus:ring-4 focus:ring-[var(--color-brand-500)]/15"
+          />
+          <span className="text-[11px] text-[var(--color-fg-subtle)]">
+            Aparece no histórico interno + opcionalmente no email de despedida.
+          </span>
+        </label>
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="cursor-pointer rounded-lg border border-[var(--color-border)] px-4 py-2 font-medium text-[13px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)] disabled:opacity-50"
+          >
+            Voltar
+          </button>
+          <motion.button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            whileTap={{ scale: 0.97 }}
+            className="cursor-pointer rounded-lg bg-[var(--color-danger)] px-4 py-2 font-semibold text-[13px] text-white transition hover:brightness-110 disabled:opacity-50"
+          >
+            {loading ? 'Cancelando…' : 'Cancelar assinatura'}
+          </motion.button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
