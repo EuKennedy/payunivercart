@@ -116,6 +116,19 @@ async function main() {
     },
   );
 
+  // Subscription status reconciliation — every 15 min, picks stale
+  // active/pending subs and round-trips the gateway so out-of-band
+  // cancellations (buyer cancels in MP app) reflect locally even
+  // when the webhook never arrives.
+  await queues.subscriptionReconcile.upsertJobScheduler(
+    'reconcile',
+    { every: 15 * 60 * 1000 },
+    {
+      name: 'subscription.reconcile.sweep',
+      data: {},
+    },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,

@@ -29,6 +29,10 @@ export const QUEUE_NAMES = {
   /** Pilar 4 — marketplace cached counters rollup. Hourly sweep that
    *  refreshes cachedClicks + cachedPurchases on listings. */
   marketplaceRollup: 'marketplace.rollup',
+  /** Subscription status reconcile — 15min sweep that round-trips
+   *  the gateway for stale subscriptions so out-of-band cancellations
+   *  (buyer cancels in MP app, webhook never fires) reflect locally. */
+  subscriptionReconcile: 'subscription.reconcile',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -43,6 +47,7 @@ export interface QueueBundle {
   affiliateRollover: Queue;
   trackingDispatch: Queue;
   marketplaceRollup: Queue;
+  subscriptionReconcile: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -74,5 +79,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     affiliateRollover: new Queue(QUEUE_NAMES.affiliateRollover, opts),
     trackingDispatch: new Queue(QUEUE_NAMES.trackingDispatch, opts),
     marketplaceRollup: new Queue(QUEUE_NAMES.marketplaceRollup, opts),
+    subscriptionReconcile: new Queue(QUEUE_NAMES.subscriptionReconcile, opts),
   };
 }

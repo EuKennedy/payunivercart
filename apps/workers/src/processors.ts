@@ -7,6 +7,7 @@ import type { WorkersEnv } from './env';
 import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
 import { runMarketplaceRollup } from './handlers/marketplace-rollup';
 import { runRecoverySweep } from './handlers/recovery';
+import { runSubscriptionReconcileSweep } from './handlers/subscription-reconcile';
 import { runTrackingDispatchSweep } from './handlers/tracking-dispatch';
 import { QUEUE_NAMES } from './queues';
 
@@ -143,6 +144,23 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // Subscription reconcile — every 15min, round-trip the gateway for
+  // stale active/pending subscriptions and sync local status. Catches
+  // out-of-band cancellations (buyer cancels in MP app, webhook
+  // never fires).
+  const subscriptionReconcile = new Worker(
+    QUEUE_NAMES.subscriptionReconcile,
+    async (job) => {
+      const result = await runSubscriptionReconcileSweep({
+        db: dbWrapper,
+        crypto,
+      });
+      logEvent('subscription.reconcile.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   for (const w of [
     webhookInbound,
     webhookOutbox,
@@ -152,6 +170,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     affiliateRollover,
     trackingDispatch,
     marketplaceRollup,
+    subscriptionReconcile,
   ]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
@@ -166,6 +185,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
   return [
     trackingDispatch,
     marketplaceRollup,
+    subscriptionReconcile,
     webhookInbound,
     webhookOutbox,
     recovery,

@@ -58,6 +58,31 @@ const PublicListing = z.object({
   publishedAt: z.date().nullable(),
 });
 
+/**
+ * Affiliate-facing variant. Extends the public listing with the
+ * commission shape of the workspace's public + active program, so the
+ * `/afiliar` shop can render commission previews and a one-click
+ * "Afiliar" CTA without a second round-trip per card.
+ *
+ * `defaultProgramId` is the program that the "Afiliar" button targets
+ * (`requestMembership`). Resolution order:
+ *   1. product-specific public+active program for that productId, else
+ *   2. workspace-wide public+active program (productId IS NULL).
+ *
+ * Only listings whose workspace exposes at least one such program are
+ * surfaced — otherwise the user would land on a dead-end card.
+ */
+const AffiliateListing = PublicListing.extend({
+  defaultProgramId: z.string().uuid(),
+  approvalPolicy: z.enum(['automatic', 'manual', 'invite_only']),
+  commissionType: z.enum(['percent', 'flat', 'recurring', 'lifetime']),
+  commissionPercent: z.number().int().nullable(),
+  commissionFlatCents: z.number().int().nullable(),
+  recurringCycleLimit: z.number().int().nullable(),
+  refundWindowDays: z.number().int().nonnegative(),
+  attributionWindowDays: z.number().int().nonnegative(),
+});
+
 const ProducerListing = z.object({
   id: z.string().uuid(),
   productId: z.string().uuid(),
@@ -256,6 +281,195 @@ export const marketplaceRouter = router({
         priceCents: Number(row.priceCents ?? 0),
         currency: row.currency,
         publishedAt: row.publishedAt,
+      };
+    }),
+
+  /**
+   * Affiliate-shop variant. Same filters / sort / cursor as `browse`,
+   * but joins through `affiliate_programs` and only surfaces listings
+   * whose workspace has an active+public program. Each row carries the
+   * commission preview so cards render without extra round-trips.
+   *
+   * Performance: the program lookup is done with a single correlated
+   * lateral that picks the most specific match (product-scoped first,
+   * workspace-wide fallback). Each lateral is bounded by LIMIT 1 and
+   * uses the existing `affiliate_programs_workspace_idx` /
+   * `affiliate_programs_product_idx` — same hot path as the producer
+   * dashboard already exercises.
+   */
+  browseForAffiliation: publicProcedure
+    .input(
+      z
+        .object({
+          q: z.string().trim().min(1).max(80).optional(),
+          category: Category.optional(),
+          sort: SortOrder.default('popular'),
+          limit: z.number().int().min(1).max(48).default(24),
+          cursor: z.string().optional(),
+        })
+        .optional(),
+    )
+    .output(z.object({ items: z.array(AffiliateListing), nextCursor: z.string().nullable() }))
+    .query(async ({ ctx, input }) => {
+      const q = input?.q;
+      const limit = input?.limit ?? 24;
+      const sort = input?.sort ?? 'popular';
+
+      // EXISTS predicate: at least one active+public program for the
+      // listing's workspace, either product-specific or workspace-wide.
+      const programExists = sql`EXISTS (
+        SELECT 1 FROM ${schema.affiliatePrograms} ap
+        WHERE ap.workspace_id = ${schema.marketplaceListings.workspaceId}
+          AND ap.is_active::text = 'true'
+          AND ap.is_public::text = 'true'
+          AND (ap.product_id = ${schema.marketplaceListings.productId} OR ap.product_id IS NULL)
+      )`;
+
+      const where = and(
+        eq(schema.marketplaceListings.status, 'live'),
+        input?.category ? eq(schema.marketplaceListings.category, input.category) : undefined,
+        q
+          ? or(
+              ilike(schema.marketplaceListings.headline, `%${q}%`),
+              ilike(schema.marketplaceListings.pitch, `%${q}%`),
+              sql`${schema.marketplaceListings.searchKeywords}::text ilike ${`%${q}%`}`,
+            )
+          : undefined,
+        programExists,
+      );
+
+      // Single correlated subquery per row — returns the chosen program
+      // packed as JSON so we unpack exactly one field set in JS.
+      // Product-specific (`product_id IS NOT NULL`) ranks first, then
+      // workspace-wide fallback. Deterministic on (program.created_at,
+      // program.id) for replay stability.
+      const programJson = sql<{
+        id: string;
+        approval_policy: 'automatic' | 'manual' | 'invite_only';
+        commission_type: 'percent' | 'flat' | 'recurring' | 'lifetime';
+        commission_percent: number | null;
+        commission_flat_cents: string | null;
+        recurring_cycle_limit: number | null;
+        refund_window_days: number;
+        attribution_window_days: number;
+      } | null>`(
+        SELECT to_jsonb(t) FROM (
+          SELECT
+            id::text AS id,
+            approval_policy,
+            commission_type,
+            commission_percent,
+            commission_flat_cents::text AS commission_flat_cents,
+            recurring_cycle_limit,
+            refund_window_days,
+            attribution_window_days
+          FROM ${schema.affiliatePrograms} ap
+          WHERE ap.workspace_id = ${schema.marketplaceListings.workspaceId}
+            AND ap.is_active::text = 'true'
+            AND ap.is_public::text = 'true'
+            AND (ap.product_id = ${schema.marketplaceListings.productId} OR ap.product_id IS NULL)
+          ORDER BY (ap.product_id IS NULL) ASC, ap.created_at ASC
+          LIMIT 1
+        ) t
+      )`;
+
+      const baseQuery = ctx.services.db.db
+        .select({
+          id: schema.marketplaceListings.id,
+          productId: schema.marketplaceListings.productId,
+          productSlug: schema.products.slug,
+          workspaceName: schema.workspaces.companyName,
+          workspaceNameFallback: schema.workspaces.name,
+          category: schema.marketplaceListings.category,
+          headline: schema.marketplaceListings.headline,
+          pitch: schema.marketplaceListings.pitch,
+          coverImageUrl: schema.marketplaceListings.coverImageUrl,
+          priceCents: schema.productOffers.amountCents,
+          currency: schema.productOffers.currency,
+          publishedAt: schema.marketplaceListings.publishedAt,
+          program: programJson,
+        })
+        .from(schema.marketplaceListings)
+        .innerJoin(schema.products, eq(schema.products.id, schema.marketplaceListings.productId))
+        .innerJoin(
+          schema.workspaces,
+          eq(schema.workspaces.id, schema.marketplaceListings.workspaceId),
+        )
+        .innerJoin(
+          schema.productOffers,
+          and(
+            eq(schema.productOffers.productId, schema.products.id),
+            eq(schema.productOffers.isDefault, true),
+          ),
+        )
+        .where(where)
+        .limit(limit + 1);
+
+      const sortedQuery = (() => {
+        switch (sort) {
+          case 'popular':
+            return baseQuery.orderBy(
+              desc(schema.marketplaceListings.sortBoost),
+              desc(schema.marketplaceListings.cachedPurchases),
+              desc(schema.marketplaceListings.id),
+            );
+          case 'recent':
+            return baseQuery.orderBy(
+              desc(schema.marketplaceListings.publishedAt),
+              desc(schema.marketplaceListings.id),
+            );
+          case 'price_lo':
+            return baseQuery.orderBy(
+              asc(schema.productOffers.amountCents),
+              desc(schema.marketplaceListings.id),
+            );
+          case 'price_hi':
+            return baseQuery.orderBy(
+              desc(schema.productOffers.amountCents),
+              desc(schema.marketplaceListings.id),
+            );
+        }
+      })();
+
+      const rows = await sortedQuery;
+      const slice = rows.slice(0, limit);
+      const hasMore = rows.length > limit;
+      const last = slice[slice.length - 1];
+      const nextCursor =
+        hasMore && last
+          ? Buffer.from(`${last.publishedAt?.toISOString() ?? ''}|${last.id}`).toString('base64url')
+          : null;
+
+      return {
+        items: slice
+          .filter((r) => r.program !== null)
+          .map((r) => {
+            // biome-ignore lint/style/noNonNullAssertion: guarded by .filter above.
+            const prog = r.program!;
+            return {
+              id: r.id,
+              productId: r.productId,
+              productSlug: r.productSlug,
+              workspaceName: (r.workspaceName ?? r.workspaceNameFallback) || 'Anônimo',
+              category: r.category as z.infer<typeof Category>,
+              headline: r.headline,
+              pitch: r.pitch,
+              coverImageUrl: r.coverImageUrl,
+              priceCents: Number(r.priceCents ?? 0),
+              currency: r.currency,
+              publishedAt: r.publishedAt,
+              defaultProgramId: prog.id,
+              approvalPolicy: prog.approval_policy,
+              commissionType: prog.commission_type,
+              commissionPercent: prog.commission_percent,
+              commissionFlatCents:
+                prog.commission_flat_cents == null ? null : Number(prog.commission_flat_cents),
+              recurringCycleLimit: prog.recurring_cycle_limit,
+              refundWindowDays: prog.refund_window_days,
+              attributionWindowDays: prog.attribution_window_days,
+            };
+          }),
+        nextCursor,
       };
     }),
 

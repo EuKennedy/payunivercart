@@ -1,9 +1,10 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Heading, Kicker } from '../../../components/ui';
+import { Button, Heading, Kicker } from '../../../components/ui';
 import { formatCents } from '../../../lib/money';
 import { trpc } from '../../../lib/trpc';
 
@@ -109,27 +110,42 @@ export default function AffiliateDashboardPage() {
           Produtores ({memberships.length})
         </h2>
         {memberships.length === 0 ? (
-          <p className="rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-6 py-12 text-center text-[13px] text-[var(--color-fg-subtle)]">
-            Você ainda não é afiliado de nenhum produtor. Peça um convite ou aceite um link de
-            inscrição.
-          </p>
+          <div className="flex flex-col items-center gap-5 rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-6 py-14 text-center">
+            <div className="grid size-14 place-items-center rounded-2xl bg-[var(--color-brand-50)] text-[var(--color-brand-700)]">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                role="img"
+                aria-label="Vitrine"
+              >
+                <path d="M3 9h18" />
+                <path d="M5 9v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9" />
+                <path d="M9 21V12" />
+                <path d="M15 21V12" />
+                <path d="M5 9 7 4h10l2 5" />
+              </svg>
+            </div>
+            <div className="flex max-w-md flex-col gap-2">
+              <Heading level={3}>Você ainda não tem afiliações.</Heading>
+              <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
+                Explore os produtos abertos pra afiliação e ganhe comissão a cada venda gerada pelo
+                seu link.
+              </p>
+            </div>
+            <Link href="/afiliar">
+              <Button size="md">Ver produtos disponíveis</Button>
+            </Link>
+          </div>
         ) : (
           <ul className="flex flex-col gap-3">
             {memberships.map((m) => (
-              <li
-                key={m.workspaceId}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
-              >
-                <div className="flex flex-col gap-1">
-                  <span className="font-semibold text-[14px] text-[var(--color-fg)]">
-                    {m.workspaceName}
-                  </span>
-                  <span className="text-[11px] text-[var(--color-fg-subtle)]">
-                    {m.programName ?? 'Programa padrão'}
-                  </span>
-                </div>
-                <MembershipBadge status={m.status} />
-              </li>
+              <MembershipRow key={m.programId} membership={m} />
             ))}
           </ul>
         )}
@@ -357,6 +373,93 @@ function StatCard({
       </span>
       <span className="text-[11px] text-[var(--color-fg-subtle)] leading-[1.4]">{subtitle}</span>
     </div>
+  );
+}
+
+/**
+ * Single membership row with inline link copy/share. Approved rows
+ * surface the tracking URL (`/a/:slug` on the public checkout host) so
+ * the affiliate can grab it without leaving the page. Pending /
+ * rejected / suspended rows show only the status badge.
+ *
+ * The checkout host is read from `NEXT_PUBLIC_CHECKOUT_URL` (Coolify
+ * env) and falls back to `pay.univercart.com` for local dev.
+ */
+function MembershipRow({
+  membership,
+}: {
+  membership: {
+    workspaceId: string;
+    workspaceName: string;
+    status: string;
+    programId: string;
+    programName: string | null;
+    linkSlug: string | null;
+    productSlug: string | null;
+  };
+}) {
+  const [copied, setCopied] = useState(false);
+  const checkoutBase = (
+    process.env.NEXT_PUBLIC_CHECKOUT_URL ?? 'https://pay.univercart.com'
+  ).replace(/\/$/, '');
+  const trackingUrl = membership.linkSlug ? `${checkoutBase}/a/${membership.linkSlug}` : null;
+  const showLink = membership.status === 'approved' && trackingUrl;
+
+  const copyUrl = async () => {
+    if (!trackingUrl) return;
+    try {
+      await navigator.clipboard.writeText(trackingUrl);
+      setCopied(true);
+      toast.success('Link copiado.');
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      toast.error('Não foi possível copiar.');
+    }
+  };
+
+  return (
+    <li className="flex flex-col gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="font-semibold text-[14px] text-[var(--color-fg)]">
+            {membership.workspaceName}
+          </span>
+          <span className="text-[11px] text-[var(--color-fg-subtle)]">
+            {membership.programName ?? 'Programa padrão'}
+          </span>
+        </div>
+        <MembershipBadge status={membership.status} />
+      </div>
+
+      {showLink ? (
+        <div className="flex flex-col gap-2 rounded-xl bg-[var(--color-surface-muted)] p-3 sm:flex-row sm:items-center">
+          <code className="flex-1 truncate font-mono text-[12px] text-[var(--color-fg)]">
+            {trackingUrl}
+          </code>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={copyUrl}
+              className="cursor-pointer rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]"
+            >
+              {copied ? 'Copiado ✓' : 'Copiar link'}
+            </button>
+            <a
+              href={trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cursor-pointer rounded-full bg-[var(--color-brand-600)] px-3 py-1.5 font-medium text-[12px] text-white transition hover:bg-[var(--color-brand-700)]"
+            >
+              Abrir
+            </a>
+          </div>
+        </div>
+      ) : membership.status === 'pending' ? (
+        <span className="text-[11px] text-[var(--color-fg-subtle)]">
+          O link será gerado assim que o produtor aprovar sua afiliação.
+        </span>
+      ) : null}
+    </li>
   );
 }
 

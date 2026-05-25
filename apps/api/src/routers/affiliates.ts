@@ -158,6 +158,16 @@ function mintPublicCode(): string {
   return randomBytes(4).toString('base64url').slice(0, 6).toUpperCase();
 }
 
+/**
+ * URL-safe tracking slug for `/a/:slug`. 9 chars from base64url ⇒
+ * ~53 bits of entropy. The unique index on `affiliate_links.slug`
+ * catches the (extremely rare) collision and we retry at the call
+ * site if needed.
+ */
+function mintLinkSlug(): string {
+  return randomBytes(7).toString('base64url').slice(0, 9);
+}
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 export const affiliatesRouter = router({
@@ -1388,6 +1398,182 @@ export const affiliatesRouter = router({
       }));
     }),
 
+  /* ====================== PUBLIC SELF-JOIN ============================= */
+
+  /**
+   * Public path: any authenticated user can request membership in an
+   * affiliate program. Behaviour depends on the program's
+   * `approvalPolicy`:
+   *
+   *   - `automatic`   → membership created with status='active', the
+   *                     affiliate can start promoting immediately.
+   *   - `manual`      → membership status='pending', producer must
+   *                     approve in their dashboard.
+   *   - `invite_only` → REJECTED. The producer disables self-join for
+   *                     this program — only producer-issued invites
+   *                     create memberships.
+   *
+   * Idempotent: if the user already has a membership in this program
+   * (any status), we return the existing one instead of duplicating.
+   *
+   * Auto-provisions the user's affiliate identity on first call.
+   */
+  requestMembership: authedProcedure
+    .input(z.object({ programId: z.string().uuid() }))
+    .output(
+      z.object({
+        membershipId: z.string().uuid(),
+        status: z.enum(['pending', 'approved', 'suspended', 'rejected', 'left']),
+        autoApproved: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = ctx.services.db.db;
+
+      // 1. Fetch program + policy.
+      const [program] = await db
+        .select({
+          id: schema.affiliatePrograms.id,
+          workspaceId: schema.affiliatePrograms.workspaceId,
+          approvalPolicy: schema.affiliatePrograms.approvalPolicy,
+          isActive: schema.affiliatePrograms.isActive,
+        })
+        .from(schema.affiliatePrograms)
+        .where(eq(schema.affiliatePrograms.id, input.programId))
+        .limit(1);
+      if (!program || !program.isActive) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Programa de afiliação não encontrado ou inativo.',
+        });
+      }
+      if (program.approvalPolicy === 'invite_only') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message:
+            'Esse programa só aceita afiliados convidados pelo produtor. Peça um convite diretamente.',
+        });
+      }
+
+      // 2. Resolve / auto-create affiliate identity.
+      let [affiliate] = await db
+        .select({ id: schema.affiliates.id })
+        .from(schema.affiliates)
+        .where(eq(schema.affiliates.userId, ctx.userId))
+        .limit(1);
+      if (!affiliate) {
+        const [user] = await db
+          .select({ name: schema.users.name, email: schema.users.email })
+          .from(schema.users)
+          .where(eq(schema.users.id, ctx.userId))
+          .limit(1);
+        if (!user) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado.' });
+        }
+        const [inserted] = await db
+          .insert(schema.affiliates)
+          .values({
+            userId: ctx.userId,
+            publicCode: mintPublicCode(),
+            displayName: user.name?.trim() || user.email.split('@')[0] || 'Afiliado',
+            lifetimeEarnedCents: 0n,
+          })
+          .returning({ id: schema.affiliates.id });
+        if (!inserted) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Falha ao criar afiliado.',
+          });
+        }
+        affiliate = inserted;
+      }
+
+      // 3. Idempotent membership creation.
+      const [existing] = await db
+        .select({
+          id: schema.affiliateMemberships.id,
+          status: schema.affiliateMemberships.status,
+        })
+        .from(schema.affiliateMemberships)
+        .where(
+          and(
+            eq(schema.affiliateMemberships.affiliateId, affiliate.id),
+            eq(schema.affiliateMemberships.programId, input.programId),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        return {
+          membershipId: existing.id,
+          status: existing.status as 'pending' | 'approved' | 'suspended' | 'rejected' | 'left',
+          autoApproved: false,
+        };
+      }
+
+      const autoApproved = program.approvalPolicy === 'automatic';
+      const initialStatus: 'pending' | 'approved' = autoApproved ? 'approved' : 'pending';
+      const now = new Date();
+
+      const [created] = await db
+        .insert(schema.affiliateMemberships)
+        .values({
+          workspaceId: program.workspaceId,
+          affiliateId: affiliate.id,
+          programId: input.programId,
+          status: initialStatus,
+          appliedAt: now,
+          decidedAt: autoApproved ? now : null,
+        })
+        .returning({ id: schema.affiliateMemberships.id });
+      if (!created) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Falha ao criar membership.',
+        });
+      }
+
+      // Auto-mint the default tracking link when the membership flipped
+      // straight to `approved` — otherwise the affiliate would land on
+      // /afiliado with no way to share. Manual-approval programs get
+      // their link minted at the moment the producer accepts the
+      // application (see `decideMembership`). Slug uniqueness is
+      // enforced by the index; we retry once on a 23505 collision since
+      // 53-bit entropy makes a second clash effectively impossible.
+      if (autoApproved) {
+        const [programDetails] = await db
+          .select({
+            workspaceId: schema.affiliatePrograms.workspaceId,
+            productId: schema.affiliatePrograms.productId,
+          })
+          .from(schema.affiliatePrograms)
+          .where(eq(schema.affiliatePrograms.id, input.programId))
+          .limit(1);
+        if (programDetails) {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              await db.insert(schema.affiliateLinks).values({
+                workspaceId: programDetails.workspaceId,
+                programId: input.programId,
+                affiliateId: affiliate.id,
+                productId: programDetails.productId,
+                slug: mintLinkSlug(),
+              });
+              break;
+            } catch (cause) {
+              if ((cause as { code?: string })?.code !== '23505') throw cause;
+              if (attempt === 1) throw cause;
+            }
+          }
+        }
+      }
+
+      return {
+        membershipId: created.id,
+        status: initialStatus,
+        autoApproved,
+      };
+    }),
+
   /* ======================== AFFILIATE-FACING DASHBOARD ==================== */
 
   /**
@@ -1418,7 +1604,16 @@ export const affiliatesRouter = router({
             workspaceId: z.string().uuid(),
             workspaceName: z.string(),
             status: z.string(),
+            programId: z.string().uuid(),
             programName: z.string().nullable(),
+            /** Default tracking link slug for this program. NULL when
+             *  the application is still pending — links are minted on
+             *  approval (auto or producer-side). */
+            linkSlug: z.string().nullable(),
+            /** Slug of the product the link targets (product-scoped
+             *  programs only). Used by the UI to build a friendlier
+             *  share message. */
+            productSlug: z.string().nullable(),
           }),
         ),
         summary: z.object({
@@ -1490,13 +1685,26 @@ export const affiliatesRouter = router({
         affiliate = inserted;
       }
 
-      // 2. Memberships across producer workspaces.
+      // 2. Memberships across producer workspaces. We left-join the
+      //    affiliate's first link for each program (deterministic on
+      //    `created_at`) so the UI can surface "Copiar link" inline,
+      //    plus the product slug when the program is product-scoped.
       const memberships = await db
         .select({
           workspaceId: schema.affiliateMemberships.workspaceId,
           workspaceName: schema.workspaces.name,
           status: schema.affiliateMemberships.status,
+          programId: schema.affiliateMemberships.programId,
           programName: schema.affiliatePrograms.name,
+          linkSlug: sql<string | null>`(
+            SELECT slug FROM ${schema.affiliateLinks}
+            WHERE program_id = ${schema.affiliateMemberships.programId}
+              AND affiliate_id = ${schema.affiliateMemberships.affiliateId}
+              AND is_active::text = 'true'
+            ORDER BY created_at ASC
+            LIMIT 1
+          )`,
+          productSlug: schema.products.slug,
         })
         .from(schema.affiliateMemberships)
         .innerJoin(
@@ -1507,6 +1715,7 @@ export const affiliatesRouter = router({
           schema.affiliatePrograms,
           eq(schema.affiliatePrograms.id, schema.affiliateMemberships.programId),
         )
+        .leftJoin(schema.products, eq(schema.products.id, schema.affiliatePrograms.productId))
         .where(eq(schema.affiliateMemberships.affiliateId, affiliate.id))
         .orderBy(desc(schema.affiliateMemberships.createdAt));
 
@@ -1562,7 +1771,10 @@ export const affiliatesRouter = router({
           workspaceId: m.workspaceId,
           workspaceName: m.workspaceName,
           status: m.status,
+          programId: m.programId,
           programName: m.programName,
+          linkSlug: m.linkSlug ?? null,
+          productSlug: m.productSlug ?? null,
         })),
         summary,
         recentCommissions: recent.map((c) => ({

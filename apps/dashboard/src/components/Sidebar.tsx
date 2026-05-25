@@ -56,8 +56,14 @@ const NAV: NavGroup[] = [
     label: 'Catálogo',
     items: [
       { href: '/produtos', label: 'Meus produtos', icon: <IconBox /> },
-      { href: '/marketplace', label: 'Marketplace', icon: <IconStorefront />, badge: 'new' },
-      { href: '/afiliado', label: 'Sou afiliado', icon: <IconUsers />, badge: 'new' },
+      { href: '/marketplace', label: 'Meu Marketplace', icon: <IconStorefront /> },
+      {
+        href: '/afiliar',
+        label: 'Afiliar a um produto',
+        icon: <IconStorefront />,
+        badge: 'new',
+      },
+      { href: '/afiliado', label: 'Sou afiliado', icon: <IconUsers /> },
     ],
   },
   {
