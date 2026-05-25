@@ -15,3 +15,4 @@ export * from './entitlements';
 export * from './webhooks';
 export * from './audit';
 export * from './platform_billing';
+export * from './affiliates';
