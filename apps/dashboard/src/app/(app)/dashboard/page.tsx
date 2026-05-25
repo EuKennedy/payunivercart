@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Heading, Kicker, Surface } from '../../../components/ui';
 import { useSession } from '../../../lib/auth';
 import { formatCents } from '../../../lib/money';
@@ -479,6 +479,9 @@ function RevenueChart({
   isPending: boolean;
   masked: boolean;
 }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   if (isPending) {
     return <div className="h-[240px] animate-pulse rounded-xl bg-[var(--color-surface-muted)]" />;
   }
@@ -525,87 +528,176 @@ function RevenueChart({
     return `${d}/${m}`;
   };
 
+  const hoverPoint = hoverIdx != null ? points[hoverIdx] : null;
+
+  /**
+   * Pointer → nearest data index. SVG viewBox is `0 0 width height`,
+   * preserveAspectRatio=none, so the container's CSS width maps 1:1
+   * to viewBox.x — we just divide by ratio.
+   */
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const ratio = width / rect.width;
+    const svgX = (event.clientX - rect.left) * ratio;
+    let nearest = 0;
+    let nearestDist = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      if (!p) continue;
+      const d = Math.abs(p.x - svgX);
+      if (d < nearestDist) {
+        nearest = i;
+        nearestDist = d;
+      }
+    }
+    setHoverIdx(nearest);
+  };
+
+  const tooltipDate = (() => {
+    if (!hoverPoint) return null;
+    const [y, m, d] = hoverPoint.d.date.split('-');
+    return `${d}/${m}/${y?.slice(2) ?? ''}`;
+  })();
+
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      className="h-[240px] w-full"
-      role="img"
-      aria-label="Receita por dia"
+    <div
+      ref={containerRef}
+      className="relative"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={() => setHoverIdx(null)}
     >
-      <defs>
-        <linearGradient id="revenueGradient" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="var(--color-brand-500)" stopOpacity="0.28" />
-          <stop offset="100%" stopColor="var(--color-brand-500)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {/* Baseline grid — 4 horizontal hairlines */}
-      {[0.25, 0.5, 0.75, 1].map((frac) => (
-        <line
-          key={frac}
-          x1={padX}
-          x2={width - padX}
-          y1={padTop + innerH * (1 - frac)}
-          y2={padTop + innerH * (1 - frac)}
-          stroke="var(--color-border-subtle)"
-          strokeDasharray="2 4"
-        />
-      ))}
-      <motion.path
-        d={areaPath}
-        fill="url(#revenueGradient)"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1], delay: 0.18 }}
-      />
-      <motion.path
-        d={linePath}
-        fill="none"
-        stroke="var(--color-brand-500)"
-        strokeWidth="2"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        initial={{ pathLength: 0 }}
-        animate={{ pathLength: 1 }}
-        transition={{ duration: 0.95, ease: [0.16, 1, 0.3, 1] }}
-      />
-      {points.map((p, idx) =>
-        p.d.revenueCents > 0 ? (
-          <motion.circle
-            key={p.d.date}
-            cx={p.x}
-            cy={p.y}
-            r={idx === points.length - 1 ? 4 : 2.5}
-            fill="var(--color-surface)"
-            stroke="var(--color-brand-500)"
-            strokeWidth="1.6"
-            initial={{ opacity: 0, scale: 0 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{
-              duration: 0.24,
-              ease: [0.16, 1, 0.3, 1],
-              delay: 0.4 + idx * 0.018,
-            }}
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        className="h-[240px] w-full"
+        role="img"
+        aria-label="Receita por dia"
+      >
+        <defs>
+          <linearGradient id="revenueGradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-brand-500)" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="var(--color-brand-500)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {/* Baseline grid — 4 horizontal hairlines */}
+        {[0.25, 0.5, 0.75, 1].map((frac) => (
+          <line
+            key={frac}
+            x1={padX}
+            x2={width - padX}
+            y1={padTop + innerH * (1 - frac)}
+            y2={padTop + innerH * (1 - frac)}
+            stroke="var(--color-border-subtle)"
+            strokeDasharray="2 4"
           />
-        ) : null,
-      )}
-      {ticks.map((idx) => {
-        const p = points[idx];
-        if (!p) return null;
-        return (
-          <text
-            key={`tick-${p.d.date}`}
-            x={p.x}
-            y={height - 10}
-            textAnchor="middle"
-            className="fill-[var(--color-fg-subtle)]"
-            fontSize="11"
-          >
-            {formatTickShort(p.d.date)}
-          </text>
-        );
-      })}
-    </svg>
+        ))}
+        <motion.path
+          d={areaPath}
+          fill="url(#revenueGradient)"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1], delay: 0.18 }}
+        />
+        <motion.path
+          d={linePath}
+          fill="none"
+          stroke="var(--color-brand-500)"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          initial={{ pathLength: 0 }}
+          animate={{ pathLength: 1 }}
+          transition={{ duration: 0.95, ease: [0.16, 1, 0.3, 1] }}
+        />
+        {points.map((p, idx) =>
+          p.d.revenueCents > 0 ? (
+            <motion.circle
+              key={p.d.date}
+              cx={p.x}
+              cy={p.y}
+              r={idx === points.length - 1 ? 4 : 2.5}
+              fill="var(--color-surface)"
+              stroke="var(--color-brand-500)"
+              strokeWidth="1.6"
+              initial={{ opacity: 0, scale: 0 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{
+                duration: 0.24,
+                ease: [0.16, 1, 0.3, 1],
+                delay: 0.4 + idx * 0.018,
+              }}
+            />
+          ) : null,
+        )}
+        {ticks.map((idx) => {
+          const p = points[idx];
+          if (!p) return null;
+          return (
+            <text
+              key={`tick-${p.d.date}`}
+              x={p.x}
+              y={height - 10}
+              textAnchor="middle"
+              className="fill-[var(--color-fg-subtle)]"
+              fontSize="11"
+            >
+              {formatTickShort(p.d.date)}
+            </text>
+          );
+        })}
+        {/* Crosshair on hover */}
+        {hoverPoint ? (
+          <>
+            <line
+              x1={hoverPoint.x}
+              x2={hoverPoint.x}
+              y1={padTop}
+              y2={padTop + innerH}
+              stroke="var(--color-brand-500)"
+              strokeWidth="1"
+              strokeDasharray="3 3"
+              opacity="0.4"
+            />
+            <circle
+              cx={hoverPoint.x}
+              cy={hoverPoint.y}
+              r={5}
+              fill="var(--color-brand-500)"
+              stroke="var(--color-surface)"
+              strokeWidth="2"
+            />
+          </>
+        ) : null}
+      </svg>
+      {/* Tooltip — pinned over the hovered point, dodges the edges. */}
+      {hoverPoint && tooltipDate ? (
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.12 }}
+          className="pointer-events-none absolute z-10 flex flex-col gap-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-[0_18px_36px_-12px_rgba(0,0,0,0.18)]"
+          style={{
+            left: `calc(${(hoverPoint.x / width) * 100}% + 12px)`,
+            top: `calc(${(hoverPoint.y / height) * 100}% - 12px)`,
+            transform:
+              hoverPoint.x / width > 0.75
+                ? 'translate(calc(-100% - 24px), -50%)'
+                : 'translate(0, -50%)',
+          }}
+        >
+          <span className="font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
+            {tooltipDate}
+          </span>
+          <span className="font-bold text-[15px] text-[var(--color-fg)] tabular-nums">
+            {masked ? '••••••' : formatCents(hoverPoint.d.revenueCents, 'BRL')}
+          </span>
+          <span className="text-[11px] text-[var(--color-fg-muted)]">
+            {hoverPoint.d.paidOrders} {hoverPoint.d.paidOrders === 1 ? 'pedido' : 'pedidos'}
+          </span>
+        </motion.div>
+      ) : null}
+    </div>
   );
 }
 

@@ -217,9 +217,25 @@ export async function runTrackingSweep(
  * after a provider outage recovers.
  */
 function computeNextAttempt(attempt: number): Date {
-  const base = Math.min(30 * 2 ** (attempt - 1), 3600); // seconds
-  const jitter = base * (0.8 + Math.random() * 0.4);
-  return new Date(Date.now() + jitter * 1000);
+  const seconds = computeBackoffSeconds(attempt, Math.random());
+  return new Date(Date.now() + seconds * 1000);
+}
+
+/**
+ * Pure backoff calculation, exposed for unit tests. Doubling base
+ * with a cap at 1h, jittered ±20% via the caller-supplied [0,1)
+ * sample. Keeping it pure means the dispatcher's retry schedule
+ * has a regression-frozen test even though the live dispatcher
+ * uses `Math.random()`.
+ */
+export function computeBackoffSeconds(attempt: number, jitterSample: number): number {
+  const base = Math.min(30 * 2 ** (attempt - 1), 3600);
+  // jitterSample is [0,1); we want [0.8, 1.2)
+  return base * (0.8 + jitterSample * 0.4);
+}
+
+export function truncatePayloadForLedger(value: unknown): unknown {
+  return truncatePayload(value);
 }
 
 function truncatePayload(value: unknown): unknown {

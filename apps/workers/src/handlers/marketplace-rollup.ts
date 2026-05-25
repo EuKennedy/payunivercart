@@ -55,16 +55,29 @@ export async function runMarketplaceRollup(
     WHERE ml.id = c.listing_id
   `);
 
-  // Pass 2 — best-effort conversion attribution. Flip
-  // convertedToOrder = true on every click whose ipHash matches a
-  // paid order for the same workspace within 24h.
-  //
-  // Subquery uses orders.ip_address hash via the same AUTH_SECRET
-  // recipe NOT possible here without re-hashing, so v1 uses the
-  // simpler "any paid order in the workspace within 24h" heuristic.
-  // True click-to-conversion correlation lands when we add UTM
-  // tracking to checkout (next iteration).
-  const conversionsResult = await db.execute(sql`
+  // Pass 2a — EXACT attribution via marketplace listing id stamped
+  // on the order at checkout time (Pilar 4 UTM passthrough). Every
+  // order whose `metadata.marketplaceListingId` matches a listing
+  // flips ALL of that listing's clicks made BEFORE the order to
+  // convertedToOrder=true. This is the ground-truth path; the
+  // heuristic below is fallback only for orders without the stamp.
+  const exactResult = await db.execute(sql`
+    UPDATE marketplace_clicks mc
+    SET converted_to_order = TRUE
+    FROM orders o
+    WHERE mc.converted_to_order = FALSE
+      AND o.status = 'paid'
+      AND (o.metadata->>'marketplaceListingId')::uuid = mc.listing_id
+      AND o.paid_at >= mc.created_at
+  `);
+
+  // Pass 2b — heuristic fallback for orders that did NOT carry the
+  // marketplaceListingId stamp (direct producer-link clicks that
+  // happened to come from the marketplace before the passthrough
+  // was wired, or buyers who copied/pasted the URL stripping the
+  // mlid query param). Flip on workspace + 24h window. Idempotent
+  // because we only touch rows still at convertedToOrder=FALSE.
+  const heuristicResult = await db.execute(sql`
     UPDATE marketplace_clicks mc
     SET converted_to_order = TRUE
     FROM marketplace_listings ml
@@ -76,8 +89,14 @@ export async function runMarketplaceRollup(
         WHERE o.workspace_id = ml.workspace_id
           AND o.status = 'paid'
           AND o.paid_at BETWEEN mc.created_at AND mc.created_at + interval '24 hours'
+          AND (o.metadata->>'marketplaceListingId') IS NULL
       )
   `);
+  const conversionsResult = {
+    rowCount:
+      Number((exactResult as { rowCount?: number })?.rowCount ?? 0) +
+      Number((heuristicResult as { rowCount?: number })?.rowCount ?? 0),
+  };
 
   // Pass 3 — refresh cachedPurchases (now that the click ledger has
   // up-to-date convertedToOrder flags).

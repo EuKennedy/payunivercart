@@ -431,6 +431,28 @@ export const checkoutRouter = router({
             ttclid: z.string().trim().max(256).optional(),
           })
           .optional(),
+        /**
+         * Marketplace passthrough — populated when the buyer landed
+         * on the producer's checkout via the public marketplace
+         * (`/marketplace/[id]` → `/c/{slug}` flow). Stored on the
+         * order so the marketplace rollup worker can correlate this
+         * exact conversion back to its source listing instead of
+         * relying on the 24h IP-hash heuristic.
+         *
+         * `marketplaceListingId` is the UUID of the listing the buyer
+         * clicked through from. `utm` carries optional source/medium/
+         * campaign tags producer attaches to deep links.
+         */
+        marketplaceListingId: z.string().uuid().optional(),
+        utm: z
+          .object({
+            source: z.string().trim().max(80).optional(),
+            medium: z.string().trim().max(80).optional(),
+            campaign: z.string().trim().max(120).optional(),
+            content: z.string().trim().max(120).optional(),
+            term: z.string().trim().max(120).optional(),
+          })
+          .optional(),
       }),
     )
     .output(
@@ -580,9 +602,13 @@ export const checkoutRouter = router({
             // the Pilar 2 dispatcher. Cookie values + URL click IDs
             // both go here so the eventual server-side Purchase fire
             // matches the original ad click in each provider's
-            // attribution model.
+            // attribution model. Marketplace listing id + utm tags
+            // ride alongside so the rollup worker has exact
+            // attribution back to the click row.
             metadata: {
               trackingClickIds: input.clickIds ?? null,
+              marketplaceListingId: input.marketplaceListingId ?? null,
+              utm: input.utm ?? null,
             },
           })
           .returning({ id: schema.orders.id });

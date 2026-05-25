@@ -88,6 +88,41 @@ export default function CheckoutPage({ params }: { params: Promise<{ slug: strin
 }
 
 /**
+ * Marketplace + UTM passthrough. Reads `mlid` (marketplace listing id)
+ * + `utm_*` from URL search params. Threaded into checkout.submit so
+ * the marketplace rollup worker can attribute the eventual paid
+ * order back to its exact source click row (no 24h IP heuristic).
+ */
+function useMarketplaceMeta(): {
+  marketplaceListingId: string | undefined;
+  utm: {
+    source?: string;
+    medium?: string;
+    campaign?: string;
+    content?: string;
+    term?: string;
+  };
+} {
+  const searchParams = useSearchParams();
+  return useMemo(() => {
+    const mlid = searchParams.get('mlid') ?? undefined;
+    const isUuid =
+      !!mlid && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mlid);
+    const utm = {
+      source: searchParams.get('utm_source') ?? undefined,
+      medium: searchParams.get('utm_medium') ?? undefined,
+      campaign: searchParams.get('utm_campaign') ?? undefined,
+      content: searchParams.get('utm_content') ?? undefined,
+      term: searchParams.get('utm_term') ?? undefined,
+    };
+    return {
+      marketplaceListingId: isUuid ? mlid : undefined,
+      utm,
+    };
+  }, [searchParams]);
+}
+
+/**
  * Server-side tracking click-id capture. Reads:
  *   - `_fbp`, `_fbc` from cookies (Meta first-party cookie set by the
  *     browser pixel; falls back to a synthesised fbc when only `fbclid`
@@ -133,6 +168,7 @@ function useTrackingClickIds(): {
 function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
   const clickIds = useTrackingClickIds();
+  const marketplaceMeta = useMarketplaceMeta();
 
   const [step, setStep] = useState<'identify' | 'pay'>('identify');
   const [method, setMethod] = useState<Method>('pix');
@@ -284,6 +320,8 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
             }
           : undefined,
       clickIds,
+      marketplaceListingId: marketplaceMeta.marketplaceListingId,
+      utm: marketplaceMeta.utm,
     });
   };
 
@@ -2084,6 +2122,7 @@ function SubscriptionSuccess({
 function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
   const clickIds = useTrackingClickIds();
+  const marketplaceMeta = useMarketplaceMeta();
 
   const [step, setStep] = useState<'identify' | 'method' | 'pay'>('identify');
   const [method, setMethod] = useState<Method>('pix');
@@ -2215,6 +2254,8 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
             }
           : undefined,
       clickIds,
+      marketplaceListingId: marketplaceMeta.marketplaceListingId,
+      utm: marketplaceMeta.utm,
     });
   };
 
@@ -3032,6 +3073,7 @@ function MethodPickCard({
 function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
   const clickIds = useTrackingClickIds();
+  const marketplaceMeta = useMarketplaceMeta();
 
   const [step, setStep] = useState<'identify' | 'pay'>('identify');
   const [method, setMethod] = useState<Method>('pix');
@@ -3163,6 +3205,8 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
             }
           : undefined,
       clickIds,
+      marketplaceListingId: marketplaceMeta.marketplaceListingId,
+      utm: marketplaceMeta.utm,
     });
   };
 

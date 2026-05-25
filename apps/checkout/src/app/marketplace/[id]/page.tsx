@@ -75,7 +75,16 @@ export default function MarketplaceListingPage({
   }
 
   const item = listing.data;
-  const checkoutUrl = `${CHECKOUT_BASE}/c/${item.productSlug}`;
+  // Pass the marketplace listing id + utm_source as URL params; the
+  // checkout page picks them up via useSearchParams() and forwards
+  // them in the submit input so the rollup worker can correlate the
+  // resulting paid order back to THIS click (exact attribution, not
+  // the 24h IP-hash heuristic).
+  const checkoutUrl = `${CHECKOUT_BASE}/c/${item.productSlug}?mlid=${encodeURIComponent(
+    item.id,
+  )}&utm_source=payuniv_marketplace&utm_medium=marketplace&utm_campaign=${encodeURIComponent(
+    item.category,
+  )}`;
   const formattedPrice = new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: item.currency || 'BRL',
