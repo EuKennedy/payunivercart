@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { signOut, useSession } from '../lib/auth';
+import { MpAccountSwitcher } from './MpAccountSwitcher';
 import { ThemeToggle } from './ThemeToggle';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
@@ -66,7 +67,14 @@ export function Sidebar() {
     <aside className="sticky top-0 flex h-screen w-[280px] shrink-0 flex-col gap-7 border-[var(--color-border)] border-r bg-[var(--color-surface)] px-5 py-6">
       {/* Workspace switcher — replaces the static brand block now that
           producers have a real (and switchable) tenant. */}
-      <WorkspaceSwitcher />
+      <div className="flex flex-col gap-2.5">
+        <WorkspaceSwitcher />
+        {/* MP account quick-switcher — Stripe-style env indicator so
+            producers always see which gateway credential is live and
+            can flip between sandbox/production or multi-store accounts
+            without leaving the page. */}
+        <MpAccountSwitcher />
+      </div>
 
       {/* Sections */}
       <nav className="flex flex-1 flex-col gap-6 overflow-y-auto">

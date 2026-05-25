@@ -1,5 +1,6 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -170,6 +171,7 @@ export default function DashboardHome() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
+          index={0}
           label="Faturamento bruto"
           hint={`Soma de pedidos pagos em ${periodLabel.toLowerCase()}.`}
           value={maskValue(formatCents(periodStats.revenueCents, 'BRL'))}
@@ -177,12 +179,14 @@ export default function DashboardHome() {
           icon={<IconRevenue />}
         />
         <KpiCard
+          index={1}
           label="Pedidos pagos"
           hint={`${periodStats.createdOrders.toLocaleString('pt-BR')} criados no período.`}
           value={periodStats.paidOrders.toLocaleString('pt-BR')}
           icon={<IconOrders />}
         />
         <KpiCard
+          index={2}
           label="Ticket médio"
           hint="Receita ÷ pedidos pagos."
           value={maskValue(
@@ -191,6 +195,7 @@ export default function DashboardHome() {
           icon={<IconTicket />}
         />
         <KpiCard
+          index={3}
           label="Taxa de aprovação"
           hint="Pedidos pagos ÷ criados."
           value={
@@ -368,19 +373,31 @@ function KpiCard({
   hint,
   icon,
   tone,
+  index = 0,
 }: {
   label: string;
   value: string;
   hint: string;
   icon: ReactNode;
   tone?: 'brand';
+  index?: number;
 }) {
   const bubbleClass =
     tone === 'brand'
-      ? 'bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
+      ? 'bg-gradient-to-br from-[var(--color-brand-50)] to-[var(--color-brand-50)]/40 text-[var(--color-brand-700)] ring-1 ring-[var(--color-brand-500)]/15'
       : 'bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)]';
   return (
-    <article className="flex flex-col gap-4 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-sm)] transition hover:shadow-[var(--shadow-md)]">
+    <motion.article
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1], delay: index * 0.06 }}
+      whileHover={{ y: -2 }}
+      className={
+        tone === 'brand'
+          ? 'flex flex-col gap-4 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-brand-500)]/30 bg-gradient-to-br from-[var(--color-brand-50)]/40 via-[var(--color-surface)] to-[var(--color-surface)] p-5 shadow-[0_8px_24px_-12px_rgba(22,163,74,0.18)] transition hover:shadow-[0_16px_36px_-16px_rgba(22,163,74,0.28)]'
+          : 'flex flex-col gap-4 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-sm)] transition hover:shadow-[var(--shadow-md)]'
+      }
+    >
       <div className="flex items-center gap-3">
         <span className={`flex h-9 w-9 items-center justify-center rounded-full ${bubbleClass}`}>
           {icon}
@@ -391,7 +408,7 @@ function KpiCard({
         {value}
       </p>
       <p className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">{hint}</p>
-    </article>
+    </motion.article>
   );
 }
 
