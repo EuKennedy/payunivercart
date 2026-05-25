@@ -637,9 +637,12 @@ function PaymentMethodsBreakdown({
           const pct = total > 0 ? (d.revenueCents / total) * 100 : 0;
           if (pct === 0) return null;
           return (
-            <span
+            <motion.span
               key={d.method}
-              style={{ width: `${pct}%`, background: METHOD_COLOR[d.method] }}
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              style={{ background: METHOD_COLOR[d.method] }}
               aria-label={`${METHOD_LABEL[d.method]} ${pct.toFixed(0)}%`}
             />
           );

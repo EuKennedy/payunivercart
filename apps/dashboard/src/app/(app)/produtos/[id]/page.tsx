@@ -1,5 +1,6 @@
 'use client';
 
+import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -8,6 +9,8 @@ import { Button, Heading, Kicker } from '../../../../components/ui';
 import { API_URL, CHECKOUT_URL } from '../../../../lib/env';
 import { formatCents, parseCentsBRL } from '../../../../lib/money';
 import { trpc } from '../../../../lib/trpc';
+
+const EASE = [0.16, 1, 0.3, 1] as const;
 
 /**
  * Editar produto — `/produtos/[id]`.
@@ -122,163 +125,391 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
     : null;
 
   return (
-    <div className="flex flex-col gap-10">
+    <motion.div
+      className="flex flex-col gap-8"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: EASE }}
+    >
       <header className="flex flex-col gap-3">
         <Kicker>catálogo · editar produto</Kicker>
         <Heading level={1}>Editar produto.</Heading>
-        <p className="max-w-2xl text-[15px] text-[var(--color-fg-muted)] leading-[1.55]">
-          Link público:{' '}
-          <a
-            href={publicUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-[13px] underline decoration-[var(--color-border)] underline-offset-2 hover:text-[var(--color-brand-600)]"
-          >
-            {publicUrl.replace(/^https?:\/\//, '')}
-          </a>
-        </p>
+        <PublicLinkChip url={publicUrl} />
       </header>
 
-      <form onSubmit={onSubmit} className="flex max-w-3xl flex-col gap-7">
-        <Field label="Nome do produto">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={fieldInputClass}
-            maxLength={120}
-          />
-        </Field>
-
-        <Field label="Descrição" hint="Opcional.">
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={4}
-            className={`${fieldInputClass} resize-none`}
-            maxLength={2000}
-          />
-        </Field>
-
-        <ImageUploadField
-          label="Capa do produto"
-          hint="1:1, PNG/JPEG/WEBP, até 2 MB. Deixe como está para manter a capa atual."
-          initialPreviewUrl={coverPreviewUrl}
-          enforceSquare
-          onChange={setCover}
-        />
-
-        <ProductTypeSegment value={isSubscription} onChange={setIsSubscription} />
-
-        {!isSubscription ? (
-          <div className="grid grid-cols-1 gap-7 md:grid-cols-2">
-            <Field
-              label="Preço"
-              hint={
-                previewFormatted
-                  ? `Cliente paga ${previewFormatted}.`
-                  : 'Use vírgula como separador decimal.'
-              }
-            >
-              <div className="relative">
-                <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
-                  R$
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={priceInput}
-                  onChange={(e) => setPriceInput(e.target.value)}
-                  className={`${fieldInputClass} pl-10`}
-                />
-              </div>
-            </Field>
-
-            <Field label="Parcelamento máximo">
-              <select
-                value={maxInstallments}
-                onChange={(e) => setMaxInstallments(Number.parseInt(e.target.value, 10))}
-                className={`${fieldInputClass} appearance-none`}
-              >
-                {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>
-                    {n}×{n === 1 ? ' (à vista)' : ''}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-        ) : (
-          <SubscriptionPlansSection productId={id} productSlug={product.data.slug} />
-        )}
-
-        <label className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
-          <input
-            type="checkbox"
-            checked={isActive}
-            onChange={(e) => setIsActive(e.target.checked)}
-            className="size-4"
-          />
-          <span className="flex flex-col">
-            <span className="font-medium text-[14px] text-[var(--color-fg)]">Produto ativo</span>
-            <span className="text-[12px] text-[var(--color-fg-subtle)]">
-              Quando desativado, o checkout público mostra "produto indisponível".
-            </span>
-          </span>
-        </label>
-
-        <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
-          <header className="flex flex-col gap-1">
-            <span className="font-medium text-[13px] text-[var(--color-fg)]">
-              Entrega pós-compra
-            </span>
-            <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
-              Quando o pagamento for confirmado, mandamos esses dados pro comprador por email e
-              WhatsApp. Use o link da área de membros, do grupo, do Drive — o que servir como
-              entrega.
-            </span>
-          </header>
-          <Field label="Link de entrega" hint="Opcional. Pode ser área de membros, Drive, Discord…">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <form onSubmit={onSubmit} className="flex min-w-0 flex-col gap-7">
+          <Field label="Nome do produto">
             <input
-              type="url"
-              value={deliveryUrl}
-              onChange={(e) => setDeliveryUrl(e.target.value)}
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               className={fieldInputClass}
-              placeholder="https://"
-              maxLength={500}
-              inputMode="url"
+              maxLength={120}
             />
           </Field>
-          <Field
-            label="Instruções"
-            hint="Opcional. Texto curto que aparece junto ao link no email + WhatsApp."
-          >
+
+          <Field label="Descrição" hint="Opcional.">
             <textarea
-              value={deliveryInstructions}
-              onChange={(e) => setDeliveryInstructions(e.target.value)}
-              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
               className={`${fieldInputClass} resize-none`}
-              placeholder="Ex.: acesse com o mesmo email que você usou na compra…"
-              maxLength={1000}
+              maxLength={2000}
             />
           </Field>
-        </section>
 
-        {validationError ? (
-          <p className="text-[13px] text-[var(--color-danger)]">{validationError}</p>
-        ) : null}
-        {apiError ? <p className="text-[13px] text-[var(--color-danger)]">{apiError}</p> : null}
+          <ImageUploadField
+            label="Capa do produto"
+            hint="1:1, PNG/JPEG/WEBP, até 2 MB. Deixe como está para manter a capa atual."
+            initialPreviewUrl={coverPreviewUrl}
+            enforceSquare
+            onChange={setCover}
+          />
 
-        <div className="flex items-center gap-3 pt-2">
-          <Button type="submit" disabled={!!validationError || update.isPending}>
-            {update.isPending ? 'Salvando…' : 'Salvar alterações'}
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => router.push('/produtos')}>
-            Cancelar
-          </Button>
-        </div>
-      </form>
+          <ProductTypeSegment value={isSubscription} onChange={setIsSubscription} />
+
+          {!isSubscription ? (
+            <div className="grid grid-cols-1 gap-7 md:grid-cols-2">
+              <Field
+                label="Preço"
+                hint={
+                  previewFormatted
+                    ? `Cliente paga ${previewFormatted}.`
+                    : 'Use vírgula como separador decimal.'
+                }
+              >
+                <div className="relative">
+                  <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 font-medium text-[14px] text-[var(--color-fg-subtle)]">
+                    R$
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={priceInput}
+                    onChange={(e) => setPriceInput(e.target.value)}
+                    className={`${fieldInputClass} pl-10`}
+                  />
+                </div>
+              </Field>
+
+              <Field label="Parcelamento máximo">
+                <select
+                  value={maxInstallments}
+                  onChange={(e) => setMaxInstallments(Number.parseInt(e.target.value, 10))}
+                  className={`${fieldInputClass} appearance-none`}
+                >
+                  {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      {n}×{n === 1 ? ' (à vista)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          ) : (
+            <SubscriptionPlansSection productId={id} productSlug={product.data.slug} />
+          )}
+
+          <ActiveToggle
+            checked={isActive}
+            onChange={setIsActive}
+            title="Produto ativo"
+            subtitle='Quando desativado, o checkout público mostra "produto indisponível".'
+          />
+
+          <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
+            <header className="flex flex-col gap-1">
+              <span className="font-medium text-[13px] text-[var(--color-fg)]">
+                Entrega pós-compra
+              </span>
+              <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">
+                Quando o pagamento for confirmado, mandamos esses dados pro comprador por email e
+                WhatsApp. Use o link da área de membros, do grupo, do Drive — o que servir como
+                entrega.
+              </span>
+            </header>
+            <Field
+              label="Link de entrega"
+              hint="Opcional. Pode ser área de membros, Drive, Discord…"
+            >
+              <input
+                type="url"
+                value={deliveryUrl}
+                onChange={(e) => setDeliveryUrl(e.target.value)}
+                className={fieldInputClass}
+                placeholder="https://"
+                maxLength={500}
+                inputMode="url"
+              />
+            </Field>
+            <Field
+              label="Instruções"
+              hint="Opcional. Texto curto que aparece junto ao link no email + WhatsApp."
+            >
+              <textarea
+                value={deliveryInstructions}
+                onChange={(e) => setDeliveryInstructions(e.target.value)}
+                rows={3}
+                className={`${fieldInputClass} resize-none`}
+                placeholder="Ex.: acesse com o mesmo email que você usou na compra…"
+                maxLength={1000}
+              />
+            </Field>
+          </section>
+
+          {validationError ? (
+            <p className="text-[13px] text-[var(--color-danger)]">{validationError}</p>
+          ) : null}
+          {apiError ? <p className="text-[13px] text-[var(--color-danger)]">{apiError}</p> : null}
+
+          <div className="flex items-center gap-3 border-[var(--color-border)] border-t pt-6">
+            <PrimaryCta type="submit" disabled={!!validationError || update.isPending}>
+              {update.isPending ? 'Salvando…' : 'Salvar alterações'}
+            </PrimaryCta>
+            <Button type="button" variant="ghost" onClick={() => router.push('/produtos')}>
+              Cancelar
+            </Button>
+          </div>
+        </form>
+        <aside className="hidden lg:block">
+          <div className="sticky top-6">
+            <EditLivePreview
+              name={trimmedName}
+              description={description.trim()}
+              coverPreviewUrl={coverPreviewUrl}
+              coverOverride={cover}
+              isSubscription={isSubscription}
+              priceFormatted={previewFormatted}
+              isActive={isActive}
+            />
+          </div>
+        </aside>
+      </div>
+    </motion.div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Public link chip                                                           */
+/* -------------------------------------------------------------------------- */
+
+function PublicLinkChip({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="inline-flex w-fit items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+      <span className="font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
+        Link público
+      </span>
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="max-w-[260px] truncate font-mono text-[12px] text-[var(--color-fg)] hover:text-[var(--color-brand-600)] sm:max-w-none"
+      >
+        {url.replace(/^https?:\/\//, '')}
+      </a>
+      <motion.button
+        type="button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1400);
+          } catch {
+            toast.error('Não foi possível copiar');
+          }
+        }}
+        whileTap={{ scale: 0.92 }}
+        className="grid size-7 cursor-pointer place-items-center rounded-lg bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-brand-50)] hover:text-[var(--color-brand-700)]"
+        aria-label={copied ? 'Copiado' : 'Copiar link'}
+      >
+        <AnimatePresence mode="wait">
+          {copied ? (
+            <motion.svg
+              key="check"
+              initial={{ scale: 0.5, rotate: -20, opacity: 0 }}
+              animate={{ scale: 1, rotate: 0, opacity: 1 }}
+              exit={{ scale: 0.5, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 360, damping: 22 }}
+              viewBox="0 0 16 16"
+              fill="none"
+              className="size-3.5 text-[var(--color-brand-700)]"
+            >
+              <title>Copiado</title>
+              <path
+                d="M3 8.5l3 3 7-7"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </motion.svg>
+          ) : (
+            <motion.svg
+              key="copy"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              viewBox="0 0 16 16"
+              fill="none"
+              className="size-3.5"
+            >
+              <title>Copiar</title>
+              <rect
+                x="5"
+                y="5"
+                width="8"
+                height="8"
+                rx="1.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+              />
+              <path
+                d="M3 11V4a1 1 0 011-1h7"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </motion.svg>
+          )}
+        </AnimatePresence>
+      </motion.button>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Live preview                                                               */
+/* -------------------------------------------------------------------------- */
+
+function EditLivePreview({
+  name,
+  description,
+  coverPreviewUrl,
+  coverOverride,
+  isSubscription,
+  priceFormatted,
+  isActive,
+}: {
+  name: string;
+  description: string;
+  coverPreviewUrl: string | null;
+  coverOverride: ImageUpload | null;
+  isSubscription: boolean;
+  priceFormatted: string | null;
+  isActive: boolean;
+}) {
+  const coverSrc = coverOverride
+    ? `data:${coverOverride.mime};base64,${coverOverride.base64}`
+    : coverPreviewUrl;
+  return (
+    <motion.div
+      className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_24px_56px_-16px_rgba(0,0,0,0.25)]"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.32, ease: EASE }}
+    >
+      <div className="border-[var(--color-border)] border-b bg-gradient-to-br from-[var(--color-brand-50)] via-[var(--color-surface)] to-transparent px-4 py-3">
+        <p className="font-semibold text-[10px] text-[var(--color-brand-700)] uppercase tracking-[0.14em]">
+          Pré-visualização ao vivo
+        </p>
+        <p className="text-[11px] text-[var(--color-fg-subtle)]">
+          {isActive ? 'Comprador vê assim agora.' : '⚠ Inativo — checkout mostra indisponível.'}
+        </p>
+      </div>
+      <div className="flex flex-col gap-4 p-4">
+        {coverSrc ? (
+          <img
+            src={coverSrc}
+            alt={name || 'Produto'}
+            className="aspect-square w-full rounded-xl object-cover"
+          />
+        ) : (
+          <div className="grid aspect-square w-full place-items-center rounded-xl bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)]">
+            <svg viewBox="0 0 24 24" fill="none" className="size-8" aria-hidden>
+              <title>Sem capa</title>
+              <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" />
+              <circle cx="9" cy="11" r="1.5" fill="currentColor" />
+              <path d="M3 17l5-5 6 6 4-4 3 3" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <h3 className="font-semibold text-[15px] text-[var(--color-fg)] leading-tight">
+            {name || 'Nome do seu produto'}
+          </h3>
+          {description ? (
+            <p className="line-clamp-3 text-[12px] text-[var(--color-fg-muted)] leading-[1.5]">
+              {description}
+            </p>
+          ) : (
+            <p className="text-[12px] text-[var(--color-fg-subtle)] italic">
+              Descrição aparecerá aqui.
+            </p>
+          )}
+        </div>
+        <div className="flex items-baseline gap-2">
+          {priceFormatted ? (
+            <>
+              <span className="font-bold text-[24px] text-[var(--color-fg)] tracking-tight">
+                {priceFormatted}
+              </span>
+              {isSubscription ? (
+                <span className="text-[12px] text-[var(--color-fg-subtle)]">/mês</span>
+              ) : null}
+            </>
+          ) : (
+            <span className="text-[14px] text-[var(--color-fg-subtle)] italic">R$ —</span>
+          )}
+        </div>
+        <button
+          type="button"
+          disabled
+          className={
+            isActive
+              ? 'mt-1 cursor-not-allowed rounded-xl bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] px-4 py-2.5 font-semibold text-[13px] text-white opacity-90 shadow-sm'
+              : 'mt-1 cursor-not-allowed rounded-xl bg-[var(--color-surface-muted)] px-4 py-2.5 font-semibold text-[13px] text-[var(--color-fg-subtle)]'
+          }
+        >
+          {isActive ? 'Pagar agora' : 'Produto indisponível'}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Primary CTA — gradient + spring                                            */
+/* -------------------------------------------------------------------------- */
+
+function PrimaryCta({
+  children,
+  type = 'button',
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  type?: 'button' | 'submit';
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <motion.button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      whileHover={disabled ? undefined : { scale: 1.02 }}
+      whileTap={disabled ? undefined : { scale: 0.97 }}
+      transition={{ duration: 0.16, ease: EASE }}
+      className={
+        disabled
+          ? 'inline-flex cursor-not-allowed items-center gap-2 rounded-xl bg-[var(--color-surface-muted)] px-4 py-2.5 font-semibold text-[14px] text-[var(--color-fg-subtle)]'
+          : 'inline-flex cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] px-4 py-2.5 font-semibold text-[14px] text-white shadow-[0_10px_24px_-8px_rgba(22,163,74,0.45)] transition hover:brightness-110'
+      }
+    >
+      {children}
+    </motion.button>
   );
 }
 
@@ -288,6 +519,65 @@ const fieldInputClass =
   'placeholder:text-[var(--color-fg-subtle)] ' +
   'hover:border-[var(--color-border-strong)] ' +
   'focus:border-[var(--color-brand-500)] focus:ring-4 focus:ring-[var(--color-brand-500)]/15';
+
+/* -------------------------------------------------------------------------- */
+/* ActiveToggle — motion switch                                               */
+/* -------------------------------------------------------------------------- */
+
+function ActiveToggle({
+  checked,
+  onChange,
+  title,
+  subtitle,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div
+      className={
+        checked
+          ? 'flex cursor-pointer items-center gap-4 rounded-xl border border-[var(--color-brand-500)]/40 bg-gradient-to-br from-[var(--color-brand-50)]/40 via-[var(--color-surface)] to-[var(--color-surface)] px-4 py-3.5 transition'
+          : 'flex cursor-pointer items-center gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3.5 transition'
+      }
+      onClick={() => onChange(!checked)}
+      onKeyDown={(e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          onChange(!checked);
+        }
+      }}
+      role="switch"
+      aria-checked={checked}
+      tabIndex={0}
+    >
+      <motion.span
+        className={
+          checked
+            ? 'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] p-0.5 shadow-inner'
+            : 'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-[var(--color-surface-muted)] p-0.5'
+        }
+        aria-hidden
+      >
+        <motion.span
+          layout
+          transition={{ type: 'spring', stiffness: 480, damping: 32 }}
+          className={
+            checked
+              ? 'ml-auto block size-5 rounded-full bg-white shadow'
+              : 'block size-5 rounded-full bg-white shadow'
+          }
+        />
+      </motion.span>
+      <div className="flex flex-col">
+        <span className="font-medium text-[14px] text-[var(--color-fg)]">{title}</span>
+        <span className="text-[12px] text-[var(--color-fg-subtle)] leading-[1.5]">{subtitle}</span>
+      </div>
+    </div>
+  );
+}
 
 function Field({
   label,
@@ -357,14 +647,17 @@ function TypeCard({
   description: string;
 }) {
   return (
-    <button
+    <motion.button
       type="button"
       onClick={onClick}
       aria-pressed={selected}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ duration: 0.2, ease: EASE }}
       className={
         selected
-          ? 'group flex flex-col items-start gap-2 rounded-2xl border-2 border-[var(--color-brand-500)] bg-[var(--color-surface)] p-5 text-left ring-4 ring-[var(--color-brand-500)]/10 transition'
-          : 'group flex flex-col items-start gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-left transition hover:border-[var(--color-border-strong)] hover:shadow-[var(--shadow-md)]'
+          ? 'group flex cursor-pointer flex-col items-start gap-2 rounded-2xl border-2 border-[var(--color-brand-500)] bg-[var(--color-surface)] p-5 text-left ring-4 ring-[var(--color-brand-500)]/10 transition'
+          : 'group flex cursor-pointer flex-col items-start gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 text-left transition hover:border-[var(--color-border-strong)] hover:shadow-[var(--shadow-md)]'
       }
     >
       <div className="flex w-full items-start justify-between gap-3">
@@ -372,23 +665,32 @@ function TypeCard({
           <span className="font-semibold text-[15px] text-[var(--color-fg)]">{title}</span>
           <span className="text-[12px] text-[var(--color-fg-subtle)]">{subtitle}</span>
         </div>
-        {selected ? (
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-brand-500)] text-white">
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              aria-hidden="true"
-              className="size-3.5"
+        <AnimatePresence>
+          {selected ? (
+            <motion.span
+              key="check"
+              initial={{ scale: 0, rotate: -30 }}
+              animate={{ scale: 1, rotate: 0 }}
+              exit={{ scale: 0 }}
+              transition={{ type: 'spring', stiffness: 350, damping: 22 }}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white shadow-sm"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
-            </svg>
-          </span>
-        ) : null}
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                aria-hidden="true"
+                className="size-3.5"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+              </svg>
+            </motion.span>
+          ) : null}
+        </AnimatePresence>
       </div>
       <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.5]">{description}</p>
-    </button>
+    </motion.button>
   );
 }
 

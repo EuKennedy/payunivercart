@@ -1,5 +1,6 @@
 'use client';
 
+import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -41,44 +42,56 @@ function CopyButton({ text }: { text: string }) {
     }
   };
   return (
-    <button
+    <motion.button
       type="button"
       onClick={copy}
       title={copied ? 'Copiado!' : 'Copiar link de checkout'}
-      className={`ml-2 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-[11px] transition ${
+      whileTap={{ scale: 0.92 }}
+      className={`ml-2 inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-[11px] transition ${
         copied
           ? 'bg-[var(--color-success-bg)] text-[var(--color-success)]'
           : 'bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]'
       }`}
     >
-      {copied ? (
-        <svg
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.4"
-          className="size-3"
-          aria-hidden
-        >
-          <title>Link copiado</title>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
-        </svg>
-      ) : (
-        <svg
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          className="size-3.5"
-          aria-hidden
-        >
-          <title>Copiar link</title>
-          <rect x="4" y="4" width="9" height="9" rx="1.5" />
-          <path d="M11 4V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
-        </svg>
-      )}
+      <AnimatePresence mode="wait">
+        {copied ? (
+          <motion.svg
+            key="check"
+            initial={{ scale: 0.4, rotate: -25, opacity: 0 }}
+            animate={{ scale: 1, rotate: 0, opacity: 1 }}
+            exit={{ scale: 0.4, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            className="size-3"
+            aria-hidden
+          >
+            <title>Link copiado</title>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+          </motion.svg>
+        ) : (
+          <motion.svg
+            key="copy"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            className="size-3.5"
+            aria-hidden
+          >
+            <title>Copiar link</title>
+            <rect x="4" y="4" width="9" height="9" rx="1.5" />
+            <path d="M11 4V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
+          </motion.svg>
+        )}
+      </AnimatePresence>
       {copied ? 'Copiado' : 'Copiar'}
-    </button>
+    </motion.button>
   );
 }
 
@@ -97,14 +110,22 @@ function ArchiveModal({
 }) {
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismisses via Cancel button (keyboard-accessible) — div onClick is just a UX convenience for mouse users.
-    <div
+    <motion.div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
       onClick={onCancel}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
     >
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only; card content is interactive via real buttons. */}
-      <div
+      <motion.div
         className="mx-4 w-full max-w-sm rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}
+        initial={{ scale: 0.92, y: 12, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.92, y: 12, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 26 }}
       >
         <h3 className="font-semibold text-[16px] text-[var(--color-fg)]">Arquivar produto?</h3>
         <p className="mt-2 text-[14px] text-[var(--color-fg-muted)] leading-[1.5]">
@@ -119,8 +140,8 @@ function ArchiveModal({
             {loading ? 'Arquivando…' : 'Arquivar'}
           </Button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -288,17 +309,19 @@ export default function ProdutosPage() {
 
   return (
     <>
-      {archiveTarget && (
-        <ArchiveModal
-          name={archiveTarget.name}
-          loading={archive.isPending}
-          onConfirm={() => {
-            archive.mutate({ id: archiveTarget.id });
-            setArchiveTarget(null);
-          }}
-          onCancel={() => setArchiveTarget(null)}
-        />
-      )}
+      <AnimatePresence>
+        {archiveTarget && (
+          <ArchiveModal
+            name={archiveTarget.name}
+            loading={archive.isPending}
+            onConfirm={() => {
+              archive.mutate({ id: archiveTarget.id });
+              setArchiveTarget(null);
+            }}
+            onCancel={() => setArchiveTarget(null)}
+          />
+        )}
+      </AnimatePresence>
 
       <div className="flex flex-col gap-8">
         <header className="flex items-start justify-between gap-6">

@@ -1,5 +1,6 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
@@ -621,16 +622,16 @@ function ToggleSwitch({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition disabled:opacity-50 ${
+      className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border p-0.5 transition disabled:cursor-not-allowed disabled:opacity-50 ${
         checked
-          ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-500)]'
+          ? 'border-[var(--color-brand-500)] bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)]'
           : 'border-[var(--color-border-strong)] bg-[var(--color-surface-muted)]'
       }`}
     >
-      <span
-        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition ${
-          checked ? 'translate-x-6' : 'translate-x-1'
-        }`}
+      <motion.span
+        layout
+        transition={{ type: 'spring', stiffness: 480, damping: 32 }}
+        className={`block size-5 rounded-full bg-white shadow ${checked ? 'ml-auto' : ''}`}
       />
     </button>
   );
