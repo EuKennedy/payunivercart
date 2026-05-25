@@ -43,21 +43,182 @@ export const whatsappRouter = router({
         .object({
           sessionName: z.string(),
           phoneNumber: z.string().nullable(),
+          status: StatusEnum.nullable(),
           createdAt: z.date(),
+          connectedAt: z.date().nullable(),
+          disconnectedAt: z.date().nullable(),
         })
         .nullable(),
     )
     .query(async ({ ctx }) => {
-      const [row] = await ctx.services.db.db
+      const [rawRow] = await ctx.services.db.db
         .select({
           sessionName: schema.whatsappSessions.wahaSessionId,
           phoneNumber: schema.whatsappSessions.phoneNumber,
+          status: schema.whatsappSessions.status,
           createdAt: schema.whatsappSessions.createdAt,
+          connectedAt: schema.whatsappSessions.connectedAt,
+          disconnectedAt: schema.whatsappSessions.disconnectedAt,
         })
         .from(schema.whatsappSessions)
         .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
         .limit(1);
-      return row ?? null;
+      if (!rawRow) return null;
+      // DB stores status as text; narrow to our enum (any unknown value
+      // means an out-of-date container schema — return null and let the
+      // dashboard treat it as STOPPED).
+      const row = {
+        ...rawRow,
+        status: StatusEnum.safeParse(rawRow.status).success
+          ? (rawRow.status as z.infer<typeof StatusEnum>)
+          : null,
+      };
+
+      // Reactive sync: WAHA é fonte da verdade, nosso mirror pode estar
+      // defasado se webhook `session.status` não chegou (rede, restart
+      // do container, URL de webhook não configurada). Em vez de
+      // confiar só no DB, pingamos WAHA na hora e atualizamos a row
+      // se houver drift. Best-effort: se WAHA falhar, retornamos o que
+      // temos no DB e seguimos a vida.
+      try {
+        const live = await ctx.services.waha.getSessionStatus(row.sessionName);
+        if (live && live !== row.status) {
+          const patch: Record<string, unknown> = { status: live };
+          let newConnected = row.connectedAt;
+          if (live === 'WORKING') {
+            patch.connectedAt = patch.connectedAt ?? new Date();
+            patch.disconnectedAt = null;
+            newConnected = (patch.connectedAt as Date) ?? row.connectedAt;
+          } else if (live === 'STOPPED' || live === 'FAILED') {
+            patch.disconnectedAt = new Date();
+          }
+          await ctx.services.db.db
+            .update(schema.whatsappSessions)
+            .set(patch)
+            .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId));
+          return {
+            ...row,
+            status: live,
+            connectedAt: live === 'WORKING' ? newConnected : row.connectedAt,
+            disconnectedAt:
+              live === 'STOPPED' || live === 'FAILED' ? new Date() : row.disconnectedAt,
+          };
+        }
+      } catch {
+        /* WAHA fora do ar — usa o que temos */
+      }
+      return row;
+    }),
+
+  /**
+   * Envia mensagem de teste pelo número conectado. Aceita target
+   * opcional (E.164 ou só dígitos); default = número do próprio
+   * produtor (workspaces.notification_phone_e164). Garante validação
+   * do chatId via WAHA `checkExists` antes do send pra evitar
+   * "ghost messages" que somem na blackhole do BR pre-2012 fix.
+   */
+  sendTest: workspaceProcedure
+    .input(
+      z.object({
+        text: z
+          .string()
+          .trim()
+          .min(1)
+          .max(1000)
+          .default('Olá! Mensagem de teste do payunivercart.'),
+        targetPhone: z.string().trim().min(8).max(20).optional(),
+      }),
+    )
+    .output(
+      z.object({
+        ok: z.literal(true),
+        chatId: z.string(),
+        target: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { waha, db } = ctx.services;
+      const [row] = await db.db
+        .select({
+          sessionName: schema.whatsappSessions.wahaSessionId,
+          status: schema.whatsappSessions.status,
+        })
+        .from(schema.whatsappSessions)
+        .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+        .limit(1);
+      if (!row) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Sessão não criada.' });
+      }
+      if (row.status !== 'WORKING') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Sessão precisa estar conectada (status atual: ${row.status}).`,
+        });
+      }
+
+      let phoneDigits: string;
+      if (input.targetPhone) {
+        phoneDigits = input.targetPhone.replace(/\D+/g, '');
+        if (phoneDigits.length < 10) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Telefone alvo inválido — informe DDD + número.',
+          });
+        }
+        if (!phoneDigits.startsWith('55') && phoneDigits.length <= 11) {
+          phoneDigits = `55${phoneDigits}`;
+        }
+      } else {
+        const [ws] = await db.db
+          .select({ phone: schema.workspaces.notificationPhoneE164 })
+          .from(schema.workspaces)
+          .where(eq(schema.workspaces.id, ctx.workspaceId))
+          .limit(1);
+        if (!ws?.phone) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'Sem número alvo. Informe um telefone de teste ou cadastre o número do produtor em Configurações → Empresa.',
+          });
+        }
+        phoneDigits = ws.phone.replace(/\D+/g, '');
+      }
+
+      let chatId: string;
+      try {
+        const exists = await waha.checkExists(phoneDigits, row.sessionName);
+        if (!exists.numberExists || !exists.chatId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Número +${phoneDigits} não tem WhatsApp ativo.`,
+          });
+        }
+        chatId = exists.chatId;
+      } catch (cause) {
+        if (cause instanceof TRPCError) throw cause;
+        throw new TRPCError({
+          code: 'BAD_GATEWAY',
+          message: 'WAHA recusou resolver o número.',
+          cause,
+        });
+      }
+
+      try {
+        await waha.sendText({
+          session: row.sessionName,
+          chatId: chatId as `${string}@${'c.us' | 'g.us' | 'lid' | 'newsletter'}`,
+          text: input.text,
+          linkPreview: false,
+        });
+      } catch (cause) {
+        throw new TRPCError({
+          code: 'BAD_GATEWAY',
+          message: 'WAHA recusou enviar a mensagem de teste.',
+          cause,
+        });
+      }
+
+      return { ok: true as const, chatId, target: `+${phoneDigits}` };
     }),
 
   /**
