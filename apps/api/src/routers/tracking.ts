@@ -284,7 +284,16 @@ export const trackingRouter = router({
           lastErrorMessage: result.ok ? null : result.errorMessage,
           updatedAt: now,
         })
-        .where(eq(schema.trackingPixels.id, input.id));
+        // Defense-in-depth: the SELECT above already confirmed ownership,
+        // but the UPDATE keeps the workspaceId predicate so a future
+        // refactor (or RLS toggle) can never leak this write across
+        // tenants.
+        .where(
+          and(
+            eq(schema.trackingPixels.id, input.id),
+            eq(schema.trackingPixels.workspaceId, ctx.workspaceId),
+          ),
+        );
       return { ok: result.ok, error: result.errorMessage };
     }),
 
@@ -318,7 +327,15 @@ export const trackingRouter = router({
         await tx
           .update(schema.trackingPixels)
           .set({ isDefault: true })
-          .where(eq(schema.trackingPixels.id, input.id));
+          // Defense-in-depth: same rationale as `test` above — keep the
+          // workspaceId predicate even after the SELECT confirmed
+          // ownership.
+          .where(
+            and(
+              eq(schema.trackingPixels.id, input.id),
+              eq(schema.trackingPixels.workspaceId, ctx.workspaceId),
+            ),
+          );
       });
       return { ok: true as const };
     }),
