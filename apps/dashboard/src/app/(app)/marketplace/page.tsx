@@ -67,6 +67,10 @@ export default function MarketplacePage() {
   });
 
   const [showForm, setShowForm] = useState(false);
+  // Edit mode: when set, the form pre-fills + sends `id` to upsert so
+  // the mutation patches the existing row instead of creating a new
+  // one. Cleared whenever the form opens via "Novo listing" or closes.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [productId, setProductId] = useState('');
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]['value']>('cursos');
   const [headline, setHeadline] = useState('');
@@ -74,7 +78,26 @@ export default function MarketplacePage() {
   const [coverImageUrl, setCoverImageUrl] = useState('');
   const [keywordsInput, setKeywordsInput] = useState('');
 
+  const openEdit = (listingId: string) => {
+    const listing = myListings.data?.find((l) => l.id === listingId);
+    if (!listing) return;
+    setEditingId(listing.id);
+    setProductId(listing.productId);
+    setCategory(listing.category as (typeof CATEGORIES)[number]['value']);
+    setHeadline(listing.headline);
+    setPitch(listing.pitch);
+    setCoverImageUrl(listing.coverImageUrl ?? '');
+    setKeywordsInput(listing.searchKeywords.join(', '));
+    setShowForm(true);
+    setTimeout(() => {
+      document
+        .getElementById('marketplace-form-anchor')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
+
   function resetForm() {
+    setEditingId(null);
     setProductId('');
     setCategory('cursos');
     setHeadline('');
@@ -95,6 +118,7 @@ export default function MarketplacePage() {
       .filter(Boolean)
       .slice(0, 20);
     upsert.mutate({
+      id: editingId ?? undefined,
       productId,
       category,
       headline: headline.trim(),
@@ -104,10 +128,14 @@ export default function MarketplacePage() {
     });
   };
 
-  // Products already listed somehow — don't double-publish.
+  // Products eligible for NEW listings — exclude those already
+  // published (one listing per product). In EDIT mode, the existing
+  // product stays selectable so the producer can keep it.
   const existingProductIds = new Set(myListings.data?.map((l) => l.productId) ?? []);
   const eligibleProducts =
-    products.data?.filter((p) => !existingProductIds.has(p.id) && p.isActive) ?? [];
+    products.data?.filter(
+      (p) => (editingId ? p.id === productId : !existingProductIds.has(p.id)) && p.isActive,
+    ) ?? [];
 
   return (
     <div className="flex flex-col gap-10">
@@ -174,6 +202,9 @@ export default function MarketplacePage() {
                     ) : null}
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(listing.id)}>
+                      Editar
+                    </Button>
                     {listing.status !== 'live' ? (
                       <Button
                         variant="secondary"
@@ -231,6 +262,7 @@ export default function MarketplacePage() {
       <AnimatePresence>
         {showForm ? (
           <motion.section
+            id="marketplace-form-anchor"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
@@ -238,7 +270,7 @@ export default function MarketplacePage() {
             className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6"
           >
             <header className="mb-5 flex items-center justify-between">
-              <Heading level={3}>Novo listing</Heading>
+              <Heading level={3}>{editingId ? 'Editar listing' : 'Novo listing'}</Heading>
               <Button
                 variant="ghost"
                 size="sm"
@@ -335,7 +367,11 @@ export default function MarketplacePage() {
               </Field>
               <div className="flex items-center gap-3 pt-2 sm:col-span-2">
                 <Button type="submit" disabled={upsert.isPending}>
-                  {upsert.isPending ? 'Salvando…' : 'Criar listing'}
+                  {upsert.isPending
+                    ? 'Salvando…'
+                    : editingId
+                      ? 'Salvar alterações'
+                      : 'Criar listing'}
                 </Button>
                 <p className="text-[12px] text-[var(--color-fg-subtle)]">
                   O listing entra como rascunho — você publica em um clique depois.

@@ -97,7 +97,16 @@ export default function ClientesPage() {
               </tr>
             ) : (
               filtered.map((c) => (
-                <tr key={c.email}>
+                // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard path lives on the email link inside the row; the row click is mouse convenience.
+                <tr
+                  key={c.email}
+                  className="cursor-pointer transition hover:bg-[var(--color-surface-muted)]/50"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      window.location.href = `/clientes/${encodeURIComponent(c.email)}`;
+                    }
+                  }}
+                >
                   <td className="px-5 py-4">
                     <div className="flex flex-col">
                       <span className="font-medium text-[var(--color-fg)]">

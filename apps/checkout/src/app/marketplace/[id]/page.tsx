@@ -40,8 +40,7 @@ export default function MarketplaceListingPage({
         referrer: typeof document !== 'undefined' ? document.referrer : undefined,
       });
     }
-    // intentionally NOT depending on recordClick.mutate to avoid loop
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: recordClick.mutate intentionally omitted to avoid re-fire loop.
   }, [listing.data, id]);
 
   if (listing.isPending) {
@@ -174,7 +173,7 @@ export default function MarketplaceListingPage({
               <span className="font-semibold text-[10px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
                 A partir de
               </span>
-              <span className="font-bold text-[36px] text-[var(--ink-100)] tracking-tight tabular-nums">
+              <span className="font-bold text-[36px] text-[var(--ink-100)] tabular-nums tracking-tight">
                 {formattedPrice}
               </span>
               <span className="text-[12px] text-[var(--ink-50)]">

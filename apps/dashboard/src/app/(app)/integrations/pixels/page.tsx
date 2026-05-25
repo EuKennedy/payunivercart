@@ -423,7 +423,7 @@ function EventsTab() {
                         </span>
                       </Td>
                       <Td>
-                        <span className="font-mono text-[11px] tabular-nums text-[var(--color-fg-muted)]">
+                        <span className="font-mono text-[11px] text-[var(--color-fg-muted)] tabular-nums">
                           {evt.attemptCount}/6
                         </span>
                       </Td>
@@ -778,7 +778,7 @@ function ConfigureTab({
               {/* Brand glow */}
               <div
                 aria-hidden
-                className="-top-12 -right-12 pointer-events-none absolute h-32 w-32 rounded-full blur-3xl opacity-25 transition group-hover:opacity-40"
+                className="-top-12 -right-12 pointer-events-none absolute h-32 w-32 rounded-full opacity-25 blur-3xl transition group-hover:opacity-40"
                 style={{
                   background: `linear-gradient(135deg, ${tile.brandFrom}, ${tile.brandTo})`,
                 }}

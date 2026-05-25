@@ -1387,6 +1387,197 @@ export const affiliatesRouter = router({
         createdAt: r.createdAt,
       }));
     }),
+
+  /* ======================== AFFILIATE-FACING DASHBOARD ==================== */
+
+  /**
+   * Cross-workspace dashboard for the AFFILIATE side. Not gated on
+   * workspaceProcedure because the affiliate identity spans every
+   * producer they joined.
+   *
+   * Returns:
+   *   - identity (publicCode, displayName, lifetimeEarned)
+   *   - memberships (one per producer workspace)
+   *   - commission summary (pending / available / paid totals)
+   *   - recent commissions (last 20)
+   *
+   * Auto-provisions the affiliate row when missing so first-time
+   * producers who clicked the "Sou afiliado" tab don't get a 404.
+   */
+  myDashboard: authedProcedure
+    .output(
+      z.object({
+        affiliate: z.object({
+          id: z.string().uuid(),
+          publicCode: z.string(),
+          displayName: z.string(),
+          lifetimeEarnedCents: z.number().int().nonnegative(),
+        }),
+        memberships: z.array(
+          z.object({
+            workspaceId: z.string().uuid(),
+            workspaceName: z.string(),
+            status: z.string(),
+            programName: z.string().nullable(),
+          }),
+        ),
+        summary: z.object({
+          pendingCents: z.number().int().nonnegative(),
+          availableCents: z.number().int().nonnegative(),
+          paidCents: z.number().int().nonnegative(),
+          attributionCount: z.number().int().nonnegative(),
+        }),
+        recentCommissions: z.array(
+          z.object({
+            id: z.string().uuid(),
+            workspaceName: z.string(),
+            commissionAmountCents: z.number().int().nonnegative(),
+            grossAmountCents: z.number().int().nonnegative(),
+            status: z.enum(['pending', 'available', 'paid', 'reversed', 'cancelled']),
+            cycleNumber: z.number().int().nullable(),
+            availableAt: z.date().nullable(),
+            paidAt: z.date().nullable(),
+            createdAt: z.date(),
+          }),
+        ),
+      }),
+    )
+    .query(async ({ ctx }) => {
+      const db = ctx.services.db.db;
+
+      // 1. Resolve or auto-create the affiliate identity for this user.
+      let [affiliate] = await db
+        .select({
+          id: schema.affiliates.id,
+          publicCode: schema.affiliates.publicCode,
+          displayName: schema.affiliates.displayName,
+          lifetimeEarnedCents: schema.affiliates.lifetimeEarnedCents,
+        })
+        .from(schema.affiliates)
+        .where(eq(schema.affiliates.userId, ctx.userId))
+        .limit(1);
+
+      if (!affiliate) {
+        const [user] = await db
+          .select({ name: schema.users.name, email: schema.users.email })
+          .from(schema.users)
+          .where(eq(schema.users.id, ctx.userId))
+          .limit(1);
+        if (!user) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Usuário não encontrado.' });
+        }
+        const publicCode = mintPublicCode();
+        const [inserted] = await db
+          .insert(schema.affiliates)
+          .values({
+            userId: ctx.userId,
+            publicCode,
+            displayName: user.name?.trim() || user.email.split('@')[0] || 'Afiliado',
+            lifetimeEarnedCents: 0n,
+          })
+          .returning({
+            id: schema.affiliates.id,
+            publicCode: schema.affiliates.publicCode,
+            displayName: schema.affiliates.displayName,
+            lifetimeEarnedCents: schema.affiliates.lifetimeEarnedCents,
+          });
+        if (!inserted) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Falha ao criar afiliado.',
+          });
+        }
+        affiliate = inserted;
+      }
+
+      // 2. Memberships across producer workspaces.
+      const memberships = await db
+        .select({
+          workspaceId: schema.affiliateMemberships.workspaceId,
+          workspaceName: schema.workspaces.name,
+          status: schema.affiliateMemberships.status,
+          programName: schema.affiliatePrograms.name,
+        })
+        .from(schema.affiliateMemberships)
+        .innerJoin(
+          schema.workspaces,
+          eq(schema.workspaces.id, schema.affiliateMemberships.workspaceId),
+        )
+        .leftJoin(
+          schema.affiliatePrograms,
+          eq(schema.affiliatePrograms.id, schema.affiliateMemberships.programId),
+        )
+        .where(eq(schema.affiliateMemberships.affiliateId, affiliate.id))
+        .orderBy(desc(schema.affiliateMemberships.createdAt));
+
+      // 3. Commission summary — three buckets + count.
+      const summaryRows = await db
+        .select({
+          status: schema.affiliateCommissions.status,
+          sum: sql<string>`coalesce(sum(${schema.affiliateCommissions.commissionAmountCents}), 0)`,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(schema.affiliateCommissions)
+        .where(eq(schema.affiliateCommissions.affiliateId, affiliate.id))
+        .groupBy(schema.affiliateCommissions.status);
+      const summary = { pendingCents: 0, availableCents: 0, paidCents: 0, attributionCount: 0 };
+      for (const row of summaryRows) {
+        const cents = Number(row.sum ?? 0);
+        summary.attributionCount += Number(row.n ?? 0);
+        if (row.status === 'pending') summary.pendingCents = cents;
+        else if (row.status === 'available') summary.availableCents = cents;
+        else if (row.status === 'paid') summary.paidCents = cents;
+      }
+
+      // 4. Recent commissions — last 20 with workspace name.
+      const recent = await db
+        .select({
+          id: schema.affiliateCommissions.id,
+          workspaceName: schema.workspaces.name,
+          commissionAmountCents: schema.affiliateCommissions.commissionAmountCents,
+          grossAmountCents: schema.affiliateCommissions.grossAmountCents,
+          status: schema.affiliateCommissions.status,
+          cycleNumber: schema.affiliateCommissions.cycleNumber,
+          availableAt: schema.affiliateCommissions.availableAt,
+          paidAt: schema.affiliateCommissions.paidAt,
+          createdAt: schema.affiliateCommissions.createdAt,
+        })
+        .from(schema.affiliateCommissions)
+        .innerJoin(
+          schema.workspaces,
+          eq(schema.workspaces.id, schema.affiliateCommissions.workspaceId),
+        )
+        .where(eq(schema.affiliateCommissions.affiliateId, affiliate.id))
+        .orderBy(desc(schema.affiliateCommissions.createdAt))
+        .limit(20);
+
+      return {
+        affiliate: {
+          id: affiliate.id,
+          publicCode: affiliate.publicCode,
+          displayName: affiliate.displayName,
+          lifetimeEarnedCents: Number(affiliate.lifetimeEarnedCents ?? 0),
+        },
+        memberships: memberships.map((m) => ({
+          workspaceId: m.workspaceId,
+          workspaceName: m.workspaceName,
+          status: m.status,
+          programName: m.programName,
+        })),
+        summary,
+        recentCommissions: recent.map((c) => ({
+          id: c.id,
+          workspaceName: c.workspaceName,
+          commissionAmountCents: Number(c.commissionAmountCents),
+          grossAmountCents: Number(c.grossAmountCents),
+          status: c.status as 'pending' | 'available' | 'paid' | 'reversed' | 'cancelled',
+          cycleNumber: c.cycleNumber,
+          availableAt: c.availableAt,
+          paidAt: c.paidAt,
+          createdAt: c.createdAt,
+        })),
+      };
+    }),
 });
 
 // Used by other routers when needed; placeholder for unused-import lint pacification.

@@ -4,7 +4,7 @@ import clsx from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { signOut, useSession } from '../lib/auth';
 import { trpc } from '../lib/trpc';
 import { MpAccountSwitcher } from './MpAccountSwitcher';
@@ -56,6 +56,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/produtos', label: 'Meus produtos', icon: <IconBox /> },
       { href: '/marketplace', label: 'Marketplace', icon: <IconStorefront />, badge: 'new' },
+      { href: '/afiliado', label: 'Sou afiliado', icon: <IconUsers />, badge: 'new' },
     ],
   },
   {
@@ -77,6 +78,8 @@ const NAV: NavGroup[] = [
   },
 ];
 
+const COLLAPSED_KEY = 'payunivercart.sidebar.collapsed';
+
 export function Sidebar() {
   const path = usePathname();
   const session = useSession();
@@ -87,6 +90,31 @@ export function Sidebar() {
   });
 
   const [userPanelOpen, setUserPanelOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  // Hydration: read the persisted preference once mounted. SSR
+  // renders expanded by default — flipping after mount avoids
+  // hydration-mismatch warnings (window doesn't exist on server).
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(COLLAPSED_KEY) === '1');
+    } catch {
+      /* private mode / SSR */
+    }
+  }, []);
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        /* noop */
+      }
+      // Collapsing while the user panel is expanded leaves a phantom
+      // open state when the sidebar comes back — close it pre-emptively.
+      if (next) setUserPanelOpen(false);
+      return next;
+    });
+  };
 
   const userEmail = session.data?.user?.email ?? '';
   const userInitial = (session.data?.user?.name ?? userEmail).trim().charAt(0).toUpperCase() || '·';
@@ -96,36 +124,73 @@ export function Sidebar() {
   const showProdChip = onboarding.data?.completedAt && prodTotal > 0 && prodCount < prodTotal;
 
   return (
-    <aside className="sticky top-0 flex h-screen w-[288px] shrink-0 flex-col border-[var(--color-border)] border-r bg-[var(--color-surface)]">
+    <motion.aside
+      animate={{ width: collapsed ? 72 : 288 }}
+      transition={{ type: 'spring', stiffness: 340, damping: 32 }}
+      className="sticky top-0 flex h-screen shrink-0 flex-col overflow-hidden border-[var(--color-border)] border-r bg-[var(--color-surface)]"
+    >
       {/* HEADER — sticky brand + workspace + MP switcher */}
-      <header className="sticky top-0 z-10 flex flex-col gap-2.5 border-[var(--color-border)] border-b bg-[var(--color-surface)]/95 px-4 py-4 backdrop-blur-xl">
-        <WorkspaceSwitcher />
-        <MpAccountSwitcher />
+      <header
+        className={
+          collapsed
+            ? 'sticky top-0 z-10 flex flex-col items-center gap-2 border-[var(--color-border)] border-b bg-[var(--color-surface)]/95 px-2 py-3 backdrop-blur-xl'
+            : 'sticky top-0 z-10 flex flex-col gap-2.5 border-[var(--color-border)] border-b bg-[var(--color-surface)]/95 px-4 py-4 backdrop-blur-xl'
+        }
+      >
+        {collapsed ? (
+          <Link
+            href="/dashboard"
+            className="grid size-10 cursor-pointer place-items-center rounded-xl bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] font-bold text-[16px] text-white shadow-sm"
+            aria-label="Visão geral"
+          >
+            P
+          </Link>
+        ) : (
+          <>
+            <WorkspaceSwitcher />
+            <MpAccountSwitcher />
+          </>
+        )}
       </header>
 
       {/* NAV — scrollable */}
-      <nav className="flex flex-1 flex-col gap-7 overflow-y-auto px-3 py-5">
-        {NAV.map((group) => (
+      <nav
+        className={
+          collapsed
+            ? 'flex flex-1 flex-col gap-4 overflow-y-auto px-2 py-4'
+            : 'flex flex-1 flex-col gap-7 overflow-y-auto px-3 py-5'
+        }
+      >
+        {NAV.map((group, groupIdx) => (
           <div key={group.label} className="flex flex-col gap-0.5">
-            <p className="mb-1.5 px-2.5 font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
-              {group.label}
-            </p>
+            {collapsed ? (
+              // Group divider — thin hairline so the user still has
+              // visual grouping cues in icon-only mode.
+              groupIdx > 0 ? (
+                <span aria-hidden className="mx-3 mb-2 h-px bg-[var(--color-border)]" />
+              ) : null
+            ) : (
+              <p className="mb-1.5 px-2.5 font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
+                {group.label}
+              </p>
+            )}
             {group.items.map((item) => {
               const active = path === item.href || path?.startsWith(`${item.href}/`);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
+                  title={collapsed ? item.label : undefined}
+                  aria-label={collapsed ? item.label : undefined}
                   className={clsx(
-                    'group relative flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 font-medium text-[14px] transition',
+                    'group relative flex cursor-pointer items-center gap-3 rounded-xl font-medium text-[14px] transition',
+                    collapsed ? 'h-10 justify-center px-0' : 'px-2.5 py-2',
                     active
                       ? 'text-[var(--color-fg)]'
                       : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]/60 hover:text-[var(--color-fg)]',
                   )}
                 >
                   {active ? (
-                    // Shared layoutId animates the active pill across
-                    // route changes — Linear-style sliding indicator.
                     <motion.span
                       layoutId="sidebar-active-pill"
                       transition={{ type: 'spring', stiffness: 380, damping: 32 }}
@@ -133,7 +198,7 @@ export function Sidebar() {
                       aria-hidden
                     />
                   ) : null}
-                  {active ? (
+                  {active && !collapsed ? (
                     <motion.span
                       layoutId="sidebar-active-accent"
                       transition={{ type: 'spring', stiffness: 380, damping: 32 }}
@@ -151,11 +216,22 @@ export function Sidebar() {
                   >
                     {item.icon}
                   </span>
-                  <span className="relative flex-1 truncate">{item.label}</span>
-                  {item.badge === 'new' ? (
-                    <span className="relative rounded-full bg-[var(--color-brand-50)] px-1.5 py-0.5 font-semibold text-[9px] text-[var(--color-brand-700)] uppercase tracking-wider">
-                      Novo
-                    </span>
+                  {!collapsed ? (
+                    <>
+                      <span className="relative flex-1 truncate">{item.label}</span>
+                      {item.badge === 'new' ? (
+                        <span className="relative rounded-full bg-[var(--color-brand-50)] px-1.5 py-0.5 font-semibold text-[9px] text-[var(--color-brand-700)] uppercase tracking-wider">
+                          Novo
+                        </span>
+                      ) : null}
+                    </>
+                  ) : item.badge === 'new' ? (
+                    // Collapsed badge: tiny dot in the top-right of the
+                    // icon so producer doesn't miss new features.
+                    <span
+                      aria-hidden
+                      className="absolute top-1 right-1 size-1.5 rounded-full bg-[var(--color-brand-500)]"
+                    />
                   ) : null}
                 </Link>
               );
@@ -164,9 +240,9 @@ export function Sidebar() {
         ))}
 
         {/* Pronto pra produção chip — appears once setup is done and
-            production checklist isn't fully checked. Pulls eye toward
-            the next move without being annoying when not relevant. */}
-        {showProdChip ? (
+            production checklist isn't fully checked. Hidden in
+            collapsed mode (no room for inline progress bar). */}
+        {showProdChip && !collapsed ? (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -210,87 +286,141 @@ export function Sidebar() {
         ) : null}
       </nav>
 
-      {/* FOOTER — user chip (collapsible) + theme + wordmark */}
-      <footer className="flex flex-col gap-3 border-[var(--color-border)] border-t bg-[var(--color-surface)]/95 px-4 py-4 backdrop-blur-xl">
-        <button
-          type="button"
-          onClick={() => setUserPanelOpen((v) => !v)}
-          aria-expanded={userPanelOpen}
-          className="group flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-1.5 py-1.5 transition hover:bg-[var(--color-surface-muted)]"
-        >
-          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] font-semibold text-[13px] text-white shadow-sm">
-            {userInitial}
-          </span>
-          <div className="min-w-0 flex-1 text-left">
-            <p className="truncate font-semibold text-[13px] text-[var(--color-fg)]">
-              {session.data?.user?.name ?? userEmail.split('@')[0] ?? '—'}
-            </p>
-            <p className="truncate text-[11px] text-[var(--color-fg-subtle)]">
-              {userEmail || 'Carregando…'}
-            </p>
-          </div>
-          <motion.span
-            animate={{ rotate: userPanelOpen ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-            className="text-[var(--color-fg-subtle)]"
-            aria-hidden
+      {/* FOOTER — user chip + collapse toggle + theme + wordmark */}
+      <footer
+        className={
+          collapsed
+            ? 'flex flex-col items-center gap-3 border-[var(--color-border)] border-t bg-[var(--color-surface)]/95 px-2 py-3 backdrop-blur-xl'
+            : 'flex flex-col gap-3 border-[var(--color-border)] border-t bg-[var(--color-surface)]/95 px-4 py-4 backdrop-blur-xl'
+        }
+      >
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={async () => {
+              await signOut();
+              router.push('/login');
+            }}
+            title={`${session.data?.user?.name ?? userEmail.split('@')[0] ?? '—'} · Sair`}
+            aria-label="Sair"
+            className="grid size-10 cursor-pointer place-items-center rounded-full bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] font-semibold text-[13px] text-white shadow-sm transition hover:brightness-110"
           >
-            <svg viewBox="0 0 12 12" fill="none" className="size-3">
-              <title>Expandir</title>
-              <path
-                d="M3 4.5L6 7.5L9 4.5"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </motion.span>
-        </button>
-
-        <AnimatePresence initial={false}>
-          {userPanelOpen ? (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="overflow-hidden"
+            {userInitial}
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setUserPanelOpen((v) => !v)}
+              aria-expanded={userPanelOpen}
+              className="group flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-1.5 py-1.5 transition hover:bg-[var(--color-surface-muted)]"
             >
-              <div className="flex flex-col gap-2 pt-1">
-                <Link
-                  href="/configuracoes/empresa"
-                  className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
-                >
-                  <IconSliders />
-                  Conta
-                </Link>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await signOut();
-                    router.push('/login');
-                  }}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)]"
-                >
-                  <IconLogout />
-                  Sair
-                </button>
+              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] font-semibold text-[13px] text-white shadow-sm">
+                {userInitial}
+              </span>
+              <div className="min-w-0 flex-1 text-left">
+                <p className="truncate font-semibold text-[13px] text-[var(--color-fg)]">
+                  {session.data?.user?.name ?? userEmail.split('@')[0] ?? '—'}
+                </p>
+                <p className="truncate text-[11px] text-[var(--color-fg-subtle)]">
+                  {userEmail || 'Carregando…'}
+                </p>
               </div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+              <motion.span
+                animate={{ rotate: userPanelOpen ? 180 : 0 }}
+                transition={{ duration: 0.2 }}
+                className="text-[var(--color-fg-subtle)]"
+                aria-hidden
+              >
+                <svg viewBox="0 0 12 12" fill="none" className="size-3">
+                  <title>Expandir</title>
+                  <path
+                    d="M3 4.5L6 7.5L9 4.5"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </motion.span>
+            </button>
 
-        <div className="flex items-center justify-between gap-3 border-[var(--color-border)] border-t pt-3">
-          <ThemeToggle />
-          <img
-            src="/payunivercart-logo.png"
-            alt="payunivercart"
-            className="h-4 w-auto opacity-60"
-          />
+            <AnimatePresence initial={false}>
+              {userPanelOpen ? (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden"
+                >
+                  <div className="flex flex-col gap-2 pt-1">
+                    <Link
+                      href="/configuracoes/empresa"
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+                    >
+                      <IconSliders />
+                      Conta
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await signOut();
+                        router.push('/login');
+                      }}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)]"
+                    >
+                      <IconLogout />
+                      Sair
+                    </button>
+                  </div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </>
+        )}
+
+        {/* Collapse toggle — always visible. Chevron icon flips based
+            on state. Title attribute provides discoverability. */}
+        <div
+          className={
+            collapsed
+              ? 'flex w-full flex-col items-center gap-2 border-[var(--color-border)] border-t pt-3'
+              : 'flex items-center justify-between gap-3 border-[var(--color-border)] border-t pt-3'
+          }
+        >
+          {!collapsed ? <ThemeToggle /> : null}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
+            aria-label={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
+            className="grid size-7 cursor-pointer place-items-center rounded-lg text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+          >
+            <motion.svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="size-3.5"
+              animate={{ rotate: collapsed ? 180 : 0 }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              aria-hidden
+            >
+              <title>Toggle sidebar</title>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 4L6 8l4 4" />
+            </motion.svg>
+          </button>
+          {!collapsed ? (
+            <img
+              src="/payunivercart-logo.png"
+              alt="payunivercart"
+              className="h-4 w-auto opacity-60"
+            />
+          ) : null}
         </div>
       </footer>
-    </aside>
+    </motion.aside>
   );
 }
 
