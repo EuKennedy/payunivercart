@@ -384,41 +384,71 @@ export const ordersRouter = router({
       }
 
       const now = new Date();
+
+      // Optimistic concurrency on the order update: another caller
+      // (the gateway webhook, a concurrent sync click) may have
+      // changed the order between our initial SELECT and this UPDATE.
+      // Predicate on the previous status makes the UPDATE a no-op in
+      // that case — we re-read and either return the now-current
+      // state or bail with `changed: false`. Cheaper than a row lock
+      // because we don't hold a DB connection during the gateway HTTP
+      // call (which can take 100ms+).
+      const updateOrderStatusIfStill = async (
+        nextStatus: 'paid' | 'refunded' | 'cancelled',
+        extra: Partial<typeof schema.orders.$inferInsert> = {},
+      ): Promise<boolean> => {
+        const rows = await ctx.services.db.db
+          .update(schema.orders)
+          .set({ status: nextStatus, ...extra })
+          .where(and(eq(schema.orders.id, order.id), eq(schema.orders.status, previousStatus)))
+          .returning({ id: schema.orders.id });
+        return rows.length > 0;
+      };
+
+      if (charge.status === 'paid') {
+        await ctx.services.db.db
+          .update(schema.transactions)
+          .set({
+            status: charge.status,
+            paidAt: now,
+            rawResponse: charge.raw as object,
+          })
+          .where(eq(schema.transactions.id, tx.id));
+        const won = await updateOrderStatusIfStill('paid', { paidAt: now });
+        if (won) {
+          // Same fan-out the webhook fires — receipt email + buyer
+          // WhatsApp w/ delivery + producer ping. Fire-and-log; we
+          // don't want a Resend hiccup to fail the producer's sync UI.
+          await dispatchPaidFanOut(ctx.services, order.id);
+          return { status: 'paid', changed: true, previousStatus };
+        }
+        // Lost the race — webhook already paid the order. Surface the
+        // current state instead of pretending we changed it.
+        const [fresh] = await ctx.services.db.db
+          .select({ status: schema.orders.status })
+          .from(schema.orders)
+          .where(eq(schema.orders.id, order.id))
+          .limit(1);
+        return { status: fresh?.status ?? 'paid', changed: false, previousStatus };
+      }
+      // Mid-flight statuses (authorized / processing / pending) just
+      // refresh the transaction row.
       await ctx.services.db.db
         .update(schema.transactions)
         .set({
           status: charge.status,
-          paidAt: charge.status === 'paid' ? now : undefined,
           authorizedAt: charge.status === 'authorized' ? now : undefined,
           refundedAt: charge.status === 'refunded' ? now : undefined,
           chargedbackAt: charge.status === 'chargedback' ? now : undefined,
           rawResponse: charge.raw as object,
         })
         .where(eq(schema.transactions.id, tx.id));
-
-      if (charge.status === 'paid') {
-        await ctx.services.db.db
-          .update(schema.orders)
-          .set({ status: 'paid', paidAt: now })
-          .where(eq(schema.orders.id, order.id));
-        // Same fan-out the webhook fires — receipt email + buyer
-        // WhatsApp w/ delivery + producer ping. Fire-and-log; we
-        // don't want a Resend hiccup to fail the producer's sync UI.
-        await dispatchPaidFanOut(ctx.services, order.id);
-        return { status: 'paid', changed: true, previousStatus };
-      }
       if (charge.status === 'refunded') {
-        await ctx.services.db.db
-          .update(schema.orders)
-          .set({ status: 'refunded' })
-          .where(eq(schema.orders.id, order.id));
+        await updateOrderStatusIfStill('refunded');
         return { status: 'refunded', changed: true, previousStatus };
       }
       if (charge.status === 'failed' || charge.status === 'cancelled') {
-        await ctx.services.db.db
-          .update(schema.orders)
-          .set({ status: 'cancelled', cancelledAt: now })
-          .where(eq(schema.orders.id, order.id));
+        await updateOrderStatusIfStill('cancelled', { cancelledAt: now });
         return { status: 'cancelled', changed: true, previousStatus };
       }
       // Any other status (pending / authorized / processing) leaves

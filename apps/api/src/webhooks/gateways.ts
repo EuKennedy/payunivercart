@@ -192,9 +192,14 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
       return c.json({ error: 'verification_failed' }, 400);
     }
 
-    // 5. Idempotent dedupe + record.
-    try {
-      await services.db.db.insert(schema.webhooksInbound).values({
+    // 5. Idempotent dedupe + record. Uses ON CONFLICT instead of
+    //    catch-the-23505: the duplicate path is hot (every gateway
+    //    retry hits it), so making it a regular path beats throwing
+    //    + catching an exception every time. RETURNING tells us
+    //    whether a row was actually inserted; empty result = duplicate.
+    const inserted = await services.db.db
+      .insert(schema.webhooksInbound)
+      .values({
         workspaceId: tx.workspaceId,
         source: gatewayId,
         eventId: event.eventId,
@@ -202,13 +207,15 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
         rawHeaders: headers,
         rawBody: raw,
         signatureValid: 'valid',
-      });
-    } catch (cause) {
-      // 23505 on (source, event_id) — already processed. Ack and bail.
-      if ((cause as { code?: string })?.code === '23505') {
-        return c.json({ ok: true, deduplicated: true });
-      }
-      throw cause;
+      })
+      .onConflictDoNothing({
+        target: [schema.webhooksInbound.source, schema.webhooksInbound.eventId],
+      })
+      .returning({ id: schema.webhooksInbound.id });
+    if (inserted.length === 0) {
+      // Duplicate — same (source, event_id) already processed. Ack
+      // success so the gateway stops retrying; no further work.
+      return c.json({ ok: true, deduplicated: true });
     }
 
     // 6. Fetch authoritative state from the gateway. We don't trust the

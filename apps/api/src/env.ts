@@ -43,15 +43,41 @@ const envSchema = z.object({
     .min(64, { message: 'AUTH_SECRET must be at least 64 hex chars (`openssl rand -hex 32`).' })
     .transform(noPlaceholder('AUTH_SECRET')),
 
+  /**
+   * Allowed origins for CORS + Better-Auth trust. Comma-separated.
+   * Each value MUST be a fully-qualified origin (`https://host[:port]`
+   * or `http://host[:port]`). No wildcards, no trailing paths — they
+   * would silently turn into "match anything" once Hono's CORS
+   * normaliser strips them. The regex below is conservative: scheme +
+   * hostname (letters, digits, dots, hyphens) + optional port.
+   */
   AUTH_TRUSTED_ORIGINS: z
     .string()
     .default('http://localhost:3000')
-    .transform((value) =>
-      value
+    .transform((value, ctx) => {
+      const origins = value
         .split(',')
         .map((s) => s.trim())
-        .filter(Boolean),
-    ),
+        .filter(Boolean);
+      const ORIGIN_REGEX = /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/i;
+      for (const origin of origins) {
+        if (!ORIGIN_REGEX.test(origin)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Invalid origin in AUTH_TRUSTED_ORIGINS: "${origin}". Expected "https://host" or "http://host[:port]" — no wildcards, no paths.`,
+          });
+          return z.NEVER;
+        }
+        if (origin === '*' || origin.includes('*')) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'AUTH_TRUSTED_ORIGINS cannot contain wildcards.',
+          });
+          return z.NEVER;
+        }
+      }
+      return origins;
+    }),
 
   /**
    * Public URL this api is reachable at (the domain Coolify maps the

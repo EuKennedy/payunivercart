@@ -253,10 +253,20 @@ export const subscriptionsRouter = router({
       // Refuse delete when there's an active subscription on the
       // plan — the FK uses ON DELETE RESTRICT, so we surface a clean
       // error instead of letting Postgres throw.
+      // Both filters are required: planId narrows the lookup, but the
+      // workspaceId predicate makes the timing of the response opaque
+      // to a producer probing UUIDs of other workspaces. Without it,
+      // a tenant could differentiate "plan exists in other workspace
+      // with subscriptions" vs "plan does not exist".
       const [linked] = await ctx.services.db.db
         .select({ id: schema.subscriptions.id })
         .from(schema.subscriptions)
-        .where(eq(schema.subscriptions.planId, input.id))
+        .where(
+          and(
+            eq(schema.subscriptions.planId, input.id),
+            eq(schema.subscriptions.workspaceId, ctx.workspaceId),
+          ),
+        )
         .limit(1);
       if (linked) {
         throw new TRPCError({

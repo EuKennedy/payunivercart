@@ -10,6 +10,7 @@ import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { mountConnectApi } from './connect/router';
 import { loadEnv } from './env';
+import { authRateLimit, checkoutRateLimit, webhookRateLimit } from './rate-limit';
 import { appRouter } from './routers/index';
 import { buildServices } from './services';
 import type { TrpcContext } from './trpc';
@@ -102,6 +103,18 @@ if (env.NODE_ENV !== 'production') {
  * Accept/Authorization headers; we avoid the tRPC envelope.
  */
 app.get('/health', (c) => c.json({ status: 'ok', uptimeSeconds: process.uptime() }));
+
+// Rate-limit sensitive surfaces. Order matters: middleware mounted
+// before the handler short-circuits the request once the cap is hit.
+//   - auth      : credential stuffing, OTP spam, signup enumeration
+//   - webhooks  : misbehaving gateway retrying every second
+//   - checkout  : bot mass-creating pending_payment rows / Pix QRs
+// Other tRPC procedures (workspaceProcedure) are auth-scoped so the
+// abuse surface is bounded by the session; we add per-user limits
+// later if needed.
+app.use('/api/auth/*', authRateLimit(env.REDIS_URL));
+app.use('/webhooks/*', webhookRateLimit(env.REDIS_URL));
+app.use('/trpc/checkout.*', checkoutRateLimit(env.REDIS_URL));
 
 // Better-Auth handler. Mounted under `/api/auth/*` so the Better-Auth
 // browser client's default `baseURL` resolves without remapping. All
