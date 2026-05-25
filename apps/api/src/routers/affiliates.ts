@@ -1158,6 +1158,235 @@ export const affiliatesRouter = router({
         return { ok: true as const };
       });
     }),
+
+  /* =============================== LEADERBOARD =========================== */
+
+  /**
+   * Top-N affiliates of this workspace ranked by `available + paid`
+   * commission totals across a configurable window. Drives the
+   * leaderboard widget on the producer dashboard + the public
+   * "Top afiliados" badge on the marketplace listing (PR 4 of Pilar 4).
+   */
+  leaderboard: workspaceProcedure
+    .input(
+      z
+        .object({
+          days: z.enum(['7', '30', '90', 'all']).default('30'),
+          limit: z.number().int().min(1).max(50).default(10),
+        })
+        .optional(),
+    )
+    .output(
+      z.array(
+        z.object({
+          affiliateId: z.string().uuid(),
+          displayName: z.string(),
+          publicCode: z.string(),
+          commissionCents: z.number().int().nonnegative(),
+          attributionCount: z.number().int().nonnegative(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      const days = input?.days ?? '30';
+      const limit = input?.limit ?? 10;
+      const since =
+        days === 'all'
+          ? sql`'epoch'::timestamptz`
+          : sql`now() - make_interval(days => ${Number(days)})`;
+      const rows = await ctx.services.db.db
+        .select({
+          affiliateId: schema.affiliateCommissions.affiliateId,
+          displayName: schema.affiliates.displayName,
+          publicCode: schema.affiliates.publicCode,
+          commissionCents: sql<string>`coalesce(sum(${schema.affiliateCommissions.commissionAmountCents}), 0)`,
+          attributionCount: sql<number>`count(distinct ${schema.affiliateCommissions.attributionId})::int`,
+        })
+        .from(schema.affiliateCommissions)
+        .innerJoin(
+          schema.affiliates,
+          eq(schema.affiliates.id, schema.affiliateCommissions.affiliateId),
+        )
+        .where(
+          and(
+            eq(schema.affiliateCommissions.workspaceId, ctx.workspaceId),
+            sql`${schema.affiliateCommissions.status} IN ('available', 'paid')`,
+            sql`${schema.affiliateCommissions.createdAt} >= ${since}`,
+          ),
+        )
+        .groupBy(
+          schema.affiliateCommissions.affiliateId,
+          schema.affiliates.displayName,
+          schema.affiliates.publicCode,
+        )
+        .orderBy(sql`sum(${schema.affiliateCommissions.commissionAmountCents}) desc`)
+        .limit(limit);
+      return rows.map((r) => ({
+        affiliateId: r.affiliateId,
+        displayName: r.displayName,
+        publicCode: r.publicCode,
+        commissionCents: Number(r.commissionCents ?? 0),
+        attributionCount: Number(r.attributionCount ?? 0),
+      }));
+    }),
+
+  /* ============================== FRAUD QUEUE ============================ */
+
+  /**
+   * Open fraud signals (resolvedAt IS NULL) for producer triage.
+   * Filter by severity to focus on `critical` first.
+   */
+  listFraudSignals: workspaceProcedure
+    .input(
+      z
+        .object({
+          severity: z.enum(['info', 'warn', 'critical']).optional(),
+          openOnly: z.boolean().default(true),
+          limit: z.number().int().min(1).max(100).default(50),
+        })
+        .optional(),
+    )
+    .output(
+      z.array(
+        z.object({
+          id: z.string().uuid(),
+          affiliateId: z.string().uuid(),
+          affiliateName: z.string(),
+          signalType: z.string(),
+          severity: z.enum(['info', 'warn', 'critical']),
+          payload: z.record(z.string(), z.unknown()),
+          createdAt: z.date(),
+          resolvedAt: z.date().nullable(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 50;
+      const openOnly = input?.openOnly ?? true;
+      const where = and(
+        eq(schema.affiliateFraudSignals.workspaceId, ctx.workspaceId),
+        input?.severity ? eq(schema.affiliateFraudSignals.severity, input.severity) : undefined,
+        openOnly ? isNull(schema.affiliateFraudSignals.resolvedAt) : undefined,
+      );
+      const rows = await ctx.services.db.db
+        .select({
+          id: schema.affiliateFraudSignals.id,
+          affiliateId: schema.affiliateFraudSignals.affiliateId,
+          affiliateName: schema.affiliates.displayName,
+          signalType: schema.affiliateFraudSignals.signalType,
+          severity: schema.affiliateFraudSignals.severity,
+          payload: schema.affiliateFraudSignals.payload,
+          createdAt: schema.affiliateFraudSignals.createdAt,
+          resolvedAt: schema.affiliateFraudSignals.resolvedAt,
+        })
+        .from(schema.affiliateFraudSignals)
+        .innerJoin(
+          schema.affiliates,
+          eq(schema.affiliates.id, schema.affiliateFraudSignals.affiliateId),
+        )
+        .where(where)
+        .orderBy(desc(schema.affiliateFraudSignals.createdAt))
+        .limit(limit);
+      return rows.map((r) => ({
+        id: r.id,
+        affiliateId: r.affiliateId,
+        affiliateName: r.affiliateName,
+        signalType: r.signalType,
+        severity: r.severity as 'info' | 'warn' | 'critical',
+        payload: (r.payload ?? {}) as Record<string, unknown>,
+        createdAt: r.createdAt,
+        resolvedAt: r.resolvedAt,
+      }));
+    }),
+
+  resolveFraudSignal: workspaceProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        note: z.string().trim().min(2).max(500),
+      }),
+    )
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.db.db
+        .update(schema.affiliateFraudSignals)
+        .set({
+          resolvedAt: new Date(),
+          resolvedByUserId: ctx.userId,
+          resolutionNote: input.note,
+        })
+        .where(
+          and(
+            eq(schema.affiliateFraudSignals.id, input.id),
+            eq(schema.affiliateFraudSignals.workspaceId, ctx.workspaceId),
+          ),
+        );
+      return { ok: true as const };
+    }),
+
+  /* ============================== AUDIT LOG ============================== */
+
+  /**
+   * Read-only audit feed for the workspace's affiliate operations.
+   * Designed for the compliance tab — never paginated to >100 because
+   * an operator scrolling past that point should be filtering instead.
+   */
+  listAuditLog: workspaceProcedure
+    .input(
+      z
+        .object({
+          targetTable: z.string().optional(),
+          targetId: z.string().optional(),
+          limit: z.number().int().min(1).max(100).default(50),
+        })
+        .optional(),
+    )
+    .output(
+      z.array(
+        z.object({
+          id: z.string().uuid(),
+          actorUserId: z.string().uuid().nullable(),
+          targetTable: z.string(),
+          targetId: z.string(),
+          action: z.string(),
+          payload: z.record(z.string(), z.unknown()),
+          createdAt: z.date(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 50;
+      const where = and(
+        eq(schema.affiliateAuditLog.workspaceId, ctx.workspaceId),
+        input?.targetTable
+          ? eq(schema.affiliateAuditLog.targetTable, input.targetTable)
+          : undefined,
+        input?.targetId ? eq(schema.affiliateAuditLog.targetId, input.targetId) : undefined,
+      );
+      const rows = await ctx.services.db.db
+        .select({
+          id: schema.affiliateAuditLog.id,
+          actorUserId: schema.affiliateAuditLog.actorUserId,
+          targetTable: schema.affiliateAuditLog.targetTable,
+          targetId: schema.affiliateAuditLog.targetId,
+          action: schema.affiliateAuditLog.action,
+          payload: schema.affiliateAuditLog.payload,
+          createdAt: schema.affiliateAuditLog.createdAt,
+        })
+        .from(schema.affiliateAuditLog)
+        .where(where)
+        .orderBy(desc(schema.affiliateAuditLog.createdAt))
+        .limit(limit);
+      return rows.map((r) => ({
+        id: r.id,
+        actorUserId: r.actorUserId,
+        targetTable: r.targetTable,
+        targetId: r.targetId,
+        action: r.action,
+        payload: (r.payload ?? {}) as Record<string, unknown>,
+        createdAt: r.createdAt,
+      }));
+    }),
 });
 
 // Used by other routers when needed; placeholder for unused-import lint pacification.

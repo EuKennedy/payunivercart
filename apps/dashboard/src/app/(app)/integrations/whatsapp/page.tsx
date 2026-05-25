@@ -258,7 +258,7 @@ function SessionCard({
               {/* Status dot — pulsa quando ativo */}
               <span
                 className={clsx(
-                  'absolute -bottom-1 -right-1 grid size-5 place-items-center rounded-full border-2 border-[var(--color-surface)]',
+                  '-bottom-1 -right-1 absolute grid size-5 place-items-center rounded-full border-2 border-[var(--color-surface)]',
                   isWorking
                     ? 'bg-[var(--color-success)]'
                     : status === 'FAILED'

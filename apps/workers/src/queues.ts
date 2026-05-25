@@ -19,6 +19,9 @@ export const QUEUE_NAMES = {
   auditVerify: 'audit.verify',
   /** Univercart Connect — partner webhook deliveries sweeper. */
   connectDeliveries: 'connect.deliveries',
+  /** Affiliate commissions: flip pending → available when refund
+   *  window passes. Hourly repeatable job. */
+  affiliateRollover: 'affiliate.rollover',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -30,6 +33,7 @@ export interface QueueBundle {
   recovery: Queue;
   auditVerify: Queue;
   connectDeliveries: Queue;
+  affiliateRollover: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -58,5 +62,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     recovery: new Queue(QUEUE_NAMES.recovery, opts),
     auditVerify: new Queue(QUEUE_NAMES.auditVerify, opts),
     connectDeliveries: new Queue(QUEUE_NAMES.connectDeliveries, opts),
+    affiliateRollover: new Queue(QUEUE_NAMES.affiliateRollover, opts),
   };
 }

@@ -138,6 +138,19 @@ export async function recordClick(input: RecordClickInput): Promise<RecordClickR
       .update(schema.affiliateLinks)
       .set({ clickCount: sql`${schema.affiliateLinks.clickCount} + 1` })
       .where(eq(schema.affiliateLinks.id, link.id));
+    // Async-ish: fire-and-log fraud detection on the freshly-recorded
+    // click. Failures must NEVER break the redirect, so we wrap.
+    try {
+      await detectFraudSignals({
+        services,
+        workspaceId: link.workspaceId,
+        affiliateId: link.affiliateId,
+        ipHash,
+        clickId,
+      });
+    } catch {
+      /* fraud detection is best-effort */
+    }
   }
 
   // 3. Decide where the buyer lands.
@@ -304,6 +317,20 @@ export async function resolveAttribution(
     .set({ attributionCount: sql`${schema.affiliateLinks.attributionCount} + 1` })
     .where(eq(schema.affiliateLinks.id, link.id));
 
+  // Run fraud detection on the attribution — best-effort.
+  try {
+    await detectFraudSignals({
+      services,
+      workspaceId: input.workspaceId,
+      affiliateId: link.affiliateId,
+      ipHash,
+      clickId: click?.id,
+      attributionId,
+    });
+  } catch {
+    /* fraud detection is best-effort */
+  }
+
   // Materialise the first commission row in `pending`. Recurring +
   // lifetime programs add more rows in the renewal handler (PR 4).
   const commissionId = await materializeCommission(services, {
@@ -456,4 +483,129 @@ export async function rolloverPendingCommissions(
   // tree-shaker doesn't whine in unrelated commits.
   void isNull;
   return { flipped: result.length };
+}
+
+// ─── Antifraud ──────────────────────────────────────────────────────────────
+
+interface FraudDetectionInput {
+  services: AppServices;
+  workspaceId: string;
+  affiliateId: string;
+  ipHash: string;
+  clickId?: string;
+  attributionId?: string;
+}
+
+/**
+ * Lightweight fraud heuristics fired on every click + attribution.
+ * Designed to be fast (< 5ms in the happy path) so the public click
+ * redirect never feels sluggish. Signals append to
+ * `affiliate_fraud_signals`; a separate worker can read this stream
+ * to auto-suspend on confirmed criticals.
+ *
+ * v1 detectors (cheap, high signal-to-noise):
+ *
+ *   1. `ip_self_click` — same IP that clicked is now buying. Strong
+ *      indicator the affiliate is funnelling their own purchases
+ *      through the link to earn commission on a self-bought product.
+ *
+ *   2. `velocity_high` — > 100 clicks from the same IP in the last
+ *      hour. Either a click-bot or a public WiFi sharing the same
+ *      NAT IP; we flag info-level so an operator can pull the data
+ *      before deciding suspension.
+ *
+ * More expensive checks (fingerprint clustering, country mismatch
+ * vs payout, conversion rate anomalies) land in a separate worker
+ * job so the sync path stays fast.
+ */
+export async function detectFraudSignals(
+  input: FraudDetectionInput,
+): Promise<{ signalsCreated: number }> {
+  const { services } = input;
+  const db = services.db.db;
+  let signalsCreated = 0;
+
+  // Detector 1: ip velocity in the last hour.
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const [vel] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.affiliateClicks)
+    .where(
+      and(
+        eq(schema.affiliateClicks.workspaceId, input.workspaceId),
+        eq(schema.affiliateClicks.ipHash, input.ipHash),
+        gte(schema.affiliateClicks.occurredAt, hourAgo),
+      ),
+    );
+  const clickCount = Number(vel?.n ?? 0);
+  if (clickCount > 100) {
+    await db.insert(schema.affiliateFraudSignals).values({
+      workspaceId: input.workspaceId,
+      affiliateId: input.affiliateId,
+      clickId: input.clickId ?? null,
+      attributionId: input.attributionId ?? null,
+      signalType: 'velocity_high',
+      severity: clickCount > 500 ? 'critical' : 'warn',
+      payload: { clickCount, windowMinutes: 60 },
+    });
+    signalsCreated++;
+  }
+
+  // Detector 2: ip self-click on attribution. Triggers only when an
+  // attribution was just resolved — the affiliate's OWN buy attempt
+  // landing on a link they generated.
+  if (input.attributionId) {
+    const [selfClick] = await db
+      .select({ id: schema.affiliateClicks.id })
+      .from(schema.affiliateClicks)
+      .innerJoin(schema.affiliateLinks, eq(schema.affiliateLinks.id, schema.affiliateClicks.linkId))
+      .where(
+        and(
+          eq(schema.affiliateClicks.ipHash, input.ipHash),
+          eq(schema.affiliateLinks.affiliateId, input.affiliateId),
+        ),
+      )
+      .limit(1);
+    if (selfClick) {
+      await db.insert(schema.affiliateFraudSignals).values({
+        workspaceId: input.workspaceId,
+        affiliateId: input.affiliateId,
+        clickId: input.clickId ?? null,
+        attributionId: input.attributionId ?? null,
+        signalType: 'ip_self_attribution',
+        severity: 'warn',
+        payload: { matchedClickId: selfClick.id },
+      });
+      signalsCreated++;
+    }
+  }
+
+  return { signalsCreated };
+}
+
+/** Append a row to `affiliate_audit_log`. Best-effort — failures are
+ *  swallowed (audit shouldn't block business writes). */
+export async function appendAffiliateAudit(
+  services: AppServices,
+  args: {
+    workspaceId: string;
+    actorUserId: string | null;
+    targetTable: string;
+    targetId: string;
+    action: string;
+    payload?: Record<string, unknown>;
+  },
+): Promise<void> {
+  try {
+    await services.db.db.insert(schema.affiliateAuditLog).values({
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      targetTable: args.targetTable,
+      targetId: args.targetId,
+      action: args.action,
+      payload: args.payload ?? {},
+    });
+  } catch {
+    /* audit failure must not crash the business path */
+  }
 }

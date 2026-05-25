@@ -137,7 +137,7 @@ export function OnboardingFloating() {
       aria-labelledby="onboarding-floating-title"
     >
       {/* Header — gradient dopamine + progress chip + close/minimize */}
-      <header className="relative overflow-hidden border-b border-[var(--color-border)] bg-gradient-to-br from-[var(--color-brand-50)] to-transparent px-5 pt-5 pb-4">
+      <header className="relative overflow-hidden border-[var(--color-border)] border-b bg-gradient-to-br from-[var(--color-brand-50)] to-transparent px-5 pt-5 pb-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
             <p className="font-semibold text-[10px] text-[var(--color-brand-700)] uppercase tracking-[0.16em]">

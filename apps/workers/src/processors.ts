@@ -84,7 +84,32 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
-  for (const w of [webhookInbound, webhookOutbox, recovery, auditVerify, connectDeliveries]) {
+  // Affiliate commissions rollover — hourly sweep that flips pending →
+  // available when the refund window passes and refreshes the
+  // materialised lifetime totals on the affiliates table. Implemented
+  // inline (no separate handler file yet) because the entire logic
+  // lives in a single SQL helper.
+  const affiliateRollover = new Worker(
+    QUEUE_NAMES.affiliateRollover,
+    async (job) => {
+      // Import lazily to keep boot fast — the affiliate module pulls
+      // a fair chunk of drizzle types we don't need until rollover.
+      const { rolloverPendingCommissions } = await import('./handlers/affiliate-rollover');
+      const result = await rolloverPendingCommissions({ db: dbWrapper.db });
+      logEvent('affiliate.rollover.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
+  for (const w of [
+    webhookInbound,
+    webhookOutbox,
+    recovery,
+    auditVerify,
+    connectDeliveries,
+    affiliateRollover,
+  ]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
         queue: w.name,
@@ -95,7 +120,14 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     w.on('error', (err) => logEvent('worker.error', { queue: w.name, error: err.message }));
   }
 
-  return [webhookInbound, webhookOutbox, recovery, auditVerify, connectDeliveries];
+  return [
+    webhookInbound,
+    webhookOutbox,
+    recovery,
+    auditVerify,
+    connectDeliveries,
+    affiliateRollover,
+  ];
 }
 
 function logEvent(event: string, data: Record<string, unknown>): void {

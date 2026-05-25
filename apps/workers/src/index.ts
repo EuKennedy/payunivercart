@@ -80,6 +80,18 @@ async function main() {
     },
   );
 
+  // Affiliate commissions rollover — hourly sweep that flips pending
+  // → available when the refund window passes. Idempotent + cheap on
+  // empty result sets so a 60-min cadence is comfortable.
+  await queues.affiliateRollover.upsertJobScheduler(
+    'hourly',
+    { every: 60 * 60 * 1000 },
+    {
+      name: 'affiliate.rollover.sweep',
+      data: {},
+    },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,
