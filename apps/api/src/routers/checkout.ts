@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { schema } from '@payunivercart/db';
 import {
   type CreateBoletoInput,
@@ -129,7 +130,17 @@ export const checkoutRouter = router({
    * `paid` without a second round-trip.
    */
   orderStatus: publicProcedure
-    .input(z.object({ orderId: z.string().uuid() }))
+    .input(
+      z.object({
+        orderId: z.string().uuid(),
+        /**
+         * HMAC(orderId, AUTH_SECRET) issued at order-creation time.
+         * Prevents UUID enumeration: without the token an attacker who
+         * guesses an orderId still can't read its delivery payload.
+         */
+        viewToken: z.string().trim().length(32),
+      }),
+    )
     .output(
       z.object({
         status: z.enum([
@@ -149,6 +160,13 @@ export const checkoutRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
+      const expectedToken = createHash('sha256')
+        .update(`${input.orderId}:${ctx.services.env.AUTH_SECRET}`)
+        .digest('hex')
+        .slice(0, 32);
+      if (input.viewToken !== expectedToken) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Pedido não encontrado.' });
+      }
       const [row] = await ctx.services.db.db
         .select({
           status: schema.orders.status,
@@ -384,12 +402,22 @@ export const checkoutRouter = router({
          *  so the attribution match uses the SAME ip as the click. */
         clientIp: z.string().trim().min(7).max(64).optional(),
         clientFingerprint: z.string().trim().max(128).optional(),
+        /**
+         * Client-generated idempotency key. The frontend mints one UUID
+         * per submit attempt and replays the SAME value on retries
+         * (network timeout, 5xx). Server uses it as the gateway charge
+         * idempotency key so retries don't create double charges.
+         * Falls back to a deterministic hash if omitted.
+         */
+        clientRequestId: z.string().trim().min(8).max(64).optional(),
       }),
     )
     .output(
       z.object({
         orderId: z.string().uuid(),
         publicReference: z.string(),
+        /** HMAC(orderId, AUTH_SECRET) — required to poll orderStatus. */
+        viewToken: z.string().length(32),
         status: z.enum(['paid', 'pending_payment', 'declined']),
         gatewayStatus: z.string().nullable(),
         method: PaymentMethod,
@@ -484,7 +512,25 @@ export const checkoutRouter = router({
       //    BEFORE the gateway call so we have a stable orderId to pass
       //    as `external_reference` (correlation key on webhook).
       const publicReference = mintOrderReference();
-      const idempotencyKey = globalThis.crypto.randomUUID();
+      // Idempotency key derivation: prefer the client-supplied UUID so
+      // retries (network timeout, double-tap) deterministically resolve
+      // to the same gateway charge. Fallback hashes the buyer-stable
+      // fields (email + document + offer + utc day) so legacy clients
+      // still get coarse dedupe within a 24h window.
+      const idempotencyKey =
+        input.clientRequestId ??
+        createHash('sha256')
+          .update(
+            [
+              productRow.workspaceId,
+              productRow.offerId,
+              input.buyer.email.toLowerCase(),
+              docDigits,
+              new Date().toISOString().slice(0, 10),
+            ].join(':'),
+          )
+          .digest('hex')
+          .slice(0, 36);
 
       const created = await ctx.services.db.db.transaction(async (tx) => {
         const [order] = await tx
@@ -549,9 +595,14 @@ export const checkoutRouter = router({
       //    still completes. Producer sees pending_payment in dashboard;
       //    buyer sees "estamos gerando" stub.
       if (!gatewayRow) {
+        const viewToken = createHash('sha256')
+          .update(`${created.orderId}:${ctx.services.env.AUTH_SECRET}`)
+          .digest('hex')
+          .slice(0, 32);
         return {
           orderId: created.orderId,
           publicReference,
+          viewToken,
           status: 'pending_payment' as const,
           gatewayStatus: null as string | null,
           method: input.method,
@@ -839,9 +890,14 @@ export const checkoutRouter = router({
         }
       }
 
+      const viewToken = createHash('sha256')
+        .update(`${created.orderId}:${ctx.services.env.AUTH_SECRET}`)
+        .digest('hex')
+        .slice(0, 32);
       return {
         orderId: created.orderId,
         publicReference,
+        viewToken,
         status: apiStatus,
         gatewayStatus: charge.status,
         method: input.method,

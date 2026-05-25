@@ -262,6 +262,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
       <CenteredCard wide>
         <SuccessView
           orderId={createOrder.data.orderId}
+          viewToken={createOrder.data.viewToken}
           reference={createOrder.data.publicReference}
           methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
           formattedTotal={formattedTotal}
@@ -2190,6 +2191,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
       <CenteredCard wide>
         <SuccessView
           orderId={createOrder.data.orderId}
+          viewToken={createOrder.data.viewToken}
           reference={createOrder.data.publicReference}
           methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
           formattedTotal={formattedTotal}
@@ -3091,6 +3093,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
       <CenteredCard wide>
         <SuccessView
           orderId={createOrder.data.orderId}
+          viewToken={createOrder.data.viewToken}
           reference={createOrder.data.publicReference}
           methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
           formattedTotal={formattedTotal}
@@ -3906,6 +3909,7 @@ function DeclinedView({
 
 function SuccessView({
   orderId,
+  viewToken,
   reference,
   methodLabel,
   formattedTotal,
@@ -3919,6 +3923,7 @@ function SuccessView({
   initialStatus,
 }: {
   orderId: string;
+  viewToken: string;
   reference: string;
   methodLabel: string;
   formattedTotal: string;
@@ -3938,7 +3943,7 @@ function SuccessView({
   // Stop polling once we hit a terminal state (paid / cancelled /
   // expired / refunded) — there's nothing left to wait for.
   const live = trpc.checkout.orderStatus.useQuery(
-    { orderId },
+    { orderId, viewToken },
     {
       refetchInterval: (query) => {
         const s = query.state.data?.status;

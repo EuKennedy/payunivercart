@@ -426,7 +426,13 @@ async function handleMpSubscriptionEvent(
     const fresh = await adapter.getSubscription(credentials as never, ctx.resourceId);
     const now = new Date();
     const previousStatus = sub.status;
-    await services.db.db
+    // Optimistic concurrency: gate the UPDATE on the status we observed
+    // when we read the row. If a concurrent webhook already advanced the
+    // state machine, `.returning()` comes back empty and we skip the
+    // fan-out so the same transition never fires twice (e.g., two
+    // payment.updated events arriving 100ms apart both seeing
+    // status='pending' and both dispatching activation email).
+    const updated = await services.db.db
       .update(schema.subscriptions)
       .set({
         status: fresh.status,
@@ -435,7 +441,14 @@ async function handleMpSubscriptionEvent(
         cancelledAt: fresh.status === 'cancelled' ? now : null,
         updatedAt: now,
       })
-      .where(eq(schema.subscriptions.id, sub.id));
+      .where(
+        and(eq(schema.subscriptions.id, sub.id), eq(schema.subscriptions.status, previousStatus)),
+      )
+      .returning({ id: schema.subscriptions.id });
+    if (updated.length === 0) {
+      // Concurrent winner already advanced; nothing more to do here.
+      return { ok: true, deferred: false };
+    }
 
     // Buyer + producer fan-out on first activation (pending → active/trialing).
     // Emits delivery email + WhatsApp using subscription-side customer data.

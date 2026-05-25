@@ -371,8 +371,23 @@ export const workspaceRouter = router({
           publicar: z.boolean(),
           primeiraVenda: z.boolean(),
         }),
+        /**
+         * Production-readiness checklist — surfaces the *last mile*
+         * before going public. Independent of the basic onboarding
+         * steps so producers can ship a sandbox test, then come back
+         * here to flip every guard rail on for real money.
+         */
+        production: z.object({
+          gatewayProduction: z.boolean(),
+          producerNotifyPhone: z.boolean(),
+          waProductionReady: z.boolean(),
+          brandComplete: z.boolean(),
+          testPurchase: z.boolean(),
+        }),
         completedCount: z.number().int().nonnegative(),
         totalSteps: z.number().int().positive(),
+        productionCompletedCount: z.number().int().nonnegative(),
+        productionTotalSteps: z.number().int().positive(),
         completedAt: z.date().nullable(),
         minimizedAt: z.date().nullable(),
         dismissedAt: z.date().nullable(),
@@ -399,6 +414,17 @@ export const workspaceRouter = router({
         .select({ n: sql<number>`count(*)::int` })
         .from(schema.gatewayCredentials)
         .where(eq(schema.gatewayCredentials.workspaceId, ctx.workspaceId));
+      // Distinct count of *production* (non-sandbox) gateway credentials
+      // — drives the production-readiness checklist below.
+      const [gatewayProdCount] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.gatewayCredentials)
+        .where(
+          and(
+            eq(schema.gatewayCredentials.workspaceId, ctx.workspaceId),
+            eq(schema.gatewayCredentials.isSandbox, false),
+          ),
+        );
       const [waSession] = await db
         .select({ status: schema.whatsappSessions.status })
         .from(schema.whatsappSessions)
@@ -416,6 +442,11 @@ export const workspaceRouter = router({
         .where(
           and(eq(schema.orders.workspaceId, ctx.workspaceId), eq(schema.orders.status, 'paid')),
         );
+      const [producerNotifyRow] = await db
+        .select({ phone: schema.workspaces.notificationPhoneE164 })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, ctx.workspaceId))
+        .limit(1);
 
       const marca = (wsRow.companyName?.trim().length ?? 0) > 0 || wsRow.hasLogo === true;
       const gateway = Number(gatewayCount?.n ?? 0) > 0;
@@ -427,6 +458,18 @@ export const workspaceRouter = router({
       const steps = { marca, gateway, whatsapp, produto, publicar, primeiraVenda };
       const totalSteps = Object.keys(steps).length;
       const completedCount = Object.values(steps).filter(Boolean).length;
+
+      // Production-readiness checklist. Reuses signals computed above so
+      // we don't double-query the DB.
+      const production = {
+        gatewayProduction: Number(gatewayProdCount?.n ?? 0) > 0,
+        producerNotifyPhone: !!producerNotifyRow?.phone?.trim(),
+        waProductionReady: whatsapp,
+        brandComplete: (wsRow.companyName?.trim().length ?? 0) > 0 && wsRow.hasLogo === true,
+        testPurchase: primeiraVenda,
+      };
+      const productionTotalSteps = Object.keys(production).length;
+      const productionCompletedCount = Object.values(production).filter(Boolean).length;
 
       let completedAt = wsRow.completedAt;
       if (completedCount === totalSteps && !completedAt) {
@@ -443,8 +486,11 @@ export const workspaceRouter = router({
       return {
         view,
         steps,
+        production,
         completedCount,
         totalSteps,
+        productionCompletedCount,
+        productionTotalSteps,
         completedAt,
         minimizedAt: wsRow.minimizedAt,
         dismissedAt: wsRow.dismissedAt,
