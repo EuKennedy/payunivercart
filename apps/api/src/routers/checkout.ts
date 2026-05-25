@@ -410,6 +410,27 @@ export const checkoutRouter = router({
          * Falls back to a deterministic hash if omitted.
          */
         clientRequestId: z.string().trim().min(8).max(64).optional(),
+        /**
+         * Server-side tracking click IDs captured from the buyer's
+         * browser cookies / landing URL params. The dispatcher feeds
+         * these into Meta CAPI (fbp/fbc), Google Ads (gclid), TikTok
+         * (ttclid) so the conversion event matches the original ad
+         * click in each provider's attribution model.
+         *
+         * The frontend reads them from `document.cookie` + the URL
+         * search string and forwards as-is. Never strict-validated
+         * because each provider tolerates different formats; the
+         * adapter passes them through and the provider rejects garbage
+         * silently.
+         */
+        clickIds: z
+          .object({
+            fbp: z.string().trim().max(256).optional(),
+            fbc: z.string().trim().max(256).optional(),
+            gclid: z.string().trim().max(256).optional(),
+            ttclid: z.string().trim().max(256).optional(),
+          })
+          .optional(),
       }),
     )
     .output(
@@ -548,6 +569,21 @@ export const checkoutRouter = router({
             subtotalCents: totalCents,
             totalCents,
             currency,
+            ipAddress:
+              ctx.honoCtx.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
+              ctx.honoCtx.req.header('x-real-ip')?.trim() ??
+              input.clientIp ??
+              null,
+            userAgent: ctx.honoCtx.req.header('user-agent') ?? null,
+            // Stash buyer-side tracking signals on the order so the
+            // post-payment webhook handler can read them out + feed
+            // the Pilar 2 dispatcher. Cookie values + URL click IDs
+            // both go here so the eventual server-side Purchase fire
+            // matches the original ad click in each provider's
+            // attribution model.
+            metadata: {
+              trackingClickIds: input.clickIds ?? null,
+            },
           })
           .returning({ id: schema.orders.id });
         if (!order) {

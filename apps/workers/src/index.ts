@@ -104,6 +104,18 @@ async function main() {
     },
   );
 
+  // Pilar 4 — marketplace cached counters rollup. Hourly is enough;
+  // the `popular` sort uses cachedPurchases + cachedClicks so a fresh
+  // listing climbs the ranks within an hour of its first conversion.
+  await queues.marketplaceRollup.upsertJobScheduler(
+    'hourly',
+    { every: 60 * 60 * 1000 },
+    {
+      name: 'marketplace.rollup.sweep',
+      data: {},
+    },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,

@@ -5,6 +5,7 @@ import { Worker, type WorkerOptions } from 'bullmq';
 import type IORedis from 'ioredis';
 import type { WorkersEnv } from './env';
 import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
+import { runMarketplaceRollup } from './handlers/marketplace-rollup';
 import { runRecoverySweep } from './handlers/recovery';
 import { runTrackingDispatchSweep } from './handlers/tracking-dispatch';
 import { QUEUE_NAMES } from './queues';
@@ -128,6 +129,20 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // Pilar 4 — marketplace cached counters rollup. Hourly sweep that
+  // refreshes cachedClicks + cachedPurchases so the `popular` sort on
+  // /marketplace stays accurate without scanning the orders table on
+  // every public hit.
+  const marketplaceRollup = new Worker(
+    QUEUE_NAMES.marketplaceRollup,
+    async (job) => {
+      const result = await runMarketplaceRollup({ db: dbWrapper });
+      logEvent('marketplace.rollup.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   for (const w of [
     webhookInbound,
     webhookOutbox,
@@ -136,6 +151,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     connectDeliveries,
     affiliateRollover,
     trackingDispatch,
+    marketplaceRollup,
   ]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
@@ -149,6 +165,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
 
   return [
     trackingDispatch,
+    marketplaceRollup,
     webhookInbound,
     webhookOutbox,
     recovery,

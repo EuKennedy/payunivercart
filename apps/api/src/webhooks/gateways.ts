@@ -344,11 +344,16 @@ async function dispatchPurchaseTrackingEvent(
       customerEmail: schema.orders.customerEmail,
       customerDocument: schema.orders.customerDocument,
       customerPhoneE164: schema.orders.customerPhoneE164,
+      ipAddress: schema.orders.ipAddress,
+      userAgent: schema.orders.userAgent,
+      metadata: schema.orders.metadata,
     })
     .from(schema.orders)
     .where(eq(schema.orders.id, orderId))
     .limit(1);
   if (!order) return;
+  const clickIds = ((order.metadata as { trackingClickIds?: Record<string, string | null> })
+    ?.trackingClickIds ?? {}) as Record<string, string | null>;
   const [firstItem] = await services.db.db
     .select({
       productId: schema.orderItems.productId,
@@ -385,6 +390,12 @@ async function dispatchPurchaseTrackingEvent(
         name: order.customerName,
         document: order.customerDocument,
         country: 'BR',
+        clientIpAddress: order.ipAddress,
+        clientUserAgent: order.userAgent,
+        fbp: clickIds.fbp ?? null,
+        fbc: clickIds.fbc ?? null,
+        gclid: clickIds.gclid ?? null,
+        ttclid: clickIds.ttclid ?? null,
       },
     },
   });

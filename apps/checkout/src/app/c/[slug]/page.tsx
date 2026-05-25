@@ -5,7 +5,7 @@ import type { inferRouterOutputs } from '@trpc/server';
 import clsx from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
-import { use, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { ThemeToggle } from '../../../components/ThemeToggle';
 import {
   maskBrPhone,
@@ -87,8 +87,52 @@ export default function CheckoutPage({ params }: { params: Promise<{ slug: strin
   return <CheckoutView slug={slug} data={product.data} />;
 }
 
+/**
+ * Server-side tracking click-id capture. Reads:
+ *   - `_fbp`, `_fbc` from cookies (Meta first-party cookie set by the
+ *     browser pixel; falls back to a synthesised fbc when only `fbclid`
+ *     URL param is present, per Meta CAPI spec)
+ *   - `gclid`  from URL search params (Google Ads click id)
+ *   - `ttclid` from URL search params (TikTok click id)
+ *
+ * Stored in a ref so a re-render between the user identifying and
+ * paying doesn't lose the values. Refreshed on mount + on URL change.
+ */
+function useTrackingClickIds(): {
+  fbp?: string;
+  fbc?: string;
+  gclid?: string;
+  ttclid?: string;
+} {
+  const ref = useRef<{ fbp?: string; fbc?: string; gclid?: string; ttclid?: string }>({});
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const cookies = Object.fromEntries(
+      document.cookie.split(';').map((c) => {
+        const [k, ...v] = c.trim().split('=');
+        return [k ?? '', decodeURIComponent(v.join('=') ?? '')];
+      }),
+    );
+    const fbp = cookies._fbp || undefined;
+    const cookieFbc = cookies._fbc;
+    const fbclid = searchParams.get('fbclid');
+    // Meta spec: when only fbclid is present, synthesise fbc as
+    //   fb.1.{unix_ms}.{fbclid}
+    const fbc = cookieFbc || (fbclid ? `fb.1.${Date.now()}.${fbclid}` : undefined) || undefined;
+    ref.current = {
+      fbp,
+      fbc,
+      gclid: searchParams.get('gclid') ?? undefined,
+      ttclid: searchParams.get('ttclid') ?? undefined,
+    };
+  }, [searchParams]);
+  return ref.current;
+}
+
 function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
+  const clickIds = useTrackingClickIds();
 
   const [step, setStep] = useState<'identify' | 'pay'>('identify');
   const [method, setMethod] = useState<Method>('pix');
@@ -239,6 +283,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
               country: 'BR',
             }
           : undefined,
+      clickIds,
     });
   };
 
@@ -2038,6 +2083,7 @@ function SubscriptionSuccess({
 
 function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
+  const clickIds = useTrackingClickIds();
 
   const [step, setStep] = useState<'identify' | 'method' | 'pay'>('identify');
   const [method, setMethod] = useState<Method>('pix');
@@ -2168,6 +2214,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
               country: 'BR',
             }
           : undefined,
+      clickIds,
     });
   };
 
@@ -2984,6 +3031,7 @@ function MethodPickCard({
 
 function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const { product, workspace } = data;
+  const clickIds = useTrackingClickIds();
 
   const [step, setStep] = useState<'identify' | 'pay'>('identify');
   const [method, setMethod] = useState<Method>('pix');
@@ -3114,6 +3162,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
               country: 'BR',
             }
           : undefined,
+      clickIds,
     });
   };
 

@@ -1,6 +1,6 @@
 import { schema } from '@payunivercart/db';
 import { TRPCError } from '@trpc/server';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getAdapter, isProviderSupported } from '../tracking/providers';
 import type { TrackingProvider } from '../tracking/types';
@@ -406,5 +406,132 @@ export const trackingRouter = router({
           ),
         );
       return { ok: true as const };
+    }),
+
+  /**
+   * Dispatch ledger view. Producer-facing query for the "Eventos" tab.
+   * Filters by status / provider / event type. Pagination via keyset
+   * cursor (createdAt|id) — stable across replicas, no offset trauma.
+   *
+   * Response intentionally STRIPS the full payload + provider response
+   * blobs by default — they can be 5-8 KB each and the dispatcher
+   * already truncates them. We return summary fields the producer
+   * needs for the table view; a future detail endpoint can pull the
+   * full row by id when the producer drills in.
+   */
+  listEvents: workspaceProcedure
+    .input(
+      z
+        .object({
+          status: z.enum(['pending', 'sent', 'failed', 'dropped']).optional(),
+          provider: z.enum(['meta', 'ga4', 'tiktok', 'google_ads', 'pinterest', 'kwai']).optional(),
+          eventType: z
+            .enum([
+              'page_view',
+              'view_content',
+              'add_to_cart',
+              'initiate_checkout',
+              'add_payment_info',
+              'purchase',
+              'subscribe',
+              'subscription_renew',
+              'lead',
+              'complete_registration',
+            ])
+            .optional(),
+          pixelId: z.string().uuid().optional(),
+          limit: z.number().int().min(1).max(100).default(50),
+        })
+        .optional(),
+    )
+    .output(
+      z.object({
+        items: z.array(
+          z.object({
+            id: z.string().uuid(),
+            pixelId: z.string().uuid(),
+            pixelLabel: z.string(),
+            provider: z.enum(['meta', 'ga4', 'tiktok', 'google_ads', 'pinterest', 'kwai']),
+            eventType: z.string(),
+            sourceType: z.string(),
+            sourceId: z.string(),
+            providerEventId: z.string().nullable(),
+            status: z.enum(['pending', 'sent', 'failed', 'dropped']),
+            httpStatus: z.number().int().nullable(),
+            attemptCount: z.number().int().nonnegative(),
+            lastError: z.string().nullable(),
+            sentAt: z.date().nullable(),
+            createdAt: z.date(),
+          }),
+        ),
+        totals: z.object({
+          sent: z.number().int().nonnegative(),
+          failed: z.number().int().nonnegative(),
+          pending: z.number().int().nonnegative(),
+          dropped: z.number().int().nonnegative(),
+        }),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 50;
+      const where = and(
+        eq(schema.trackingDispatches.workspaceId, ctx.workspaceId),
+        input?.status ? eq(schema.trackingDispatches.status, input.status) : undefined,
+        input?.eventType ? eq(schema.trackingDispatches.eventType, input.eventType) : undefined,
+        input?.pixelId ? eq(schema.trackingDispatches.pixelId, input.pixelId) : undefined,
+        input?.provider ? eq(schema.trackingPixels.provider, input.provider) : undefined,
+      );
+
+      const rows = await ctx.services.db.db
+        .select({
+          id: schema.trackingDispatches.id,
+          pixelId: schema.trackingDispatches.pixelId,
+          pixelLabel: schema.trackingPixels.label,
+          provider: schema.trackingPixels.provider,
+          eventType: schema.trackingDispatches.eventType,
+          sourceType: schema.trackingDispatches.sourceType,
+          sourceId: schema.trackingDispatches.sourceId,
+          providerEventId: schema.trackingDispatches.providerEventId,
+          status: schema.trackingDispatches.status,
+          httpStatus: schema.trackingDispatches.httpStatus,
+          attemptCount: schema.trackingDispatches.attemptCount,
+          lastError: schema.trackingDispatches.lastError,
+          sentAt: schema.trackingDispatches.sentAt,
+          createdAt: schema.trackingDispatches.createdAt,
+        })
+        .from(schema.trackingDispatches)
+        .innerJoin(
+          schema.trackingPixels,
+          eq(schema.trackingPixels.id, schema.trackingDispatches.pixelId),
+        )
+        .where(where)
+        .orderBy(desc(schema.trackingDispatches.createdAt))
+        .limit(limit);
+
+      // Workspace-scoped totals — cheap COUNT GROUP BY status, gives
+      // the UI its status bar without a second round-trip.
+      const totalRows = await ctx.services.db.db
+        .select({
+          status: schema.trackingDispatches.status,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(schema.trackingDispatches)
+        .where(eq(schema.trackingDispatches.workspaceId, ctx.workspaceId))
+        .groupBy(schema.trackingDispatches.status);
+      const totals = { sent: 0, failed: 0, pending: 0, dropped: 0 };
+      for (const t of totalRows) {
+        if (t.status in totals) {
+          totals[t.status as keyof typeof totals] = Number(t.n ?? 0);
+        }
+      }
+
+      return {
+        items: rows.map((r) => ({
+          ...r,
+          provider: r.provider as 'meta' | 'ga4' | 'tiktok' | 'google_ads' | 'pinterest' | 'kwai',
+          status: r.status as 'pending' | 'sent' | 'failed' | 'dropped',
+        })),
+        totals,
+      };
     }),
 });

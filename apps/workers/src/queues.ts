@@ -26,6 +26,9 @@ export const QUEUE_NAMES = {
    *  the `tracking_dispatches` queue, calls each provider's API, and
    *  flips status accordingly. */
   trackingDispatch: 'tracking.dispatch',
+  /** Pilar 4 — marketplace cached counters rollup. Hourly sweep that
+   *  refreshes cachedClicks + cachedPurchases on listings. */
+  marketplaceRollup: 'marketplace.rollup',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -39,6 +42,7 @@ export interface QueueBundle {
   connectDeliveries: Queue;
   affiliateRollover: Queue;
   trackingDispatch: Queue;
+  marketplaceRollup: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -69,5 +73,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     connectDeliveries: new Queue(QUEUE_NAMES.connectDeliveries, opts),
     affiliateRollover: new Queue(QUEUE_NAMES.affiliateRollover, opts),
     trackingDispatch: new Queue(QUEUE_NAMES.trackingDispatch, opts),
+    marketplaceRollup: new Queue(QUEUE_NAMES.marketplaceRollup, opts),
   };
 }

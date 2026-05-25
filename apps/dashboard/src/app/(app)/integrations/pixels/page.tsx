@@ -254,20 +254,292 @@ export default function PixelsPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.24, ease: EASE }}
-            className="rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-6 py-16 text-center"
           >
-            <p className="font-semibold text-[16px] text-[var(--color-fg)]">
-              Histórico de disparos
-            </p>
-            <p className="mt-2 max-w-md mx-auto text-[13px] text-[var(--color-fg-muted)] leading-[1.5]">
-              O ledger por pixel + filtros por status/provider/event entram aqui no próximo release.
-              A coleta já roda em background — os dados estão sendo armazenados.
-            </p>
+            <EventsTab />
           </motion.section>
         ) : null}
       </AnimatePresence>
     </div>
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* EVENTS TAB                                                                 */
+/* -------------------------------------------------------------------------- */
+
+type EventStatus = 'pending' | 'sent' | 'failed' | 'dropped';
+
+const EVENT_STATUS_FILTERS: { value: EventStatus | undefined; label: string }[] = [
+  { value: undefined, label: 'Todos' },
+  { value: 'sent', label: 'Entregues' },
+  { value: 'failed', label: 'Falhas' },
+  { value: 'pending', label: 'Pendentes' },
+  { value: 'dropped', label: 'Descartados' },
+];
+
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  page_view: 'PageView',
+  view_content: 'ViewContent',
+  add_to_cart: 'AddToCart',
+  initiate_checkout: 'InitiateCheckout',
+  add_payment_info: 'AddPaymentInfo',
+  purchase: 'Purchase',
+  subscribe: 'Subscribe',
+  subscription_renew: 'Renewal',
+  lead: 'Lead',
+  complete_registration: 'Registration',
+};
+
+function EventsTab() {
+  const [status, setStatus] = useState<EventStatus | undefined>(undefined);
+  const [provider, setProvider] = useState<ProviderId | undefined>(undefined);
+  const data = trpc.tracking.listEvents.useQuery(
+    { status, provider, limit: 100 },
+    { refetchInterval: 15_000 },
+  );
+
+  if (data.isPending) {
+    return (
+      <div className="flex flex-col gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: skeleton.
+            key={i}
+            className="h-14 animate-pulse rounded-xl bg-[var(--color-surface-muted)]"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  const items = data.data?.items ?? [];
+  const totals = data.data?.totals ?? { sent: 0, failed: 0, pending: 0, dropped: 0 };
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Stats row */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Entregues" value={totals.sent} tone="success" />
+        <StatCard label="Falhas" value={totals.failed} tone="danger" />
+        <StatCard label="Pendentes" value={totals.pending} tone="warning" />
+        <StatCard label="Descartados" value={totals.dropped} tone="muted" />
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap gap-1.5">
+          {EVENT_STATUS_FILTERS.map((f) => (
+            <motion.button
+              key={f.value ?? 'all'}
+              type="button"
+              onClick={() => setStatus(f.value)}
+              whileTap={{ scale: 0.94 }}
+              className={
+                status === f.value
+                  ? 'cursor-pointer rounded-full border border-[var(--color-fg)] bg-[var(--color-fg)] px-3 py-1 font-semibold text-[11px] text-[var(--color-fg-inverse)] uppercase tracking-wider'
+                  : 'cursor-pointer rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 font-medium text-[11px] text-[var(--color-fg-muted)] uppercase tracking-wider transition hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
+              }
+            >
+              {f.label}
+            </motion.button>
+          ))}
+        </div>
+        <span className="text-[12px] text-[var(--color-fg-subtle)]">·</span>
+        <select
+          value={provider ?? ''}
+          onChange={(e) => setProvider((e.target.value || undefined) as ProviderId | undefined)}
+          className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 font-medium text-[11px] text-[var(--color-fg-muted)] uppercase tracking-wider transition hover:border-[var(--color-border-strong)]"
+        >
+          <option value="">Todos providers</option>
+          <option value="meta">Meta</option>
+          <option value="ga4">GA4</option>
+          <option value="tiktok">TikTok</option>
+          <option value="google_ads">Google Ads</option>
+          <option value="pinterest">Pinterest</option>
+          <option value="kwai">Kwai</option>
+        </select>
+        <span className="ml-auto text-[11px] text-[var(--color-fg-subtle)]">
+          Atualiza a cada 15s · {items.length} mostrados
+        </span>
+      </div>
+
+      {/* Table */}
+      {items.length === 0 ? (
+        <p className="rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-6 py-16 text-center text-[13px] text-[var(--color-fg-subtle)]">
+          Nenhum evento encontrado com esses filtros.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)]">
+          <table className="w-full text-[13px]">
+            <thead className="bg-[var(--color-surface-muted)]/60">
+              <tr className="text-left">
+                <Th>Status</Th>
+                <Th>Pixel</Th>
+                <Th>Evento</Th>
+                <Th>Origem</Th>
+                <Th>Tentativas</Th>
+                <Th>Quando</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--color-border)]">
+              <AnimatePresence initial={false}>
+                {items.map((evt) => {
+                  const tile = TILES.find((t) => t.id === evt.provider);
+                  return (
+                    <motion.tr
+                      key={evt.id}
+                      layout
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2, ease: EASE }}
+                      className="transition hover:bg-[var(--color-surface-muted)]/40"
+                    >
+                      <Td>
+                        <StatusPill status={evt.status} httpStatus={evt.httpStatus} />
+                      </Td>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="size-2.5 shrink-0 rounded-full"
+                            style={{
+                              background: `linear-gradient(135deg, ${tile?.brandFrom ?? '#666'}, ${tile?.brandTo ?? '#333'})`,
+                            }}
+                            aria-hidden
+                          />
+                          <span className="truncate font-medium text-[var(--color-fg)]">
+                            {evt.pixelLabel}
+                          </span>
+                        </div>
+                      </Td>
+                      <Td>
+                        <span className="font-mono text-[11px] text-[var(--color-fg-muted)]">
+                          {EVENT_TYPE_LABEL[evt.eventType] ?? evt.eventType}
+                        </span>
+                      </Td>
+                      <Td>
+                        <span className="font-mono text-[11px] text-[var(--color-fg-subtle)]">
+                          {evt.sourceType}:{evt.sourceId.slice(0, 8)}…
+                        </span>
+                      </Td>
+                      <Td>
+                        <span className="font-mono text-[11px] tabular-nums text-[var(--color-fg-muted)]">
+                          {evt.attemptCount}/6
+                        </span>
+                      </Td>
+                      <Td>
+                        <time
+                          className="text-[11px] text-[var(--color-fg-subtle)]"
+                          dateTime={
+                            evt.sentAt
+                              ? new Date(evt.sentAt).toISOString()
+                              : new Date(evt.createdAt).toISOString()
+                          }
+                        >
+                          {formatRelative(new Date(evt.sentAt ?? evt.createdAt))}
+                        </time>
+                        {evt.lastError ? (
+                          <div className="mt-1 line-clamp-1 text-[11px] text-[var(--color-danger)]">
+                            {evt.lastError}
+                          </div>
+                        ) : null}
+                      </Td>
+                    </motion.tr>
+                  );
+                })}
+              </AnimatePresence>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'success' | 'danger' | 'warning' | 'muted';
+}) {
+  const toneCls = {
+    success:
+      'border-[var(--color-success)]/30 bg-gradient-to-br from-[var(--color-success-bg)]/40 to-[var(--color-surface)] text-[var(--color-success)]',
+    danger:
+      'border-[var(--color-danger)]/30 bg-gradient-to-br from-[var(--color-danger-bg)]/40 to-[var(--color-surface)] text-[var(--color-danger)]',
+    warning:
+      'border-[var(--color-warning)]/30 bg-gradient-to-br from-[var(--color-warning-bg)]/40 to-[var(--color-surface)] text-[var(--color-warning)]',
+    muted: 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-subtle)]',
+  }[tone];
+  return (
+    <div className={`flex flex-col gap-1 rounded-2xl border p-4 ${toneCls}`}>
+      <span className="font-semibold text-[10px] uppercase tracking-[0.14em] opacity-80">
+        {label}
+      </span>
+      <span className="font-bold text-[24px] text-[var(--color-fg)] tabular-nums">
+        {value.toLocaleString('pt-BR')}
+      </span>
+    </div>
+  );
+}
+
+function StatusPill({
+  status,
+  httpStatus,
+}: {
+  status: EventStatus;
+  httpStatus: number | null;
+}) {
+  const map: Record<EventStatus, { label: string; cls: string }> = {
+    sent: {
+      label: '✓ Entregue',
+      cls: 'bg-[var(--color-success-bg)] text-[var(--color-success)]',
+    },
+    failed: {
+      label: '↻ Falha',
+      cls: 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]',
+    },
+    pending: {
+      label: '… Pendente',
+      cls: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]',
+    },
+    dropped: {
+      label: '× Descartado',
+      cls: 'bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)]',
+    },
+  };
+  const meta = map[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold text-[10px] uppercase tracking-wider ${meta.cls}`}
+    >
+      {meta.label}
+      {httpStatus ? <span className="font-mono opacity-60">· {httpStatus}</span> : null}
+    </span>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return (
+    <th className="px-4 py-3 font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.12em]">
+      {children}
+    </th>
+  );
+}
+
+function Td({ children }: { children: React.ReactNode }) {
+  return <td className="px-4 py-3 align-middle">{children}</td>;
+}
+
+function formatRelative(date: Date): string {
+  const diff = Date.now() - date.getTime();
+  if (diff < 60_000) return 'agora mesmo';
+  if (diff < 3_600_000) return `há ${Math.floor(diff / 60_000)} min`;
+  if (diff < 86_400_000) return `há ${Math.floor(diff / 3_600_000)} h`;
+  return date.toLocaleDateString('pt-BR');
 }
 
 /* -------------------------------------------------------------------------- */

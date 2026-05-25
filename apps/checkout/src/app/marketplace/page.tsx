@@ -4,9 +4,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
 import { trpc } from '../../lib/trpc';
 
-/** Checkout app serves itself — public listing links to `/c/:slug`. */
-const CHECKOUT_BASE = (typeof window !== 'undefined' ? window.location.origin : '') || '';
-
 /**
  * Pilar 4 — Public marketplace page. Hits `marketplace.browse` and
  * renders a grid of producer-published listings with category +
@@ -177,7 +174,10 @@ function ListingCard({
     currency: string;
   };
 }) {
-  const checkoutUrl = `${CHECKOUT_BASE}/c/${listing.productSlug}`;
+  // Card click routes to the detail page (which then routes to the
+  // producer's checkout). Two-step lets us record clicks server-side
+  // + show the pitch before the buyer leaves the marketplace.
+  const detailUrl = `/marketplace/${listing.id}`;
   const recordClick = trpc.marketplace.recordClick.useMutation();
   const formattedPrice = new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -185,9 +185,7 @@ function ListingCard({
   }).format(listing.priceCents / 100);
   return (
     <motion.a
-      href={checkoutUrl}
-      target="_blank"
-      rel="noreferrer"
+      href={detailUrl}
       onClick={() => recordClick.mutate({ listingId: listing.id })}
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2, ease: EASE }}
