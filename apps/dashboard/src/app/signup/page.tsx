@@ -3,10 +3,24 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { RedirectIfAuthed } from '../../components/RedirectIfAuthed';
 import { Button, Heading, Input, Kicker } from '../../components/ui';
 import { signUp } from '../../lib/auth';
 
+/**
+ * Signup — wrapped in `<RedirectIfAuthed>` so an already-authed
+ * visitor lands on /dashboard instead of being asked to create a new
+ * account.
+ */
 export default function SignupPage() {
+  return (
+    <RedirectIfAuthed>
+      <SignupPageInner />
+    </RedirectIfAuthed>
+  );
+}
+
+function SignupPageInner() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');

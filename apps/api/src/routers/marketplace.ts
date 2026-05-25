@@ -474,6 +474,111 @@ export const marketplaceRouter = router({
     }),
 
   /**
+   * Detail page for a single affiliate-eligible listing. The producer's
+   * pitch (long copy) lives on the listing row; the program info is
+   * resolved with the same "product-scoped first, workspace-wide
+   * fallback" rule used in `browseForAffiliation`. Returns NULL when
+   * the listing is missing, not `live`, or its workspace has no public+
+   * active program — same gates the grid applies so a bookmarked URL
+   * never leaks an unaffiliable card.
+   */
+  detailForAffiliation: publicProcedure
+    .input(z.object({ listingId: z.string().uuid() }))
+    .output(AffiliateListing.nullable())
+    .query(async ({ ctx, input }) => {
+      const programJson = sql<{
+        id: string;
+        approval_policy: 'automatic' | 'manual' | 'invite_only';
+        commission_type: 'percent' | 'flat' | 'recurring' | 'lifetime';
+        commission_percent: number | null;
+        commission_flat_cents: string | null;
+        recurring_cycle_limit: number | null;
+        refund_window_days: number;
+        attribution_window_days: number;
+      } | null>`(
+        SELECT to_jsonb(t) FROM (
+          SELECT
+            id::text AS id,
+            approval_policy,
+            commission_type,
+            commission_percent,
+            commission_flat_cents::text AS commission_flat_cents,
+            recurring_cycle_limit,
+            refund_window_days,
+            attribution_window_days
+          FROM ${schema.affiliatePrograms} ap
+          WHERE ap.workspace_id = ${schema.marketplaceListings.workspaceId}
+            AND ap.is_active::text = 'true'
+            AND ap.is_public::text = 'true'
+            AND (ap.product_id = ${schema.marketplaceListings.productId} OR ap.product_id IS NULL)
+          ORDER BY (ap.product_id IS NULL) ASC, ap.created_at ASC
+          LIMIT 1
+        ) t
+      )`;
+
+      const [row] = await ctx.services.db.db
+        .select({
+          id: schema.marketplaceListings.id,
+          productId: schema.marketplaceListings.productId,
+          productSlug: schema.products.slug,
+          workspaceName: schema.workspaces.companyName,
+          workspaceNameFallback: schema.workspaces.name,
+          category: schema.marketplaceListings.category,
+          headline: schema.marketplaceListings.headline,
+          pitch: schema.marketplaceListings.pitch,
+          coverImageUrl: schema.marketplaceListings.coverImageUrl,
+          priceCents: schema.productOffers.amountCents,
+          currency: schema.productOffers.currency,
+          publishedAt: schema.marketplaceListings.publishedAt,
+          program: programJson,
+        })
+        .from(schema.marketplaceListings)
+        .innerJoin(schema.products, eq(schema.products.id, schema.marketplaceListings.productId))
+        .innerJoin(
+          schema.workspaces,
+          eq(schema.workspaces.id, schema.marketplaceListings.workspaceId),
+        )
+        .innerJoin(
+          schema.productOffers,
+          and(
+            eq(schema.productOffers.productId, schema.products.id),
+            eq(schema.productOffers.isDefault, true),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.marketplaceListings.id, input.listingId),
+            eq(schema.marketplaceListings.status, 'live'),
+          ),
+        )
+        .limit(1);
+      if (!row || !row.program) return null;
+      const prog = row.program;
+      return {
+        id: row.id,
+        productId: row.productId,
+        productSlug: row.productSlug,
+        workspaceName: (row.workspaceName ?? row.workspaceNameFallback) || 'Anônimo',
+        category: row.category as z.infer<typeof Category>,
+        headline: row.headline,
+        pitch: row.pitch,
+        coverImageUrl: row.coverImageUrl,
+        priceCents: Number(row.priceCents ?? 0),
+        currency: row.currency,
+        publishedAt: row.publishedAt,
+        defaultProgramId: prog.id,
+        approvalPolicy: prog.approval_policy,
+        commissionType: prog.commission_type,
+        commissionPercent: prog.commission_percent,
+        commissionFlatCents:
+          prog.commission_flat_cents == null ? null : Number(prog.commission_flat_cents),
+        recurringCycleLimit: prog.recurring_cycle_limit,
+        refundWindowDays: prog.refund_window_days,
+        attributionWindowDays: prog.attribution_window_days,
+      };
+    }),
+
+  /**
    * Click tracker. Fires from the public listing card / detail page.
    * Idempotent by (listing, day, ip-hash) thanks to the unique
    * constraint — only the FIRST hit of the day per IP counts.

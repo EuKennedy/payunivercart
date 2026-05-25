@@ -3,6 +3,7 @@
 import type { AppRouter } from '@payunivercart/api/routers';
 import type { inferRouterOutputs } from '@trpc/server';
 import { AnimatePresence, motion } from 'framer-motion';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -312,6 +313,12 @@ function ListingCard({
           <Button onClick={onAffiliate} disabled={disabled} className="w-full" size="sm">
             {disabled ? 'Solicitando…' : 'Afiliar-se'}
           </Button>
+          <Link
+            href={`/afiliar/${item.id}`}
+            className="text-center font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
+          >
+            Ver detalhes do produto →
+          </Link>
         </div>
       </div>
     </motion.article>

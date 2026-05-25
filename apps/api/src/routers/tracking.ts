@@ -474,13 +474,21 @@ export const trackingRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const limit = input?.limit ?? 50;
-      const where = and(
+
+      // Filters that scope BOTH the row list and the per-status totals
+      // (provider, eventType, pixelId). Status is intentionally
+      // separated — it's the column the totals group by, so applying
+      // it would zero out every other bucket.
+      const scopeFilters = and(
         eq(schema.trackingDispatches.workspaceId, ctx.workspaceId),
-        input?.status ? eq(schema.trackingDispatches.status, input.status) : undefined,
         input?.eventType ? eq(schema.trackingDispatches.eventType, input.eventType) : undefined,
         input?.pixelId ? eq(schema.trackingDispatches.pixelId, input.pixelId) : undefined,
         input?.provider ? eq(schema.trackingPixels.provider, input.provider) : undefined,
       );
+
+      const where = input?.status
+        ? and(scopeFilters, eq(schema.trackingDispatches.status, input.status))
+        : scopeFilters;
 
       const rows = await ctx.services.db.db
         .select({
@@ -508,15 +516,25 @@ export const trackingRouter = router({
         .orderBy(desc(schema.trackingDispatches.createdAt))
         .limit(limit);
 
-      // Workspace-scoped totals — cheap COUNT GROUP BY status, gives
-      // the UI its status bar without a second round-trip.
-      const totalRows = await ctx.services.db.db
+      // Per-status totals now mirror the *visible* slice: the producer
+      // filtering by Meta + AddToCart sees the Meta/AddToCart counts in
+      // the status pills, not the noisy workspace-wide totals. We join
+      // tracking_pixels only when the provider filter is set (saves a
+      // join on the hot, unfiltered case).
+      const totalsQueryBuilder = ctx.services.db.db
         .select({
           status: schema.trackingDispatches.status,
           n: sql<number>`count(*)::int`,
         })
-        .from(schema.trackingDispatches)
-        .where(eq(schema.trackingDispatches.workspaceId, ctx.workspaceId))
+        .from(schema.trackingDispatches);
+      const totalsQuery = input?.provider
+        ? totalsQueryBuilder.innerJoin(
+            schema.trackingPixels,
+            eq(schema.trackingPixels.id, schema.trackingDispatches.pixelId),
+          )
+        : totalsQueryBuilder;
+      const totalRows = await totalsQuery
+        .where(scopeFilters)
         .groupBy(schema.trackingDispatches.status);
       const totals = { sent: 0, failed: 0, pending: 0, dropped: 0 };
       for (const t of totalRows) {

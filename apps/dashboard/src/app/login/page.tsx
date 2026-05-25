@@ -3,14 +3,27 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { RedirectIfAuthed } from '../../components/RedirectIfAuthed';
 import { Button, Heading, Input, Kicker } from '../../components/ui';
 import { signIn } from '../../lib/auth';
 
 /**
  * Login — split-screen: form on the left, marketing pillars on the right.
  * Mobile collapses to single column with the form first.
+ *
+ * Wrapped in `<RedirectIfAuthed>` so a returning visitor with an
+ * active session is sent straight to `/dashboard` instead of being
+ * shown a login form they don't need to fill in.
  */
 export default function LoginPage() {
+  return (
+    <RedirectIfAuthed>
+      <LoginPageInner />
+    </RedirectIfAuthed>
+  );
+}
+
+function LoginPageInner() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
