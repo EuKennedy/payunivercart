@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { OnboardingWizard } from '../../../components/OnboardingWizard';
 import { Heading, Kicker, Surface } from '../../../components/ui';
 import { useSession } from '../../../lib/auth';
 import { formatCents } from '../../../lib/money';
@@ -27,7 +26,7 @@ const PERIODS: { value: Period; label: string }[] = [
  *   2. Stat band — 4 large KPIs (Faturamento, Pedidos pagos, Ticket médio,
  *      Taxa de aprovação) com sparklines onde faz sentido.
  *   3. Hero chart — receita por dia (inline SVG area chart, sem dep externa).
- *   4. OnboardingWizard quando workspace ainda não vendeu.
+ *   4. OnboardingFloating (no layout) acompanha o produtor em toda página.
  *   5. Grid 2-col: Top produtos · Métodos de pagamento (donut).
  *   6. Atividade recente (tabela compacta).
  *
@@ -163,7 +162,11 @@ export default function DashboardHome() {
         </div>
       </header>
 
-      {!hasAnyOrders ? <OnboardingWizard /> : null}
+      {/*
+        Inline onboarding wizard moved to the floating widget mounted in
+        the (app)/layout.tsx — `OnboardingFloating` follows the producer
+        across every page instead of only the dashboard.
+       */}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard

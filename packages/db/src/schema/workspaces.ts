@@ -77,6 +77,22 @@ export const workspaces = pgTable(
     timezone: text().notNull().default('America/Sao_Paulo'),
     settings: jsonb().notNull().default({}),
     suspended: boolean().notNull().default(false),
+    /**
+     * Onboarding widget state — drives the floating ClickUp-style
+     * checklist in the dashboard. Three null/timestamp columns instead
+     * of one enum so a producer can complete → reopen by completing a
+     * new step (e.g. trial expansion) without losing history.
+     *
+     * - `onboardingCompletedAt` — every required step done. Widget hides.
+     * - `onboardingMinimizedAt` — collapsed by the producer; widget renders
+     *    as a small chip in the corner. Re-opens on click.
+     * - `onboardingDismissedAt` — explicit "não quero ver". Widget never
+     *    re-renders for this workspace unless an operator manually
+     *    clears the column.
+     */
+    onboardingCompletedAt: timestampTzNullable(),
+    onboardingMinimizedAt: timestampTzNullable(),
+    onboardingDismissedAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),

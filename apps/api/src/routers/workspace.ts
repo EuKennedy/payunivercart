@@ -1,6 +1,6 @@
 import { schema, withWorkspace } from '@payunivercart/db';
 import { TRPCError } from '@trpc/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { authedProcedure, router, workspaceProcedure } from '../trpc';
 import { listOrProvisionMemberships } from '../workspace-lookup';
@@ -342,6 +342,146 @@ export const workspaceRouter = router({
           .set(patch)
           .where(eq(schema.workspaces.id, ctx.workspaceId));
       });
+      return { ok: true as const };
+    }),
+
+  /**
+   * Onboarding floating widget — returns persisted UI state alongside
+   * the computed completion flags so the widget renders in one
+   * round-trip. The widget is presentational; all gating lives here.
+   *
+   * `view` derivation:
+   *   - dismissed (explicit no-show)  → 'hidden'
+   *   - completedAt set                → 'hidden'
+   *   - minimizedAt set                → 'minimized' (corner chip)
+   *   - else                           → 'full' (open panel)
+   *
+   * Auto-completes when every step is done so producers don't see the
+   * widget linger one render after their first paid order.
+   */
+  onboardingState: workspaceProcedure
+    .output(
+      z.object({
+        view: z.enum(['full', 'minimized', 'hidden']),
+        steps: z.object({
+          marca: z.boolean(),
+          gateway: z.boolean(),
+          whatsapp: z.boolean(),
+          produto: z.boolean(),
+          publicar: z.boolean(),
+          primeiraVenda: z.boolean(),
+        }),
+        completedCount: z.number().int().nonnegative(),
+        totalSteps: z.number().int().positive(),
+        completedAt: z.date().nullable(),
+        minimizedAt: z.date().nullable(),
+        dismissedAt: z.date().nullable(),
+      }),
+    )
+    .query(async ({ ctx }) => {
+      const db = ctx.services.db.db;
+      const [wsRow] = await db
+        .select({
+          companyName: schema.workspaces.companyName,
+          hasLogo: sql<boolean>`(${schema.workspaces.brandLogo} IS NOT NULL)`,
+          completedAt: schema.workspaces.onboardingCompletedAt,
+          minimizedAt: schema.workspaces.onboardingMinimizedAt,
+          dismissedAt: schema.workspaces.onboardingDismissedAt,
+        })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, ctx.workspaceId))
+        .limit(1);
+      if (!wsRow) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace inexistente.' });
+      }
+
+      const [gatewayCount] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.gatewayCredentials)
+        .where(eq(schema.gatewayCredentials.workspaceId, ctx.workspaceId));
+      const [waSession] = await db
+        .select({ status: schema.whatsappSessions.status })
+        .from(schema.whatsappSessions)
+        .where(eq(schema.whatsappSessions.workspaceId, ctx.workspaceId))
+        .limit(1);
+      const [productCount] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.products)
+        .where(
+          and(eq(schema.products.workspaceId, ctx.workspaceId), isNull(schema.products.deletedAt)),
+        );
+      const [paidOrderCount] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.orders)
+        .where(
+          and(eq(schema.orders.workspaceId, ctx.workspaceId), eq(schema.orders.status, 'paid')),
+        );
+
+      const marca = (wsRow.companyName?.trim().length ?? 0) > 0 || wsRow.hasLogo === true;
+      const gateway = Number(gatewayCount?.n ?? 0) > 0;
+      const whatsapp = waSession?.status === 'WORKING';
+      const produto = Number(productCount?.n ?? 0) > 0;
+      const publicar = marca && produto;
+      const primeiraVenda = Number(paidOrderCount?.n ?? 0) > 0;
+
+      const steps = { marca, gateway, whatsapp, produto, publicar, primeiraVenda };
+      const totalSteps = Object.keys(steps).length;
+      const completedCount = Object.values(steps).filter(Boolean).length;
+
+      let completedAt = wsRow.completedAt;
+      if (completedCount === totalSteps && !completedAt) {
+        completedAt = new Date();
+        await db
+          .update(schema.workspaces)
+          .set({ onboardingCompletedAt: completedAt })
+          .where(eq(schema.workspaces.id, ctx.workspaceId));
+      }
+
+      const view: 'full' | 'minimized' | 'hidden' =
+        wsRow.dismissedAt || completedAt ? 'hidden' : wsRow.minimizedAt ? 'minimized' : 'full';
+
+      return {
+        view,
+        steps,
+        completedCount,
+        totalSteps,
+        completedAt,
+        minimizedAt: wsRow.minimizedAt,
+        dismissedAt: wsRow.dismissedAt,
+      };
+    }),
+
+  /**
+   * Minimize / restore / dismiss / reopen — single mutation with an
+   * `action` discriminator so the widget can call the same endpoint
+   * for every UI transition. Dismiss is the only permanent one (until
+   * an operator clears the column).
+   */
+  onboardingAction: workspaceProcedure
+    .input(z.object({ action: z.enum(['minimize', 'restore', 'dismiss', 'reopen']) }))
+    .output(z.object({ ok: z.literal(true) }))
+    .mutation(async ({ ctx, input }) => {
+      const patch: Partial<typeof schema.workspaces.$inferInsert> = {};
+      switch (input.action) {
+        case 'minimize':
+          patch.onboardingMinimizedAt = new Date();
+          break;
+        case 'restore':
+          patch.onboardingMinimizedAt = null;
+          break;
+        case 'dismiss':
+          patch.onboardingDismissedAt = new Date();
+          break;
+        case 'reopen':
+          patch.onboardingDismissedAt = null;
+          patch.onboardingMinimizedAt = null;
+          patch.onboardingCompletedAt = null;
+          break;
+      }
+      await ctx.services.db.db
+        .update(schema.workspaces)
+        .set(patch)
+        .where(eq(schema.workspaces.id, ctx.workspaceId));
       return { ok: true as const };
     }),
 });
