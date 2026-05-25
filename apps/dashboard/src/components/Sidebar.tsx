@@ -1,50 +1,69 @@
 'use client';
 
 import clsx from 'clsx';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { signOut, useSession } from '../lib/auth';
+import { trpc } from '../lib/trpc';
 import { MpAccountSwitcher } from './MpAccountSwitcher';
 import { ThemeToggle } from './ThemeToggle';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 /**
- * Persistent left sidebar — Apple-style light-mode navigation panel.
+ * Persistent left sidebar — Linear/Vercel-tier navigation panel.
  *
- * Visual language:
- *   - 280px fixed, surface white, hair-thin border-right.
- *   - Brand mark + product name top.
- *   - Section labels in tracked uppercase (Atalhos · Configurar · Integrações).
- *   - Active nav item: subtle gray surface + colored icon + brand-tinted text.
- *   - Inactive: muted text, icon in subtle tone, hover lift.
- *   - User panel at bottom with avatar bubble + email + Sair link.
+ * Build notes from this redesign pass:
+ *   - 288px fixed (was 280) — gives the nav rows breathing room.
+ *   - Sticky header section (workspace + MP switcher) gets a subtle
+ *     bottom hairline + backdrop blur so scrolled nav slides under it
+ *     cleanly without a hard divider.
+ *   - Per-route distinct icons (no more reusing IconGrid for 5 things).
+ *   - Active item: layoutId sliding pill (Linear pattern) + brand-tinted
+ *     icon + 2px left accent bar for instant recognition.
+ *   - Section dividers replaced with kerned labels + 1px hairline.
+ *   - User panel collapsible — expanded shows email + sign out, idle
+ *     state is a compact chip so the nav owns most of the visual weight.
+ *   - "Pronto pra produção" chip surfaces the onboarding production
+ *     count when > 0 — pulls the producer's eye toward the next move.
  */
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon: ReactNode;
+  badge?: 'new' | 'count';
+};
 
 type NavGroup = {
   label: string;
-  items: { href: string; label: string; icon: ReactNode }[];
+  items: NavItem[];
 };
 
 const NAV: NavGroup[] = [
   {
-    label: 'Atalhos',
+    label: 'Visão',
     items: [
       { href: '/dashboard', label: 'Visão geral', icon: <IconHome /> },
-      { href: '/produtos', label: 'Meus produtos', icon: <IconGrid /> },
-      { href: '/pedidos', label: 'Pedidos', icon: <IconCard /> },
+      { href: '/pedidos', label: 'Pedidos', icon: <IconReceipt /> },
       { href: '/assinaturas', label: 'Assinaturas', icon: <IconRefresh /> },
-      { href: '/clientes', label: 'Clientes', icon: <IconChat /> },
-      { href: '/marketplace', label: 'Marketplace', icon: <IconGrid /> },
+      { href: '/clientes', label: 'Clientes', icon: <IconUsers /> },
+    ],
+  },
+  {
+    label: 'Catálogo',
+    items: [
+      { href: '/produtos', label: 'Meus produtos', icon: <IconBox /> },
+      { href: '/marketplace', label: 'Marketplace', icon: <IconStorefront />, badge: 'new' },
     ],
   },
   {
     label: 'Configurar',
     items: [
-      { href: '/configuracoes', label: 'Configurações', icon: <IconGrid /> },
-      { href: '/checkout', label: 'Meu checkout', icon: <IconCard /> },
-      { href: '/carrinho', label: 'Recuperação', icon: <IconRefresh /> },
+      { href: '/configuracoes', label: 'Configurações', icon: <IconSliders /> },
+      { href: '/checkout', label: 'Meu checkout', icon: <IconCart /> },
+      { href: '/carrinho', label: 'Recuperação', icon: <IconRecover /> },
     ],
   },
   {
@@ -53,7 +72,7 @@ const NAV: NavGroup[] = [
       { href: '/integrations/gateways', label: 'Pagamentos', icon: <IconCard /> },
       { href: '/integrations/whatsapp', label: 'WhatsApp', icon: <IconChat /> },
       { href: '/integrations/email', label: 'Email', icon: <IconMail /> },
-      { href: '/integrations/pixels', label: 'Pixels', icon: <IconGrid /> },
+      { href: '/integrations/pixels', label: 'Pixels', icon: <IconBolt />, badge: 'new' },
     ],
   },
 ];
@@ -62,28 +81,33 @@ export function Sidebar() {
   const path = usePathname();
   const session = useSession();
   const router = useRouter();
+  const onboarding = trpc.workspace.onboardingState.useQuery(undefined, {
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const [userPanelOpen, setUserPanelOpen] = useState(false);
 
   const userEmail = session.data?.user?.email ?? '';
   const userInitial = (session.data?.user?.name ?? userEmail).trim().charAt(0).toUpperCase() || '·';
 
-  return (
-    <aside className="sticky top-0 flex h-screen w-[280px] shrink-0 flex-col gap-7 border-[var(--color-border)] border-r bg-[var(--color-surface)] px-5 py-6">
-      {/* Workspace switcher — replaces the static brand block now that
-          producers have a real (and switchable) tenant. */}
-      <div className="flex flex-col gap-2.5">
-        <WorkspaceSwitcher />
-        {/* MP account quick-switcher — Stripe-style env indicator so
-            producers always see which gateway credential is live and
-            can flip between sandbox/production or multi-store accounts
-            without leaving the page. */}
-        <MpAccountSwitcher />
-      </div>
+  const prodCount = onboarding.data?.productionCompletedCount ?? 0;
+  const prodTotal = onboarding.data?.productionTotalSteps ?? 0;
+  const showProdChip = onboarding.data?.completedAt && prodTotal > 0 && prodCount < prodTotal;
 
-      {/* Sections */}
-      <nav className="flex flex-1 flex-col gap-6 overflow-y-auto">
+  return (
+    <aside className="sticky top-0 flex h-screen w-[288px] shrink-0 flex-col border-[var(--color-border)] border-r bg-[var(--color-surface)]">
+      {/* HEADER — sticky brand + workspace + MP switcher */}
+      <header className="sticky top-0 z-10 flex flex-col gap-2.5 border-[var(--color-border)] border-b bg-[var(--color-surface)]/95 px-4 py-4 backdrop-blur-xl">
+        <WorkspaceSwitcher />
+        <MpAccountSwitcher />
+      </header>
+
+      {/* NAV — scrollable */}
+      <nav className="flex flex-1 flex-col gap-7 overflow-y-auto px-3 py-5">
         {NAV.map((group) => (
-          <div key={group.label} className="flex flex-col gap-1">
-            <p className="px-3 pb-1 font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
+          <div key={group.label} className="flex flex-col gap-0.5">
+            <p className="mb-1.5 px-2.5 font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-[0.16em]">
               {group.label}
             </p>
             {group.items.map((item) => {
@@ -93,10 +117,10 @@ export function Sidebar() {
                   key={item.href}
                   href={item.href}
                   className={clsx(
-                    'group relative flex items-center gap-3 rounded-xl px-3 py-2 font-medium text-[14px] transition',
+                    'group relative flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 font-medium text-[14px] transition',
                     active
                       ? 'text-[var(--color-fg)]'
-                      : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]',
+                      : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]/60 hover:text-[var(--color-fg)]',
                   )}
                 >
                   {active ? (
@@ -105,7 +129,15 @@ export function Sidebar() {
                     <motion.span
                       layoutId="sidebar-active-pill"
                       transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                      className="absolute inset-0 rounded-xl bg-[var(--color-surface-muted)]"
+                      className="absolute inset-0 rounded-xl bg-gradient-to-r from-[var(--color-brand-50)]/40 via-[var(--color-surface-muted)] to-[var(--color-surface-muted)] ring-1 ring-[var(--color-brand-500)]/15"
+                      aria-hidden
+                    />
+                  ) : null}
+                  {active ? (
+                    <motion.span
+                      layoutId="sidebar-active-accent"
+                      transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                      className="-translate-y-1/2 absolute top-1/2 left-0 h-5 w-[3px] rounded-r-full bg-gradient-to-b from-[var(--color-brand-500)] to-[var(--color-brand-700)]"
                       aria-hidden
                     />
                   ) : null}
@@ -119,46 +151,145 @@ export function Sidebar() {
                   >
                     {item.icon}
                   </span>
-                  <span className="relative">{item.label}</span>
+                  <span className="relative flex-1 truncate">{item.label}</span>
+                  {item.badge === 'new' ? (
+                    <span className="relative rounded-full bg-[var(--color-brand-50)] px-1.5 py-0.5 font-semibold text-[9px] text-[var(--color-brand-700)] uppercase tracking-wider">
+                      Novo
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
           </div>
         ))}
+
+        {/* Pronto pra produção chip — appears once setup is done and
+            production checklist isn't fully checked. Pulls eye toward
+            the next move without being annoying when not relevant. */}
+        {showProdChip ? (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+            className="mx-1 flex flex-col gap-2 rounded-xl border border-[var(--color-brand-500)]/30 bg-gradient-to-br from-[var(--color-brand-50)]/60 via-[var(--color-surface)] to-[var(--color-surface)] p-3"
+          >
+            <div className="flex items-center gap-2">
+              <span
+                aria-hidden
+                className="grid size-5 place-items-center rounded-full bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white"
+              >
+                <svg viewBox="0 0 12 12" fill="none" className="size-3">
+                  <title>Pronto</title>
+                  <path
+                    d="M3 6.5l2 2 4-4"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              <span className="font-semibold text-[11px] text-[var(--color-brand-700)] uppercase tracking-[0.12em]">
+                Pronto pra produção
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px] text-[var(--color-fg-muted)]">
+                {prodCount}/{prodTotal}
+              </span>
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-muted)]">
+                <motion.div
+                  className="h-full rounded-full bg-gradient-to-r from-[var(--color-brand-500)] to-[var(--color-brand-700)]"
+                  initial={false}
+                  animate={{ width: `${(prodCount / prodTotal) * 100}%` }}
+                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                />
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
       </nav>
 
-      {/* User panel */}
-      <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-        <div className="flex items-center gap-3">
-          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[var(--color-surface-muted)] font-semibold text-[13px] text-[var(--color-fg)]">
-            {userInitial}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-medium text-[13px] text-[var(--color-fg)]">
-              {session.data?.user?.name ?? userEmail.split('@')[0] ?? '—'}
-            </p>
-            <p className="truncate text-[11px] text-[var(--color-fg-subtle)]">{userEmail}</p>
-          </div>
-        </div>
+      {/* FOOTER — user chip (collapsible) + theme + wordmark */}
+      <footer className="flex flex-col gap-3 border-[var(--color-border)] border-t bg-[var(--color-surface)]/95 px-4 py-4 backdrop-blur-xl">
         <button
           type="button"
-          onClick={async () => {
-            await signOut();
-            router.push('/login');
-          }}
-          className="mt-3 w-full rounded-lg border border-[var(--color-border)] bg-transparent px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+          onClick={() => setUserPanelOpen((v) => !v)}
+          aria-expanded={userPanelOpen}
+          className="group flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-1.5 py-1.5 transition hover:bg-[var(--color-surface-muted)]"
         >
-          Sair
+          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] font-semibold text-[13px] text-white shadow-sm">
+            {userInitial}
+          </span>
+          <div className="min-w-0 flex-1 text-left">
+            <p className="truncate font-semibold text-[13px] text-[var(--color-fg)]">
+              {session.data?.user?.name ?? userEmail.split('@')[0] ?? '—'}
+            </p>
+            <p className="truncate text-[11px] text-[var(--color-fg-subtle)]">
+              {userEmail || 'Carregando…'}
+            </p>
+          </div>
+          <motion.span
+            animate={{ rotate: userPanelOpen ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+            className="text-[var(--color-fg-subtle)]"
+            aria-hidden
+          >
+            <svg viewBox="0 0 12 12" fill="none" className="size-3">
+              <title>Expandir</title>
+              <path
+                d="M3 4.5L6 7.5L9 4.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </motion.span>
         </button>
-      </div>
 
-      {/* Theme toggle + product wordmark sit side-by-side at the
-          bottom. The toggle is a 3-pill segmented control so producers
-          can pick Light / Dark / Sistema explicitly without digging. */}
-      <div className="flex flex-col items-center gap-3 pt-1">
-        <ThemeToggle />
-        <img src="/payunivercart-logo.png" alt="payunivercart" className="h-5 w-auto opacity-70" />
-      </div>
+        <AnimatePresence initial={false}>
+          {userPanelOpen ? (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="flex flex-col gap-2 pt-1">
+                <Link
+                  href="/configuracoes/empresa"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+                >
+                  <IconSliders />
+                  Conta
+                </Link>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await signOut();
+                    router.push('/login');
+                  }}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)]"
+                >
+                  <IconLogout />
+                  Sair
+                </button>
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
+        <div className="flex items-center justify-between gap-3 border-[var(--color-border)] border-t pt-3">
+          <ThemeToggle />
+          <img
+            src="/payunivercart-logo.png"
+            alt="payunivercart"
+            className="h-4 w-auto opacity-60"
+          />
+        </div>
+      </footer>
     </aside>
   );
 }
@@ -186,7 +317,7 @@ function IconHome() {
     </svg>
   );
 }
-function IconGrid() {
+function IconReceipt() {
   return (
     <svg
       aria-hidden="true"
@@ -197,26 +328,12 @@ function IconGrid() {
       strokeWidth="1.6"
       className="size-5"
     >
-      <rect x="3" y="3" width="6" height="6" rx="1.5" />
-      <rect x="11" y="3" width="6" height="6" rx="1.5" />
-      <rect x="3" y="11" width="6" height="6" rx="1.5" />
-      <rect x="11" y="11" width="6" height="6" rx="1.5" />
-    </svg>
-  );
-}
-function IconCard() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      className="size-5"
-    >
-      <rect x="2.5" y="5" width="15" height="10" rx="2" />
-      <path strokeLinecap="round" d="M2.5 8.5h15M5.5 12.5h3" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 2.5h10v15l-2.5-1.5L10 17l-2.5-1.5L5 17V2.5z"
+      />
+      <path strokeLinecap="round" d="M7.5 7h5M7.5 10h5M7.5 13h3" />
     </svg>
   );
 }
@@ -236,6 +353,131 @@ function IconRefresh() {
         strokeLinejoin="round"
         d="M3 10a7 7 0 0112-4.9L17 7M17 3v4h-4M17 10a7 7 0 01-12 4.9L3 13M3 17v-4h4"
       />
+    </svg>
+  );
+}
+function IconUsers() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <circle cx="7" cy="7" r="3" />
+      <path strokeLinecap="round" d="M2 17a5 5 0 0110 0" />
+      <circle cx="14" cy="8" r="2.4" />
+      <path strokeLinecap="round" d="M12 17a4 4 0 016 0" />
+    </svg>
+  );
+}
+function IconBox() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <path strokeLinejoin="round" d="M10 2.5L17 6v8l-7 3.5L3 14V6l7-3.5z" />
+      <path strokeLinecap="round" d="M3 6l7 3.5L17 6M10 9.5v8" />
+    </svg>
+  );
+}
+function IconStorefront() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 3.5h14l-1 4a2.5 2.5 0 01-5 0 2.5 2.5 0 01-5 0L4 3.5z"
+      />
+      <path strokeLinecap="round" d="M4 8.5V17h12V8.5" />
+      <path strokeLinecap="round" d="M8 17v-5h4v5" />
+    </svg>
+  );
+}
+function IconSliders() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <path strokeLinecap="round" d="M3 6h6M13 6h4M3 14h4M11 14h6" />
+      <circle cx="11" cy="6" r="2" />
+      <circle cx="9" cy="14" r="2" />
+    </svg>
+  );
+}
+function IconCart() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.5 3h2l1.5 9h9l1.5-6h-11" />
+      <circle cx="7" cy="16" r="1.4" />
+      <circle cx="14" cy="16" r="1.4" />
+    </svg>
+  );
+}
+function IconRecover() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 4h8a4 4 0 014 4v3a4 4 0 01-4 4H7l-3 2.5V4z"
+      />
+      <path strokeLinecap="round" d="M7 9h6M7 12h4" />
+    </svg>
+  );
+}
+function IconCard() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <rect x="2.5" y="5" width="15" height="10" rx="2" />
+      <path strokeLinecap="round" d="M2.5 8.5h15M5.5 12.5h3" />
     </svg>
   );
 }
@@ -271,6 +513,40 @@ function IconMail() {
     >
       <rect x="2.5" y="4" width="15" height="12" rx="2" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 6l7 5 7-5" />
+    </svg>
+  );
+}
+function IconBolt() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 2l-7 10h5l-1 6 7-10h-5l1-6z" />
+    </svg>
+  );
+}
+function IconLogout() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-4"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 3h4a1 1 0 011 1v12a1 1 0 01-1 1h-4M13 10H3m0 0l3-3m-3 3l3 3"
+      />
     </svg>
   );
 }

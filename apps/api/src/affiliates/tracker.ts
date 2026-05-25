@@ -24,14 +24,16 @@ import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import type { AppServices } from '../services';
 
 /** Hash the IP so the click table doesn't store PII. Salt is the
- *  audit chain HMAC key — re-using saves us a dedicated env var. */
-function hashIp(ip: string, salt: string): string {
+ *  audit chain HMAC key — re-using saves us a dedicated env var.
+ *  Exported for unit-test parity. */
+export function hashIp(ip: string, salt: string): string {
   return createHash('sha256').update(`${salt}:${ip}`).digest('hex');
 }
 
 /** Fingerprint is whatever the buyer's browser exposes — UA + accept
- *  language + screen size. We don't enforce that the buyer sends it. */
-function hashFingerprint(value: string | null): string | null {
+ *  language + screen size. We don't enforce that the buyer sends it.
+ *  Exported for unit-test parity. */
+export function hashFingerprint(value: string | null): string | null {
   if (!value) return null;
   return createHash('sha256').update(value).digest('hex');
 }
