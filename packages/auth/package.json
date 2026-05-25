@@ -20,7 +20,7 @@
     "@payunivercart/waha": "workspace:*",
     "better-auth": "1.6.11",
     "drizzle-orm": "0.45.2",
-    "zod": "3.25.76"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "22.10.5",
