@@ -34,12 +34,21 @@ let redisSingleton: Redis | null = null;
 function getRedis(redisUrl: string): Redis {
   if (redisSingleton) return redisSingleton;
   redisSingleton = new Redis(redisUrl, {
-    // Keep the connection cheap when idle and don't block boot if
-    // Redis is briefly unreachable — the rate limiter just degrades
-    // open until the next request reconnects.
-    lazyConnect: false,
-    maxRetriesPerRequest: 2,
-    enableOfflineQueue: false,
+    // `enableOfflineQueue: true` (default) is REQUIRED here. The
+    // `rate-limit-redis` store calls `loadIncrementScript` (EVAL) the
+    // moment the limiter factory runs — which is at boot, before the
+    // TCP handshake to Redis completes. With offline queue OFF, that
+    // first command rejects immediately and the rejection escapes as
+    // an unhandled promise → process crash → Coolify restart loop.
+    // With offline queue ON, ioredis buffers the EVAL until the
+    // connection is ready (typically <100ms) then flushes it.
+    maxRetriesPerRequest: null,
+    enableOfflineQueue: true,
+    // Cap reconnect storms — if Redis is genuinely down, back off
+    // exponentially up to 5s between attempts instead of hammering.
+    retryStrategy(times) {
+      return Math.min(times * 200, 5000);
+    },
   });
   redisSingleton.on('error', (err) => {
     Sentry.captureException(err, { tags: { component: 'rate-limit', store: 'redis' } });
