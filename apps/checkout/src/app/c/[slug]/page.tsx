@@ -1888,36 +1888,136 @@ function SubscriptionSuccess({
   buyerEmail: string;
 }) {
   const isActive = status === 'active';
+  const periodLabel = billingPeriod === 'yearly' ? 'ano' : 'mês';
+  const formattedAmount = formatCents(amountCents, 'BRL');
+
   return (
-    <div>
-      <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
-        {isActive ? 'Assinatura ativa' : 'Assinatura criada'}
-      </p>
-      <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)]">
-        {isActive ? 'Bem-vindo a bordo! 🎉' : 'Estamos confirmando seu pagamento.'}
-      </h1>
-      <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
-        Mandamos a confirmação em <strong>{buyerEmail}</strong>. Próxima cobrança{' '}
-        {nextChargeAt
-          ? `em ${formatExpiresAt(nextChargeAt)}`
-          : `daqui a 1 ${billingPeriod === 'yearly' ? 'ano' : 'mês'}`}
-        .
-      </p>
-      <dl className="mt-6 space-y-3 rounded-2xl bg-[var(--surface-1)] p-5 text-[13px]">
-        <Row label="Plano" value={planName} />
-        <Row
-          label="Valor"
-          value={
-            <strong>
-              {formatCents(amountCents, 'BRL')}/{billingPeriod === 'yearly' ? 'ano' : 'mês'}
-            </strong>
-          }
+    <div className="-mx-2 sm:-mx-4">
+      {/* Hero dopamine — mesmo padrão do SuccessView one-time, adaptado
+          pro contexto de recorrência. A diferença emocional principal:
+          buyer agora é um *assinante* da marca, não um comprador único.
+          A microcopy abaixo reforça isso (acesso contínuo, próxima
+          cobrança visível desde o segundo 1). */}
+      <div className="relative overflow-hidden rounded-3xl border border-[var(--dop-hairline)] bg-gradient-to-br from-[var(--dop-soft)] via-transparent to-transparent p-7 text-center">
+        <div
+          className="-translate-x-1/2 pointer-events-none absolute top-0 left-1/2 h-64 w-64 rounded-full bg-[var(--dop-500)] opacity-[0.08] blur-3xl"
+          aria-hidden
         />
-        <Row label="Código" value={<span className="font-mono">{publicReference}</span>} />
-      </dl>
-      <p className="mt-6 text-center text-[11px] text-[var(--ink-50)]">
-        Para cancelar, responda o email da cobrança ou fale com o produtor.
+        <SuccessHeroBadge state={isActive ? 'paid' : 'pending'} />
+        <p className="relative mt-5 font-semibold text-[11px] text-[var(--dop-700)] uppercase tracking-[0.22em]">
+          {isActive ? 'Assinatura ativa' : 'Assinatura criada · aguardando confirmação'}
+        </p>
+        <h1 className="relative mt-2 font-semibold text-[28px] text-[var(--ink-100)] leading-[1.15] sm:text-[32px]">
+          {isActive ? 'Bem-vindo a bordo! 🎉' : 'Confirmando seu pagamento…'}
+        </h1>
+        <p className="relative mx-auto mt-3 max-w-md text-[14px] text-[var(--ink-70)] leading-[1.55]">
+          {isActive ? (
+            <>
+              Acesso completo liberado em{' '}
+              <strong className="text-[var(--ink-100)]">{buyerEmail}</strong> e WhatsApp. Você verá
+              tudo em segundos.
+            </>
+          ) : (
+            <>
+              Estamos validando o pagamento com o seu banco. Assim que aprovar, mandamos o acesso
+              pra <strong className="text-[var(--ink-100)]">{buyerEmail}</strong>.
+            </>
+          )}
+        </p>
+        <div className="relative mt-5 inline-flex items-baseline gap-2 rounded-full bg-[var(--surface-1)] px-5 py-2.5 shadow-[var(--sh-sm)]">
+          <span className="font-bold text-[22px] text-[var(--ink-100)] tabular-nums">
+            {formattedAmount}
+          </span>
+          <span className="font-medium text-[13px] text-[var(--ink-50)]">/{periodLabel}</span>
+        </div>
+      </div>
+
+      {/* Card de detalhes da assinatura — visual elevado, hierarchy clara.
+          Próxima cobrança é o dado mais importante (anti-churn) → primeiro. */}
+      <div className="mt-6 overflow-hidden rounded-2xl border border-[var(--dop-hairline)] bg-gradient-to-br from-[var(--dop-soft)] to-transparent p-5">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--dop-500)] text-white">
+            <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden>
+              <title>Ativa</title>
+              <path
+                d="M3 8.5l3 3 7-7"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          <p className="font-semibold text-[12px] text-[var(--dop-700)] uppercase tracking-[0.16em]">
+            Sua assinatura
+          </p>
+        </div>
+        <dl className="mt-4 space-y-3 text-[13px]">
+          <Row
+            label="Plano"
+            value={<strong className="text-[var(--ink-100)]">{planName}</strong>}
+          />
+          <Row
+            label="Cobrança"
+            value={
+              <span className="text-[var(--ink-100)]">
+                {formattedAmount}
+                <span className="text-[var(--ink-50)]"> /{periodLabel}</span>
+              </span>
+            }
+          />
+          <Row
+            label="Próxima cobrança"
+            value={
+              <span className="text-[var(--ink-100)]">
+                {nextChargeAt ? formatExpiresAt(nextChargeAt) : `Daqui a 1 ${periodLabel}`}
+              </span>
+            }
+          />
+          <Row label="Código" value={<ReferenceWithCopy reference={publicReference} />} />
+        </dl>
+      </div>
+
+      {/* Next steps card — reduz ansiedade do "o que faço agora?" e
+          posiciona o produto como uma jornada, não uma transação. */}
+      <div className="mt-6 rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-5">
+        <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.14em]">
+          Próximos passos
+        </p>
+        <ol className="mt-3 space-y-3 text-[13px] text-[var(--ink-90)]">
+          {[
+            'Confira seu email — link de acesso já está chegando.',
+            'No WhatsApp você recebe o link rápido (até 1 minuto).',
+            'Antes da próxima cobrança você recebe um lembrete por email.',
+          ].map((step, i) => (
+            <li key={step} className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--dop-soft)] font-semibold text-[10px] text-[var(--dop-700)]">
+                {i + 1}
+              </span>
+              <span className="leading-[1.55]">{step}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* Cancel hint — visível mas não destacado. Transparência reduz
+          fricção de subscription, sem virar gatilho de churn. */}
+      <p className="mt-6 text-center text-[12px] text-[var(--ink-50)] leading-[1.55]">
+        Quer cancelar? Responda o próximo email da cobrança ou fale com o produtor.
       </p>
+
+      {/* Confidence footer — reaproveita os mesmos selos do SuccessView. */}
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] text-[var(--ink-50)]">
+        <span className="inline-flex items-center gap-1.5">
+          <SuccessIcon name="lock" /> Pagamento criptografado
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <SuccessIcon name="shield" /> Cancele a qualquer momento
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <SuccessIcon name="chat" /> Suporte por WhatsApp
+        </span>
+      </div>
     </div>
   );
 }
@@ -3857,118 +3957,435 @@ function SuccessView({
   const isPaid = status === 'paid';
   const hasPix = !!(pixQrCodeImage || pixCopyPaste);
   const hasBoleto = !!(boletoUrl || boletoBarcode);
-  const kicker = isPaid
-    ? 'Pagamento aprovado'
-    : hasPix
-      ? 'Pix gerado'
-      : hasBoleto
-        ? 'Boleto gerado'
-        : 'Pedido criado';
-  const headline = isPaid
-    ? 'Compra confirmada! 🎉'
-    : hasPix
-      ? 'Pague em segundos.'
-      : hasBoleto
-        ? 'Boleto pronto pra pagar.'
-        : 'Recebemos sua compra.';
+
   return (
-    <div>
-      <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
-        {kicker}
-      </p>
-      <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)]">{headline}</h1>
-
-      {isPaid ? (
-        <>
-          <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
-            Recebemos o pagamento pelo {methodLabel.toLowerCase()}. Mandamos a confirmação em{' '}
-            <strong>{buyerEmail}</strong> e no seu WhatsApp.
-          </p>
-          {deliveryUrl || deliveryInstructions ? (
-            <div className="mt-6 rounded-2xl border border-[var(--dop-hairline)] bg-[var(--dop-soft)] p-5">
-              <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
-                Seu acesso
-              </p>
-              {deliveryUrl ? (
-                <a
-                  href={deliveryUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn-primary mt-3 w-full text-[15px]"
-                >
-                  Abrir agora →
-                </a>
-              ) : null}
-              {deliveryInstructions ? (
-                <p className="mt-4 whitespace-pre-wrap text-[13px] text-[var(--ink-90)] leading-[1.55]">
-                  {deliveryInstructions}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-        </>
-      ) : hasPix ? (
-        <>
-          <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
-            Escaneie o QR-code com o app do seu banco ou copie o código abaixo. Quando recebermos a
-            confirmação do Pix, mandamos o acesso em <strong>{buyerEmail}</strong> e no seu
-            WhatsApp.
-          </p>
-          {pixQrCodeImage ? (
-            <div className="mt-6 flex justify-center">
-              <div className="rounded-2xl border border-[var(--hairline)] bg-white p-3 shadow-[var(--sh-sm)]">
-                <img
-                  src={`data:image/png;base64,${pixQrCodeImage}`}
-                  alt="QR-code Pix"
-                  className="h-56 w-56"
-                />
-              </div>
-            </div>
-          ) : null}
-          {pixCopyPaste ? <PixCopyButton code={pixCopyPaste} /> : null}
-          {pixExpiresAt ? (
-            <p className="mt-4 text-center text-[12px] text-[var(--ink-50)]">
-              Pague até {formatExpiresAt(pixExpiresAt)} para garantir o pedido.
-            </p>
-          ) : null}
-        </>
-      ) : hasBoleto ? (
-        <>
-          <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
-            Pague no app do seu banco ou em qualquer agência. Mandamos uma cópia para{' '}
-            <strong>{buyerEmail}</strong>. Após compensação (até 2 dias úteis), liberamos o acesso
-            no seu WhatsApp.
-          </p>
-          {boletoUrl ? (
-            <a
-              href={boletoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-primary mt-6 w-full text-[15px]"
-            >
-              Abrir boleto em nova aba
-            </a>
-          ) : null}
-          {boletoBarcode ? <BoletoCopyButton code={boletoBarcode} /> : null}
-        </>
-      ) : (
-        <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
-          {gatewayConfigured
-            ? `Estamos gerando seu ${methodLabel.toLowerCase()} agora. Em instantes você recebe as instruções em ${buyerEmail} e no seu WhatsApp.`
-            : `Seu pedido foi registrado. O produtor está finalizando a integração do gateway de pagamento — você receberá as instruções em ${buyerEmail} assim que estiver pronto.`}
+    <div className="-mx-2 sm:-mx-4">
+      {/* Hero — gradient dopamine, ícone pulsante, headline editorial.
+          O hero é o ponto de respiro emocional do checkout: chega aqui
+          depois de digitar cartão + esperar gateway, então o primeiro
+          frame precisa entregar dopamina + clareza imediata. */}
+      <div className="relative overflow-hidden rounded-3xl border border-[var(--dop-hairline)] bg-gradient-to-br from-[var(--dop-soft)] via-transparent to-transparent p-7 text-center">
+        <div
+          className="-translate-x-1/2 pointer-events-none absolute top-0 left-1/2 h-64 w-64 rounded-full bg-[var(--dop-500)] opacity-[0.08] blur-3xl"
+          aria-hidden
+        />
+        <SuccessHeroBadge
+          state={isPaid ? 'paid' : hasPix ? 'pix' : hasBoleto ? 'boleto' : 'pending'}
+        />
+        <p className="relative mt-5 font-semibold text-[11px] text-[var(--dop-700)] uppercase tracking-[0.22em]">
+          {isPaid
+            ? 'Pagamento aprovado'
+            : hasPix
+              ? 'Pix gerado · aguardando pagamento'
+              : hasBoleto
+                ? 'Boleto pronto · aguardando pagamento'
+                : 'Pedido criado'}
         </p>
-      )}
+        <h1 className="relative mt-2 font-semibold text-[28px] text-[var(--ink-100)] leading-[1.15] sm:text-[32px]">
+          {isPaid
+            ? 'Bem-vindo a bordo! 🎉'
+            : hasPix
+              ? 'Pague em segundos no seu banco'
+              : hasBoleto
+                ? 'Pronto. Pague no banco ou app.'
+                : 'Recebemos sua compra.'}
+        </h1>
+        <p className="relative mx-auto mt-3 max-w-md text-[14px] text-[var(--ink-70)] leading-[1.55]">
+          {isPaid ? (
+            <>
+              Confirmação enviada para{' '}
+              <strong className="text-[var(--ink-100)]">{buyerEmail}</strong> e WhatsApp. Acesso
+              liberado imediatamente.
+            </>
+          ) : hasPix ? (
+            <>
+              Após o Pix cair (~10 segundos), liberamos o acesso em{' '}
+              <strong className="text-[var(--ink-100)]">{buyerEmail}</strong> e WhatsApp.
+            </>
+          ) : hasBoleto ? (
+            <>
+              Boleto compensa em até 2 dias úteis. Acesso vai pra{' '}
+              <strong className="text-[var(--ink-100)]">{buyerEmail}</strong> assim que cair.
+            </>
+          ) : gatewayConfigured ? (
+            `Estamos gerando seu ${methodLabel.toLowerCase()}. Em instantes mandamos as instruções pra ${buyerEmail}.`
+          ) : (
+            `Seu pedido está registrado. O produtor está finalizando o gateway — você receberá as instruções em ${buyerEmail}.`
+          )}
+        </p>
+        <div className="relative mt-5 inline-flex items-baseline gap-2 rounded-full bg-[var(--surface-1)] px-4 py-2 shadow-[var(--sh-sm)]">
+          <span className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.14em]">
+            Valor
+          </span>
+          <span className="font-bold text-[20px] text-[var(--ink-100)] tabular-nums">
+            {formattedTotal}
+          </span>
+        </div>
+      </div>
 
-      <dl className="mt-6 space-y-3 rounded-2xl bg-[var(--surface-1)] p-5 text-[13px]">
-        <Row label="Código do pedido" value={<span className="font-mono">{reference}</span>} />
+      {/* Estado-específico — fica fora do hero pra cada método ter
+          espaço pra respirar e instruções claras. */}
+      {isPaid ? (
+        <PaidAccessCard deliveryUrl={deliveryUrl} deliveryInstructions={deliveryInstructions} />
+      ) : hasPix ? (
+        <PixActionCard
+          qrCodeImage={pixQrCodeImage}
+          copyPaste={pixCopyPaste}
+          expiresAt={pixExpiresAt}
+        />
+      ) : hasBoleto ? (
+        <BoletoActionCard url={boletoUrl} barcode={boletoBarcode} />
+      ) : null}
+
+      {/* Detalhes do pedido — compact, sem dominar a tela. */}
+      <dl className="mt-6 space-y-3 rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-5 text-[13px]">
+        <Row label="Código do pedido" value={<ReferenceWithCopy reference={reference} />} />
         <Row label="Método" value={methodLabel} />
-        <Row label="Valor" value={<strong>{formattedTotal}</strong>} />
+        <Row label="Email" value={<span className="truncate">{buyerEmail}</span>} />
       </dl>
 
-      <p className="mt-6 text-center text-[11px] text-[var(--ink-50)]">
-        Guarde o código — use-o para tirar dúvidas com o produtor.
-      </p>
+      {/* Confidence footer — selos sutis pra reforçar segurança sem
+          virar fricção visual. */}
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] text-[var(--ink-50)]">
+        <span className="inline-flex items-center gap-1.5">
+          <SuccessIcon name="lock" /> Pagamento criptografado
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <SuccessIcon name="shield" /> Dados protegidos
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <SuccessIcon name="chat" /> Suporte por WhatsApp
+        </span>
+      </div>
     </div>
+  );
+}
+
+// ─── Hero badge — anel pulsante quando aguardando, check sólido quando pago.
+
+function SuccessHeroBadge({ state }: { state: 'paid' | 'pix' | 'boleto' | 'pending' }) {
+  if (state === 'paid') {
+    return (
+      <div className="relative mx-auto flex h-20 w-20 items-center justify-center">
+        <span
+          className="absolute inset-0 animate-ping rounded-full bg-[var(--dop-500)] opacity-30"
+          aria-hidden
+        />
+        <span
+          className="absolute inset-0 rounded-full bg-[var(--dop-500)] opacity-20"
+          aria-hidden
+        />
+        <span className="relative grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-[var(--dop-400)] via-[var(--dop-500)] to-[var(--dop-600)] shadow-[0_8px_24px_-8px_var(--dop-glow)]">
+          <svg viewBox="0 0 24 24" fill="none" className="h-10 w-10 text-white" aria-hidden>
+            <title>Pagamento confirmado</title>
+            <path
+              d="M5 12.5l4 4L19 7"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      </div>
+    );
+  }
+  if (state === 'pix') {
+    return (
+      <div className="relative mx-auto grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-[var(--dop-400)] via-[var(--dop-500)] to-[var(--dop-600)] shadow-[0_8px_24px_-8px_var(--dop-glow)]">
+        <svg viewBox="0 0 24 24" fill="none" className="h-10 w-10 text-white" aria-hidden>
+          <title>Pix</title>
+          <path
+            d="M5.5 12L12 5.5l6.5 6.5-6.5 6.5L5.5 12z"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinejoin="round"
+            fill="rgba(255,255,255,0.12)"
+          />
+          <circle cx="12" cy="12" r="2" fill="currentColor" />
+        </svg>
+      </div>
+    );
+  }
+  if (state === 'boleto') {
+    return (
+      <div className="relative mx-auto grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-[var(--dop-400)] via-[var(--dop-500)] to-[var(--dop-600)] shadow-[0_8px_24px_-8px_var(--dop-glow)]">
+        <svg viewBox="0 0 24 24" fill="none" className="h-10 w-10 text-white" aria-hidden>
+          <title>Boleto bancário</title>
+          <path
+            d="M4 6v12M7 6v12M10 6v12M13 6v12M16 6v12M19 6v12"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
+    );
+  }
+  return (
+    <div className="relative mx-auto grid h-20 w-20 place-items-center rounded-full border-2 border-[var(--dop-500)] bg-[var(--surface-1)]">
+      <span className="h-3 w-3 animate-pulse rounded-full bg-[var(--dop-500)]" />
+    </div>
+  );
+}
+
+// ─── Cards específicos por estado
+
+function PaidAccessCard({
+  deliveryUrl,
+  deliveryInstructions,
+}: {
+  deliveryUrl: string | null;
+  deliveryInstructions: string | null;
+}) {
+  if (!deliveryUrl && !deliveryInstructions) {
+    return (
+      <div className="mt-6 rounded-2xl border border-[var(--dop-hairline)] bg-[var(--dop-soft)] p-5 text-center">
+        <p className="font-semibold text-[13px] text-[var(--dop-700)]">Acesso a caminho 🚀</p>
+        <p className="mt-2 text-[13px] text-[var(--ink-70)] leading-[1.55]">
+          Em segundos você recebe o link de acesso por email e WhatsApp.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-6 overflow-hidden rounded-2xl border border-[var(--dop-hairline)] bg-gradient-to-br from-[var(--dop-soft)] to-transparent p-5">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--dop-500)] text-white">
+          <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden>
+            <title>Acesso liberado</title>
+            <path
+              d="M3 8.5l3 3 7-7"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+        <p className="font-semibold text-[12px] text-[var(--dop-700)] uppercase tracking-[0.16em]">
+          Seu acesso está pronto
+        </p>
+      </div>
+      {deliveryUrl ? (
+        <a
+          href={deliveryUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn btn-primary mt-4 inline-flex w-full items-center justify-center gap-2 text-[15px]"
+        >
+          Abrir agora
+          <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden>
+            <title>Abrir em nova aba</title>
+            <path
+              d="M5 11l6-6M11 5H6M11 5v5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </a>
+      ) : null}
+      {deliveryInstructions ? (
+        <p className="mt-4 whitespace-pre-wrap text-[13px] text-[var(--ink-90)] leading-[1.6]">
+          {deliveryInstructions}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function PixActionCard({
+  qrCodeImage,
+  copyPaste,
+  expiresAt,
+}: {
+  qrCodeImage: string | null;
+  copyPaste: string | null;
+  expiresAt: Date | string | null;
+}) {
+  return (
+    <div className="mt-6 overflow-hidden rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-5">
+      {qrCodeImage ? (
+        <div className="flex justify-center">
+          <div className="relative rounded-2xl border border-[var(--dop-hairline)] bg-white p-3 shadow-[0_8px_32px_-12px_var(--dop-glow)]">
+            <span
+              className="-z-10 absolute inset-0 rounded-2xl bg-[var(--dop-500)] opacity-10 blur-2xl"
+              aria-hidden
+            />
+            <img
+              src={`data:image/png;base64,${qrCodeImage}`}
+              alt="QR-code Pix"
+              className="h-56 w-56"
+            />
+          </div>
+        </div>
+      ) : null}
+      {/* 3-step micro guide — reduz ansiedade do buyer que nunca pagou
+          Pix num checkout terceiro. */}
+      <ol className="mt-5 grid grid-cols-3 gap-2 text-center text-[11px] text-[var(--ink-70)]">
+        {[
+          { n: 1, label: 'Abra o app\ndo seu banco' },
+          { n: 2, label: 'Escaneie\no QR-code' },
+          { n: 3, label: 'Confirme\no pagamento' },
+        ].map((step) => (
+          <li
+            key={step.n}
+            className="flex flex-col items-center gap-1.5 rounded-xl bg-[var(--surface-2)] px-2 py-3"
+          >
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--dop-500)] font-semibold text-[11px] text-white">
+              {step.n}
+            </span>
+            <span className="whitespace-pre-line leading-tight">{step.label}</span>
+          </li>
+        ))}
+      </ol>
+      {copyPaste ? <PixCopyButton code={copyPaste} /> : null}
+      {expiresAt ? (
+        <p className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--surface-2)] px-3 py-2 text-center text-[12px] text-[var(--ink-70)]">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            className="h-3.5 w-3.5 text-[var(--ink-50)]"
+            aria-hidden
+          >
+            <title>Validade</title>
+            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M8 5v3l2 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          Pague até <strong className="ml-1">{formatExpiresAt(expiresAt)}</strong>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function BoletoActionCard({ url, barcode }: { url: string | null; barcode: string | null }) {
+  return (
+    <div className="mt-6 overflow-hidden rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-5">
+      <ol className="grid grid-cols-3 gap-2 text-center text-[11px] text-[var(--ink-70)]">
+        {[
+          { n: 1, label: 'Abra o boleto\nou copie o código' },
+          { n: 2, label: 'Pague no app\ndo banco' },
+          { n: 3, label: 'Aguarde\ncompensação' },
+        ].map((step) => (
+          <li
+            key={step.n}
+            className="flex flex-col items-center gap-1.5 rounded-xl bg-[var(--surface-2)] px-2 py-3"
+          >
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--dop-500)] font-semibold text-[11px] text-white">
+              {step.n}
+            </span>
+            <span className="whitespace-pre-line leading-tight">{step.label}</span>
+          </li>
+        ))}
+      </ol>
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn btn-primary mt-5 inline-flex w-full items-center justify-center gap-2 text-[15px]"
+        >
+          Abrir boleto em nova aba
+          <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden>
+            <title>Abrir em nova aba</title>
+            <path
+              d="M5 11l6-6M11 5H6M11 5v5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </a>
+      ) : null}
+      {barcode ? <BoletoCopyButton code={barcode} /> : null}
+    </div>
+  );
+}
+
+// ─── Order ref code com botão copy inline
+
+function ReferenceWithCopy({ reference }: { reference: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(reference);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="group inline-flex items-center gap-1.5 rounded-md font-mono text-[var(--ink-100)] transition hover:text-[var(--dop-600)]"
+      title="Copiar código do pedido"
+    >
+      {reference}
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        className="h-3 w-3 text-[var(--ink-50)] opacity-0 transition group-hover:opacity-100"
+        aria-hidden
+      >
+        <title>Copiar</title>
+        {copied ? (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.5l3 3 7-7" />
+        ) : (
+          <>
+            <rect x="4" y="4" width="9" height="9" rx="1.5" />
+            <path d="M11 4V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
+          </>
+        )}
+      </svg>
+      {copied ? <span className="text-[11px] text-[var(--dop-600)]">Copiado!</span> : null}
+    </button>
+  );
+}
+
+// ─── Ícones do confidence row
+
+function SuccessIcon({ name }: { name: 'lock' | 'shield' | 'chat' }) {
+  const common = 'h-3.5 w-3.5 text-[var(--ink-50)]';
+  if (name === 'lock') {
+    return (
+      <svg viewBox="0 0 16 16" fill="none" className={common} aria-hidden>
+        <title>Cadeado</title>
+        <rect x="3.5" y="7" width="9" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M5.5 7V5a2.5 2.5 0 015 0v2" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    );
+  }
+  if (name === 'shield') {
+    return (
+      <svg viewBox="0 0 16 16" fill="none" className={common} aria-hidden>
+        <title>Escudo</title>
+        <path
+          d="M8 2l5 2v5c0 3-2 5-5 5s-5-2-5-5V4l5-2z"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={common} aria-hidden>
+      <title>WhatsApp</title>
+      <path
+        d="M3 13l1-3a5 5 0 113 3l-4 .5.5-.5z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
