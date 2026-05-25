@@ -223,8 +223,19 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
     //    webhook payload alone — fraudsters could send a forged "paid"
     //    event matching a public charge id. `getCharge` reads the real
     //    state with our credentials.
+    //
+    //    8s timeout bound: gateways occasionally stall (MP outages, DNS
+    //    blips). Without a bound the webhook handler holds a DB
+    //    connection for minutes and the gateway eventually times us out
+    //    at the protocol layer + retries — same outcome, worse latency.
+    //    8s = comfortable above the 99p (~2s) but under our 30s edge
+    //    layer cap.
     try {
-      const charge = await adapter.getCharge(credentials as never, event.resourceId);
+      const charge = await withTimeout(
+        adapter.getCharge(credentials as never, event.resourceId),
+        8_000,
+        `${gatewayId}.getCharge`,
+      );
 
       const nowDate = new Date();
       await services.db.db
@@ -287,6 +298,29 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
     }
 
     return c.json({ ok: true });
+  });
+}
+
+/**
+ * Bound a gateway round-trip so the webhook handler can't hang on a
+ * stalled upstream. Rejects with a labelled Error after `ms` so the
+ * surrounding try/catch maps it to a 500 + the gateway's normal retry
+ * loop kicks in. The original promise keeps running unobserved; that's
+ * fine — gateway SDKs are idempotent on read.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
   });
 }
 
@@ -423,7 +457,11 @@ async function handleMpSubscriptionEvent(
   );
 
   try {
-    const fresh = await adapter.getSubscription(credentials as never, ctx.resourceId);
+    const fresh = await withTimeout(
+      adapter.getSubscription(credentials as never, ctx.resourceId),
+      8_000,
+      'mp.getSubscription',
+    );
     const now = new Date();
     const previousStatus = sub.status;
     // Optimistic concurrency: gate the UPDATE on the status we observed

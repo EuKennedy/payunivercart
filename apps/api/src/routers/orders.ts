@@ -334,7 +334,11 @@ export const ordersRouter = router({
         })
         .from(schema.transactions)
         .where(eq(schema.transactions.orderId, order.id))
-        .orderBy(desc(schema.transactions.createdAt))
+        // Tiebreaker on id (uuid v4): when two transactions land in the
+        // same millisecond (rare but possible across pool replicas) the
+        // createdAt-only sort is unstable. Adding id keeps the order
+        // deterministic across reads.
+        .orderBy(desc(schema.transactions.createdAt), desc(schema.transactions.id))
         .limit(1);
       if (!tx?.gatewayChargeId || !tx.gatewayId) {
         throw new TRPCError({

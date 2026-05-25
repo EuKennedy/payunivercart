@@ -800,39 +800,44 @@ export const checkoutRouter = router({
       }
 
       // 8. Persist gateway result on the transaction; bump order.expiresAt
-      //    when the gateway gave us a deadline.
+      //    when the gateway gave us a deadline. Single transaction so a
+      //    crash between the two updates can't leave the order pending
+      //    while the transaction reflects paid (or vice versa).
       const nowDate = new Date();
-      await ctx.services.db.db
-        .update(schema.transactions)
-        .set({
-          gatewayChargeId: charge.gatewayChargeId,
-          gatewayRequestId: charge.gatewayRequestId,
-          status: charge.status,
-          pixQrCode: charge.pixQrCode,
-          pixQrCodeImage: charge.pixQrCodeImage,
-          pixCopyPaste: charge.pixCopyPaste,
-          boletoUrl: charge.boletoUrl,
-          boletoBarcode: charge.boletoBarcode,
-          cardBrand: charge.cardBrand,
-          cardLast4: charge.cardLast4,
-          expiresAt: charge.pixExpiresAt ?? charge.boletoDueDate,
-          paidAt: charge.status === 'paid' ? nowDate : undefined,
-          authorizedAt: charge.status === 'authorized' ? nowDate : undefined,
-          rawResponse: charge.raw as object,
-        })
-        .where(eq(schema.transactions.id, created.transactionId));
-      if (charge.pixExpiresAt) {
-        await ctx.services.db.db
-          .update(schema.orders)
-          .set({ expiresAt: charge.pixExpiresAt })
-          .where(eq(schema.orders.id, created.orderId));
-      }
-      if (charge.status === 'paid') {
-        await ctx.services.db.db
-          .update(schema.orders)
-          .set({ status: 'paid', paidAt: nowDate })
-          .where(eq(schema.orders.id, created.orderId));
-      } else if (phone.guessedWahaChatId) {
+      await ctx.services.db.db.transaction(async (tx) => {
+        await tx
+          .update(schema.transactions)
+          .set({
+            gatewayChargeId: charge.gatewayChargeId,
+            gatewayRequestId: charge.gatewayRequestId,
+            status: charge.status,
+            pixQrCode: charge.pixQrCode,
+            pixQrCodeImage: charge.pixQrCodeImage,
+            pixCopyPaste: charge.pixCopyPaste,
+            boletoUrl: charge.boletoUrl,
+            boletoBarcode: charge.boletoBarcode,
+            cardBrand: charge.cardBrand,
+            cardLast4: charge.cardLast4,
+            expiresAt: charge.pixExpiresAt ?? charge.boletoDueDate,
+            paidAt: charge.status === 'paid' ? nowDate : undefined,
+            authorizedAt: charge.status === 'authorized' ? nowDate : undefined,
+            rawResponse: charge.raw as object,
+          })
+          .where(eq(schema.transactions.id, created.transactionId));
+        if (charge.pixExpiresAt) {
+          await tx
+            .update(schema.orders)
+            .set({ expiresAt: charge.pixExpiresAt })
+            .where(eq(schema.orders.id, created.orderId));
+        }
+        if (charge.status === 'paid') {
+          await tx
+            .update(schema.orders)
+            .set({ status: 'paid', paidAt: nowDate })
+            .where(eq(schema.orders.id, created.orderId));
+        }
+      });
+      if (charge.status !== 'paid' && phone.guessedWahaChatId) {
         // Order is in pending_payment AND we have a WhatsApp chatId
         // for the buyer. Schedule cart-recovery touches per the
         // workspace's active campaign. We tolerate "no active
@@ -854,11 +859,17 @@ export const checkoutRouter = router({
       const apiStatus: 'paid' | 'pending_payment' | 'declined' =
         charge.status === 'paid' ? 'paid' : isDeclined ? 'declined' : 'pending_payment';
 
-      // Affiliate attribution — best-effort. Fires when the buyer's
-      // `payuniv_aff` cookie reached the checkout. We trust the IP
-      // from the request headers over the body field so a malicious
-      // buyer can't fake their click signature.
-      if (input.affiliateRef && apiStatus !== 'declined') {
+      // Affiliate attribution — best-effort. Fires for EVERY checkout
+      // (paid, pending, even declined) because:
+      //   - PIX/boleto land pending; the webhook needs an existing
+      //     attribution row to find when it later flips to paid.
+      //   - Declined card attempts still belong in the attribution
+      //     funnel for analytics — `materializeCommission` checks order
+      //     status downstream and skips commission emission when the
+      //     order never reaches paid.
+      // We trust the IP from the request headers over the body field
+      // so a malicious buyer can't fake their click signature.
+      if (input.affiliateRef) {
         const ip =
           ctx.honoCtx.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
           ctx.honoCtx.req.header('x-real-ip')?.trim() ??
