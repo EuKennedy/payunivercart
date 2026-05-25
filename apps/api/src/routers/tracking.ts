@@ -45,17 +45,56 @@ const TikTokCredentialsInput = z.object({
   testEventCode: z.string().trim().min(3).max(80).optional(),
 });
 
+const GoogleAdsCredentialsInput = z.object({
+  customerId: z
+    .string()
+    .trim()
+    .regex(/^\d{10}$/, 'Customer ID: 10 dígitos sem hífen.'),
+  conversionActionId: z
+    .string()
+    .trim()
+    .regex(/^\d{6,12}$/),
+  oauthRefreshToken: z.string().trim().min(40).max(512),
+  oauthClientId: z.string().trim().min(20).max(160),
+  oauthClientSecret: z.string().trim().min(20).max(160),
+  developerToken: z.string().trim().min(10).max(60),
+  loginCustomerId: z
+    .string()
+    .trim()
+    .regex(/^\d{10}$/)
+    .optional(),
+});
+
+const PinterestCredentialsInput = z.object({
+  adAccountId: z
+    .string()
+    .trim()
+    .regex(/^\d{6,20}$/),
+  conversionToken: z.string().trim().min(40).max(512),
+  tagId: z.string().trim().min(8).max(64),
+  testEventCode: z.string().trim().min(3).max(80).optional(),
+});
+
+const KwaiCredentialsInput = z.object({
+  pixelId: z.string().trim().min(8).max(64),
+  accessToken: z.string().trim().min(20).max(512),
+  testEventCode: z.string().trim().min(3).max(80).optional(),
+});
+
 const CredentialsByProvider = z.discriminatedUnion('provider', [
   z.object({ provider: z.literal('meta'), credentials: MetaCredentialsInput }),
   z.object({ provider: z.literal('ga4'), credentials: Ga4CredentialsInput }),
   z.object({ provider: z.literal('tiktok'), credentials: TikTokCredentialsInput }),
-  // Future providers slot in here once their adapter lands.
+  z.object({ provider: z.literal('google_ads'), credentials: GoogleAdsCredentialsInput }),
+  z.object({ provider: z.literal('pinterest'), credentials: PinterestCredentialsInput }),
+  z.object({ provider: z.literal('kwai'), credentials: KwaiCredentialsInput }),
 ]);
 
 /**
  * Extract the producer-visible "public id" of a credential blob. Each
- * provider names it differently (pixelId / measurementId / pixelCode);
- * this collapses that ambiguity for `tracking_pixels.publicPixelId`.
+ * provider names it differently (pixelId / measurementId / pixelCode
+ * / customerId / adAccountId); this collapses that ambiguity for the
+ * `tracking_pixels.publicPixelId` column.
  */
 function extractPublicPixelId(parsed: z.infer<typeof CredentialsByProvider>): string {
   switch (parsed.provider) {
@@ -65,6 +104,16 @@ function extractPublicPixelId(parsed: z.infer<typeof CredentialsByProvider>): st
       return parsed.credentials.measurementId;
     case 'tiktok':
       return parsed.credentials.pixelCode;
+    case 'google_ads':
+      // Customer id is the "account-facing" identifier; the conversion
+      // action id is per-event and lives inside the credentials blob.
+      return parsed.credentials.customerId;
+    case 'pinterest':
+      // Tag id is what the producer sees in Pinterest Ads Manager UI;
+      // ad account id is the API-side address.
+      return parsed.credentials.tagId;
+    case 'kwai':
+      return parsed.credentials.pixelId;
   }
 }
 
