@@ -62,6 +62,11 @@ export const metaAdapter: TrackingAdapter<MetaCredentials> = {
   },
 
   async test(credentials, pixel) {
+    // Meta rejects events with empty user_data ("Invalid parameter:
+    // No identifier was found"). The probe needs at least one
+    // hashable identifier — we use a deterministic dummy external_id +
+    // a synthesized fbp value so the validation call has the bare
+    // minimum to be accepted, never affecting real attribution.
     const probe: TrackingEvent = {
       eventId: `payuniv-test-${Date.now()}`,
       eventType: 'page_view',
@@ -69,9 +74,16 @@ export const metaAdapter: TrackingAdapter<MetaCredentials> = {
       currency: 'BRL',
       value: 0,
       sourceUrl: 'https://payunivercart.test/__validate',
-      user: {},
+      user: { document: '00000000000' },
     };
-    return dispatch(credentials, pixel, probe);
+    // Force testMode=true on the validation call so the probe lands in
+    // the producer's Test Events panel (when they set a testEventCode),
+    // never in production attribution. If the producer didn't set a
+    // testEventCode, the probe still ships — Meta accepts events without
+    // test_event_code and the dispatch just lives a single record in
+    // their production stream, which is the price of validating.
+    const probePixel = { publicPixelId: pixel.publicPixelId, testMode: true };
+    return dispatch(credentials, probePixel, probe);
   },
 };
 
