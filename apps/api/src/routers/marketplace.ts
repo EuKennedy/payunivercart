@@ -315,6 +315,47 @@ export const marketplaceRouter = router({
       const limit = input?.limit ?? 24;
       const sort = input?.sort ?? 'popular';
 
+      // Diagnostic: count live listings AND live listings with a
+      // public+active program. When they diverge, the missing rows are
+      // a sign the auto-provisioner / backfill didn't fire — visible
+      // in the worker log without having to SSH into Postgres.
+      try {
+        const [totalRow] = await ctx.services.db.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(schema.marketplaceListings)
+          .where(eq(schema.marketplaceListings.status, 'live'));
+        const totalLive = Number(totalRow?.n ?? 0);
+        const [affRow] = await ctx.services.db.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(schema.marketplaceListings)
+          .where(
+            and(
+              eq(schema.marketplaceListings.status, 'live'),
+              sql`EXISTS (
+                SELECT 1 FROM ${schema.affiliatePrograms} ap
+                WHERE ap.workspace_id = ${schema.marketplaceListings.workspaceId}
+                  AND ap.is_active::text = 'true'
+                  AND ap.is_public::text = 'true'
+                  AND (ap.product_id = ${schema.marketplaceListings.productId} OR ap.product_id IS NULL)
+              )`,
+            ),
+          );
+        const affiliable = Number(affRow?.n ?? 0);
+        if (totalLive !== affiliable) {
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'warn',
+              event: 'marketplace.browseForAffiliation.unaffiliable_listings',
+              totalLive,
+              affiliable,
+              hiddenFromShop: totalLive - affiliable,
+            })}\n`,
+          );
+        }
+      } catch {
+        // Diagnostic must never break the read path.
+      }
+
       // EXISTS predicate: at least one active+public program for the
       // listing's workspace, either product-specific or workspace-wide.
       const programExists = sql`EXISTS (

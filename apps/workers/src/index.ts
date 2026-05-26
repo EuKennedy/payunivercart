@@ -142,6 +142,27 @@ async function main() {
     },
   );
 
+  // Affiliate program self-heal — every hour. Cheap query on the small
+  // marketplace_listings table; safe to run frequently.
+  await queues.affiliateProgramBackfill.upsertJobScheduler(
+    'backfill',
+    { every: 60 * 60 * 1000 },
+    {
+      name: 'affiliate.program.backfill.sweep',
+      data: {},
+    },
+  );
+
+  // Kick the backfill once at boot so a fresh deploy doesn't have to
+  // wait an hour for the first cron tick to provision programs for
+  // any listings that landed before the auto-provisioner shipped.
+  // Deduped on `jobId` so multiple worker replicas don't double-run.
+  await queues.affiliateProgramBackfill.add(
+    'affiliate.program.backfill.sweep',
+    {},
+    { jobId: `boot:${Date.now()}` },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,

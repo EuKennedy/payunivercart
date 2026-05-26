@@ -4,6 +4,7 @@ import { WahaClient } from '@payunivercart/waha';
 import { Worker, type WorkerOptions } from 'bullmq';
 import type IORedis from 'ioredis';
 import type { WorkersEnv } from './env';
+import { runAffiliateProgramBackfill } from './handlers/affiliate-program-backfill';
 import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
 import { runMarketplaceRollup } from './handlers/marketplace-rollup';
 import { runRecoverySweep } from './handlers/recovery';
@@ -177,6 +178,21 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // Affiliate program self-heal — hourly. Provisions the workspace-
+  // wide default affiliate program for any workspace that has a live
+  // marketplace listing but no program yet. Covers legacy listings
+  // and the rare migration-race case where the 0017/0019 backfill
+  // didn't commit.
+  const affiliateProgramBackfill = new Worker(
+    QUEUE_NAMES.affiliateProgramBackfill,
+    async (job) => {
+      const result = await runAffiliateProgramBackfill({ db: dbWrapper.db });
+      logEvent('affiliate.program.backfill.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   for (const w of [
     webhookInbound,
     webhookOutbox,
@@ -188,6 +204,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     marketplaceRollup,
     subscriptionReconcile,
     whatsappSessionHealth,
+    affiliateProgramBackfill,
   ]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
@@ -204,6 +221,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     marketplaceRollup,
     subscriptionReconcile,
     whatsappSessionHealth,
+    affiliateProgramBackfill,
     webhookInbound,
     webhookOutbox,
     recovery,

@@ -38,6 +38,12 @@ export const QUEUE_NAMES = {
    *  when WAHA disagrees. Keeps the dashboard honest about a session
    *  that died out-of-band. */
   whatsappSessionHealth: 'whatsapp.session.health',
+  /** Affiliate program self-heal — hourly sweep that ensures every
+   *  workspace with a live marketplace listing has a workspace-wide
+   *  default affiliate program. Covers the cases where the runtime
+   *  auto-provisioner missed (legacy listings, admin bulk inserts,
+   *  migration-time races). */
+  affiliateProgramBackfill: 'affiliate.program.backfill',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -54,6 +60,7 @@ export interface QueueBundle {
   marketplaceRollup: Queue;
   subscriptionReconcile: Queue;
   whatsappSessionHealth: Queue;
+  affiliateProgramBackfill: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -87,5 +94,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     marketplaceRollup: new Queue(QUEUE_NAMES.marketplaceRollup, opts),
     subscriptionReconcile: new Queue(QUEUE_NAMES.subscriptionReconcile, opts),
     whatsappSessionHealth: new Queue(QUEUE_NAMES.whatsappSessionHealth, opts),
+    affiliateProgramBackfill: new Queue(QUEUE_NAMES.affiliateProgramBackfill, opts),
   };
 }
