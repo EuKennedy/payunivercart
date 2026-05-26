@@ -39,6 +39,13 @@ export interface WorkspaceListRow {
   name: string;
   slug: string;
   role: 'owner' | 'admin' | 'editor' | 'viewer';
+  /** Customer-facing brand name. NULL when the producer hasn't filled
+   *  in Configurações → Marca yet; UI falls back to `name`. */
+  companyName: string | null;
+  /** True when the workspace has uploaded a brand logo. UI uses this
+   *  to decide between `<img src="/img/workspace/:id/logo">` and the
+   *  initial-letter placeholder in the sidebar switcher. */
+  hasLogo: boolean;
 }
 
 const joinedAtExpr = sql`coalesce(${schema.memberships.acceptedAt}, ${schema.memberships.createdAt})`;
@@ -53,12 +60,25 @@ async function selectMemberships(
       role: schema.memberships.role,
       name: schema.workspaces.name,
       slug: schema.workspaces.slug,
+      companyName: schema.workspaces.companyName,
+      brandLogoMime: schema.workspaces.brandLogoMime,
     })
     .from(schema.memberships)
     .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.memberships.workspaceId))
     .where(eq(schema.memberships.userId, userId))
     .orderBy(asc(joinedAtExpr));
-  return rows;
+  return rows.map((r) => ({
+    workspaceId: r.workspaceId,
+    role: r.role,
+    name: r.name,
+    slug: r.slug,
+    companyName: r.companyName ?? null,
+    // The logo bytes column is mirrored on `brand_logo_mime` — present
+    // iff a logo was uploaded. We use the MIME presence as the boolean
+    // signal so we don't have to ship the bytea over the wire for what
+    // is ultimately a UI render hint.
+    hasLogo: r.brandLogoMime != null,
+  }));
 }
 
 /**

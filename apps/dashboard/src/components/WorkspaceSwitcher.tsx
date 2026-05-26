@@ -2,6 +2,7 @@
 
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
+import { API_URL } from '../lib/env';
 import { trpc } from '../lib/trpc';
 
 /**
@@ -43,7 +44,10 @@ export function WorkspaceSwitcher() {
     );
   }
 
-  const initial = (me.data.workspace.name[0] ?? 'p').toLowerCase();
+  // Customer-facing brand name beats the internal workspace name when
+  // the producer has set one. Mirrors the checkout header behaviour so
+  // the sidebar identity matches what the buyer sees.
+  const displayName = me.data.workspace.companyName?.trim() || me.data.workspace.name;
 
   return (
     <div ref={rootRef} className="relative">
@@ -52,11 +56,14 @@ export function WorkspaceSwitcher() {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 transition hover:bg-[var(--color-surface-muted)]"
       >
-        <span className="grid size-9 place-items-center rounded-xl bg-[var(--color-fg)] font-semibold text-[15px] text-[var(--color-fg-inverse)] tracking-tight">
-          {initial}
-        </span>
+        <WorkspaceAvatar
+          workspaceId={me.data.workspace.id}
+          name={displayName}
+          hasLogo={me.data.workspace.hasLogo}
+          size="md"
+        />
         <span className="flex-1 truncate text-left font-semibold text-[15px] text-[var(--color-fg)] tracking-tight">
-          {me.data.workspace.name}
+          {displayName}
         </span>
         <ChevronDown className="size-3.5 text-[var(--color-fg-subtle)]" />
       </button>
@@ -69,31 +76,39 @@ export function WorkspaceSwitcher() {
                 {
                   workspaceId: me.data.workspace.id,
                   name: me.data.workspace.name,
+                  companyName: me.data.workspace.companyName,
+                  hasLogo: me.data.workspace.hasLogo,
                   role: me.data.role,
                 },
               ]
-            ).map((ws) => (
-              <li key={ws.workspaceId}>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className={clsx(
-                    'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition hover:bg-[var(--color-surface-muted)]',
-                    ws.workspaceId === me.data.workspace.id
-                      ? 'text-[var(--color-fg)]'
-                      : 'text-[var(--color-fg-muted)]',
-                  )}
-                >
-                  <span className="grid size-6 place-items-center rounded-md bg-[var(--color-fg)] font-semibold text-[10px] text-[var(--color-fg-inverse)]">
-                    {(ws.name[0] ?? 'p').toLowerCase()}
-                  </span>
-                  <span className="flex-1 truncate font-medium">{ws.name}</span>
-                  <span className="text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
-                    {ws.role}
-                  </span>
-                </button>
-              </li>
-            ))}
+            ).map((ws) => {
+              const wsDisplayName = ws.companyName?.trim() || ws.name;
+              return (
+                <li key={ws.workspaceId}>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className={clsx(
+                      'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition hover:bg-[var(--color-surface-muted)]',
+                      ws.workspaceId === me.data.workspace.id
+                        ? 'text-[var(--color-fg)]'
+                        : 'text-[var(--color-fg-muted)]',
+                    )}
+                  >
+                    <WorkspaceAvatar
+                      workspaceId={ws.workspaceId}
+                      name={wsDisplayName}
+                      hasLogo={ws.hasLogo}
+                      size="sm"
+                    />
+                    <span className="flex-1 truncate font-medium">{wsDisplayName}</span>
+                    <span className="text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-wider">
+                      {ws.role}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
           <div className="border-[var(--color-border)] border-t px-3 py-2">
             <button
@@ -111,6 +126,67 @@ export function WorkspaceSwitcher() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Avatar block for a workspace. Renders the producer's uploaded brand
+ * logo when present, otherwise falls back to the initial letter of the
+ * (customer-facing) name. The logo is served by the API as raw bytes at
+ * `/img/workspace/:id/logo` — no auth required because the workspace id
+ * is non-enumerable (uuidv4) and the bytes are already exposed via the
+ * public checkout.
+ *
+ * Two sizes:
+ *   - `md` (size-9) sidebar top-left, matches the legacy initial block.
+ *   - `sm` (size-6) dropdown rows.
+ *
+ * When the `<img>` 404s (logo deleted between fetch + render) the
+ * `onError` handler hides it and falls back to the initial without
+ * breaking the layout.
+ */
+function WorkspaceAvatar({
+  workspaceId,
+  name,
+  hasLogo,
+  size,
+}: {
+  workspaceId: string;
+  name: string;
+  hasLogo: boolean;
+  size: 'md' | 'sm';
+}) {
+  const [errored, setErrored] = useState(false);
+  const dims = size === 'md' ? 'size-9 rounded-xl text-[15px]' : 'size-6 rounded-md text-[10px]';
+  const initial = (name[0] ?? 'p').toLowerCase();
+
+  if (hasLogo && !errored) {
+    return (
+      <span
+        className={clsx(
+          'grid shrink-0 place-items-center overflow-hidden bg-white ring-1 ring-[var(--color-border)]',
+          dims,
+        )}
+      >
+        <img
+          src={`${API_URL.replace(/\/$/, '')}/img/workspace/${workspaceId}/logo`}
+          alt={name}
+          onError={() => setErrored(true)}
+          className="h-full w-full object-cover"
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={clsx(
+        'grid shrink-0 place-items-center bg-[var(--color-fg)] font-semibold text-[var(--color-fg-inverse)] tracking-tight',
+        dims,
+      )}
+    >
+      {initial}
+    </span>
   );
 }
 

@@ -31,6 +31,8 @@ const MembershipRow = z.object({
   name: z.string(),
   slug: z.string(),
   role: z.enum(['owner', 'admin', 'editor', 'viewer']),
+  companyName: z.string().nullable(),
+  hasLogo: z.boolean(),
 });
 
 const RoleEnum = z.enum(['owner', 'admin', 'editor', 'viewer']);
@@ -55,6 +57,8 @@ export const workspaceRouter = router({
           id: z.string().uuid(),
           name: z.string(),
           slug: z.string(),
+          companyName: z.string().nullable(),
+          hasLogo: z.boolean(),
         }),
         role: RoleEnum,
       }),
@@ -80,6 +84,8 @@ export const workspaceRouter = router({
           id: selected.workspaceId,
           name: selected.name,
           slug: selected.slug,
+          companyName: selected.companyName,
+          hasLogo: selected.hasLogo,
         },
         role: selected.role,
       };
