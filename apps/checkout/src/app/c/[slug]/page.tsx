@@ -815,6 +815,19 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
     return product.plans.find((p) => p.isHighlighted) ?? product.plans[0] ?? null;
   })();
   const planPrelocked = !!(requestedPlanId && initialPlan && initialPlan.id === requestedPlanId);
+  /**
+   * Locked-solo state — the buyer has no real choice on the plan
+   * column, either because:
+   *   1. there is only ONE active plan, or
+   *   2. the producer shared a deep link (`?plan=<id>`) targeting a
+   *      specific plan they want pushed.
+   *
+   * In both cases we render a read-only summary card instead of the
+   * picker buttons, so the buyer doesn't see a fake "selecionar" toggle
+   * for a plan they can't switch. Express + single + stepper templates
+   * all honour the flag.
+   */
+  const singlePlanLocked = product.plans.length === 1 || planPrelocked;
 
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(initialPlan?.id ?? null);
   const [name, setName] = useState('');
@@ -955,6 +968,15 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                 <p className="rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
                   Nenhum plano ativo. Avise o produtor.
                 </p>
+              ) : singlePlanLocked && selectedPlan ? (
+                <LockedPlanSummary
+                  plan={selectedPlan}
+                  annualSavings={
+                    selectedPlan.billingPeriod === 'yearly' && annualSavingsPct > 0
+                      ? annualSavingsPct
+                      : 0
+                  }
+                />
               ) : (
                 <div className="flex flex-col gap-3">
                   {product.plans.map((p) => (
@@ -1239,7 +1261,11 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                 n={1}
                 label="Escolha seu plano"
                 state={planState}
-                onEdit={stepperStep !== 'plan' ? () => setStepperStep('plan') : undefined}
+                onEdit={
+                  stepperStep !== 'plan' && !singlePlanLocked
+                    ? () => setStepperStep('plan')
+                    : undefined
+                }
               >
                 {stepperStep === 'plan' ? (
                   <div className="flex flex-col gap-5">
@@ -1247,6 +1273,15 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                       <p className="rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
                         Nenhum plano ativo. Avise o produtor.
                       </p>
+                    ) : singlePlanLocked && selectedPlan ? (
+                      <LockedPlanSummary
+                        plan={selectedPlan}
+                        annualSavings={
+                          selectedPlan.billingPeriod === 'yearly' && annualSavingsPct > 0
+                            ? annualSavingsPct
+                            : 0
+                        }
+                      />
                     ) : (
                       <div
                         className={clsx(
@@ -1586,7 +1621,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                 Assinatura recorrente
               </p>
               <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)] tracking-tight">
-                Escolha seu plano.
+                {singlePlanLocked ? 'Seu plano.' : 'Escolha seu plano.'}
               </h1>
               {product.description ? (
                 <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
@@ -1598,6 +1633,17 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                 <p className="mt-5 rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
                   Nenhum plano ativo. Avise o produtor.
                 </p>
+              ) : singlePlanLocked && selectedPlan ? (
+                <div className="mt-6">
+                  <LockedPlanSummary
+                    plan={selectedPlan}
+                    annualSavings={
+                      selectedPlan.billingPeriod === 'yearly' && annualSavingsPct > 0
+                        ? annualSavingsPct
+                        : 0
+                    }
+                  />
+                </div>
               ) : (
                 <div
                   className={clsx(
@@ -1854,6 +1900,81 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
  * floating badges, no translate-y — the card stays inside its grid
  * cell at every breakpoint.
  */
+/**
+ * Read-only counterpart of `PlanPickCard`. Used when the buyer has no
+ * real choice (single plan OR producer deep-linked a specific plan).
+ * Renders the same visual frame as a selected pick card, minus the
+ * toggle circle + button affordance, so the layout stays balanced
+ * without confusing the buyer with a fake control.
+ */
+function LockedPlanSummary({
+  plan,
+  annualSavings,
+}: {
+  plan: CheckoutData['product']['plans'][number];
+  annualSavings: number;
+}) {
+  const perWord = plan.billingPeriod === 'yearly' ? 'ano' : 'mês';
+  const monthlyEquivalent =
+    plan.billingPeriod === 'yearly' ? Math.round(plan.amountCents / 12) : null;
+  return (
+    <div
+      className={clsx(
+        'relative flex flex-col items-stretch overflow-hidden rounded-2xl border bg-[var(--dop-soft)] p-4 text-left sm:p-5',
+        'border-[var(--dop-500)] shadow-[0_8px_24px_-12px_var(--dop-glow)]',
+      )}
+    >
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span
+            className={clsx(
+              'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 font-semibold text-[10px] uppercase tracking-[0.12em]',
+              plan.billingPeriod === 'yearly'
+                ? 'bg-[var(--dop-soft)] text-[var(--dop-600)]'
+                : 'bg-[var(--surface-2)] text-[var(--ink-70)]',
+            )}
+          >
+            {plan.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
+          </span>
+          {plan.isHighlighted ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--dop-500)] px-2 py-0.5 font-semibold text-[10px] text-white uppercase tracking-[0.12em]">
+              ★ Top
+            </span>
+          ) : null}
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--dop-500)] px-2 py-0.5 font-semibold text-[10px] text-white uppercase tracking-[0.12em]">
+          Selecionado
+        </span>
+      </header>
+
+      <p className="mt-4 truncate font-semibold text-[13px] text-[var(--ink-100)] capitalize leading-tight tracking-[-0.005em]">
+        {plan.name}
+      </p>
+      <div className="mt-2 flex items-baseline gap-1">
+        <span className="font-semibold text-[24px] text-[var(--ink-100)] tabular-nums leading-none tracking-[-0.01em]">
+          {formatCents(plan.amountCents, plan.currency)}
+        </span>
+        <span className="font-medium text-[12px] text-[var(--ink-70)]">/{perWord}</span>
+      </div>
+      {monthlyEquivalent != null ? (
+        <p className="mt-2 text-[11px] text-[var(--ink-50)]">
+          equivale a {formatCents(monthlyEquivalent, plan.currency)}/mês
+        </p>
+      ) : null}
+      {annualSavings > 0 ? (
+        <p className="mt-1 font-semibold text-[11px] text-[var(--dop-600)]">
+          economiza {annualSavings}% vs mensal
+        </p>
+      ) : null}
+      {plan.trialDays > 0 ? (
+        <p className="mt-2 text-[11px] text-[var(--ink-50)]">
+          {plan.trialDays} dias de trial grátis
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function PlanPickCard({
   plan,
   selected,
