@@ -745,6 +745,11 @@ export const marketplaceRouter = router({
             inArray(schema.marketplaceListings.status, ['draft', 'paused', 'pending_review']),
           ),
         );
+      // Auto-provision the workspace's default affiliate program so the
+      // newly-live listing shows up in /afiliar (the EXISTS filter on
+      // affiliate_programs would otherwise hide it). Idempotent — if the
+      // producer already has a workspace-wide program we leave it alone.
+      await ensureDefaultAffiliateProgram(ctx.services.db.db, ctx.workspaceId);
       return { ok: true as const };
     }),
 
@@ -779,3 +784,57 @@ export const marketplaceRouter = router({
       return { ok: true as const };
     }),
 });
+
+/**
+ * Idempotent provisioner for the workspace-wide default affiliate
+ * program. Called every time a marketplace listing flips to `live`
+ * so the EXISTS filter in `browseForAffiliation` finds at least one
+ * public+active program for the workspace.
+ *
+ * Why opt-in defaults (and not workspace-creation hook): the program
+ * is only meaningful once the producer has a product worth promoting.
+ * Auto-creating on every signup would pollute the catalogue with
+ * empty programs from accounts that never publish anything.
+ *
+ * Concurrency: a partial unique index protects
+ * `(workspace_id WHERE product_id IS NULL)`. If two `publish`
+ * mutations race, the second insert raises `23505` and we swallow it
+ * — the program already exists, which is exactly what we wanted.
+ */
+async function ensureDefaultAffiliateProgram(
+  // biome-ignore lint/suspicious/noExplicitAny: drizzle's typed builder collapses to any once stripped of generics.
+  db: any,
+  workspaceId: string,
+): Promise<void> {
+  const [existing] = await db
+    .select({ id: schema.affiliatePrograms.id })
+    .from(schema.affiliatePrograms)
+    .where(
+      and(
+        eq(schema.affiliatePrograms.workspaceId, workspaceId),
+        isNull(schema.affiliatePrograms.productId),
+      ),
+    )
+    .limit(1);
+  if (existing) return;
+  try {
+    await db.insert(schema.affiliatePrograms).values({
+      workspaceId,
+      productId: null,
+      name: 'Programa padrão',
+      description:
+        'Criado automaticamente quando você publicou no marketplace. Edite as regras em Afiliados → Programas.',
+      approvalPolicy: 'manual',
+      isPublic: true,
+      isActive: true,
+      commissionType: 'percent',
+      commissionPercent: 30,
+      refundWindowDays: 30,
+      attributionWindowDays: 60,
+    });
+  } catch (cause) {
+    // Partial unique index race — another concurrent publish beat us
+    // to it. Already provisioned, swallow.
+    if ((cause as { code?: string })?.code !== '23505') throw cause;
+  }
+}

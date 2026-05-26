@@ -196,12 +196,35 @@ export default function AfiliarPage() {
           ))}
         </div>
       ) : isEmpty ? (
-        <div className="rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] p-10 text-center">
-          <Heading level={3}>Nada encontrado.</Heading>
-          <p className="mx-auto mt-2 max-w-md text-[14px] text-[var(--color-fg-muted)] leading-[1.55]">
-            Nenhum produto aberto para afiliação bate com seu filtro agora. Tente outra categoria ou
-            volte depois — a vitrine cresce todos os dias.
-          </p>
+        <div className="flex flex-col items-center gap-4 rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] p-12 text-center">
+          <div className="grid size-14 place-items-center rounded-2xl bg-[var(--color-brand-50)] text-[var(--color-brand-700)]">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              role="img"
+              aria-label="Vitrine"
+            >
+              <path d="M3 9h18" />
+              <path d="M5 9v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9" />
+              <path d="M5 9 7 4h10l2 5" />
+            </svg>
+          </div>
+          <div className="flex max-w-md flex-col gap-2">
+            <Heading level={3}>
+              {q || category ? 'Nada encontrado.' : 'Vitrine vazia por enquanto.'}
+            </Heading>
+            <p className="text-[14px] text-[var(--color-fg-muted)] leading-[1.55]">
+              {q || category
+                ? 'Nenhum produto aberto para afiliação bate com seu filtro. Tente outra categoria ou limpe a busca.'
+                : 'Ainda não há produtos abertos para afiliação na rede. Se você é produtor, publique um produto em Meu Marketplace pra disponibilizá-lo automaticamente.'}
+            </p>
+          </div>
         </div>
       ) : (
         <motion.section
