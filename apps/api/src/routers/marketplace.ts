@@ -81,7 +81,12 @@ const AffiliateListing = PublicListing.extend({
   recurringCycleLimit: z.number().int().nullable(),
   refundWindowDays: z.number().int().nonnegative(),
   attributionWindowDays: z.number().int().nonnegative(),
+  /** Producer's custom landing/VSL URL. NULL → default `/c/<slug>`. */
+  salesPageUrl: z.string().nullable(),
 });
+
+const CommissionType = z.enum(['percent', 'flat', 'recurring', 'lifetime']);
+const ApprovalPolicy = z.enum(['automatic', 'manual', 'invite_only']);
 
 const ProducerListing = z.object({
   id: z.string().uuid(),
@@ -92,10 +97,26 @@ const ProducerListing = z.object({
   pitch: z.string(),
   coverImageUrl: z.string().nullable(),
   searchKeywords: z.array(z.string()),
+  salesPageUrl: z.string().nullable(),
   cachedClicks: z.number().int().nonnegative(),
   cachedPurchases: z.number().int().nonnegative(),
   publishedAt: z.date().nullable(),
   moderationNote: z.string().nullable(),
+  /** Commission terms snapshot from the product-scoped affiliate
+   *  program. NULL when no product-scoped program exists; the
+   *  workspace-wide default applies on the public surface. */
+  commission: z
+    .object({
+      programId: z.string().uuid(),
+      approvalPolicy: ApprovalPolicy,
+      commissionType: CommissionType,
+      commissionPercent: z.number().int().nullable(),
+      commissionFlatCents: z.number().int().nullable(),
+      recurringCycleLimit: z.number().int().nullable(),
+      refundWindowDays: z.number().int().nonnegative(),
+      attributionWindowDays: z.number().int().nonnegative(),
+    })
+    .nullable(),
 });
 
 export const marketplaceRouter = router({
@@ -475,6 +496,7 @@ export const marketplaceRouter = router({
           headline: schema.marketplaceListings.headline,
           pitch: schema.marketplaceListings.pitch,
           coverImageUrl: schema.marketplaceListings.coverImageUrl,
+          salesPageUrl: schema.marketplaceListings.salesPageUrl,
           priceCents: priceCentsExpr,
           currency: currencyExpr,
           publishedAt: schema.marketplaceListings.publishedAt,
@@ -539,6 +561,7 @@ export const marketplaceRouter = router({
               headline: r.headline,
               pitch: r.pitch,
               coverImageUrl: r.coverImageUrl,
+              salesPageUrl: r.salesPageUrl ?? null,
               priceCents: Number(r.priceCents ?? 0),
               currency: r.currency,
               publishedAt: r.publishedAt,
@@ -627,6 +650,7 @@ export const marketplaceRouter = router({
           headline: schema.marketplaceListings.headline,
           pitch: schema.marketplaceListings.pitch,
           coverImageUrl: schema.marketplaceListings.coverImageUrl,
+          salesPageUrl: schema.marketplaceListings.salesPageUrl,
           priceCents: priceCentsExpr,
           currency: currencyExpr,
           publishedAt: schema.marketplaceListings.publishedAt,
@@ -656,6 +680,7 @@ export const marketplaceRouter = router({
         headline: row.headline,
         pitch: row.pitch,
         coverImageUrl: row.coverImageUrl,
+        salesPageUrl: row.salesPageUrl ?? null,
         priceCents: Number(row.priceCents ?? 0),
         currency: row.currency,
         publishedAt: row.publishedAt,
@@ -727,6 +752,7 @@ export const marketplaceRouter = router({
         pitch: schema.marketplaceListings.pitch,
         coverImageUrl: schema.marketplaceListings.coverImageUrl,
         searchKeywords: schema.marketplaceListings.searchKeywords,
+        salesPageUrl: schema.marketplaceListings.salesPageUrl,
         cachedClicks: schema.marketplaceListings.cachedClicks,
         cachedPurchases: schema.marketplaceListings.cachedPurchases,
         publishedAt: schema.marketplaceListings.publishedAt,
@@ -743,29 +769,113 @@ export const marketplaceRouter = router({
     if (rows.some((r) => r.status === 'live')) {
       await ensureDefaultAffiliateProgram(ctx.services.db.db, ctx.workspaceId);
     }
-    return rows.map((r) => ({
-      ...r,
-      status: r.status as z.infer<typeof Status>,
-      category: r.category as z.infer<typeof Category>,
-      searchKeywords: r.searchKeywords ?? [],
-    }));
+    // Pull product-scoped affiliate program for each listing in one
+    // round-trip so the producer's listings table can show the actual
+    // commission terms the affiliate sees on /afiliar.
+    const productIds = rows.map((r) => r.productId);
+    const programs = productIds.length
+      ? await ctx.services.db.db
+          .select({
+            id: schema.affiliatePrograms.id,
+            productId: schema.affiliatePrograms.productId,
+            approvalPolicy: schema.affiliatePrograms.approvalPolicy,
+            commissionType: schema.affiliatePrograms.commissionType,
+            commissionPercent: schema.affiliatePrograms.commissionPercent,
+            commissionFlatCents: schema.affiliatePrograms.commissionFlatCents,
+            recurringCycleLimit: schema.affiliatePrograms.recurringCycleLimit,
+            refundWindowDays: schema.affiliatePrograms.refundWindowDays,
+            attributionWindowDays: schema.affiliatePrograms.attributionWindowDays,
+          })
+          .from(schema.affiliatePrograms)
+          .where(
+            and(
+              eq(schema.affiliatePrograms.workspaceId, ctx.workspaceId),
+              inArray(schema.affiliatePrograms.productId, productIds),
+            ),
+          )
+      : [];
+    const programByProduct = new Map(programs.map((p) => [p.productId, p]));
+
+    return rows.map((r) => {
+      const p = programByProduct.get(r.productId);
+      return {
+        ...r,
+        status: r.status as z.infer<typeof Status>,
+        category: r.category as z.infer<typeof Category>,
+        searchKeywords: r.searchKeywords ?? [],
+        salesPageUrl: r.salesPageUrl ?? null,
+        commission: p
+          ? {
+              programId: p.id,
+              approvalPolicy: p.approvalPolicy as z.infer<typeof ApprovalPolicy>,
+              commissionType: p.commissionType as z.infer<typeof CommissionType>,
+              commissionPercent: p.commissionPercent,
+              commissionFlatCents:
+                p.commissionFlatCents == null ? null : Number(p.commissionFlatCents),
+              recurringCycleLimit: p.recurringCycleLimit,
+              refundWindowDays: p.refundWindowDays,
+              attributionWindowDays: p.attributionWindowDays,
+            }
+          : null,
+      };
+    });
   }),
 
   /**
    * Create / update a listing. Auto-flips to `live` on first publish
    * since v1 doesn't have a manual moderation queue yet.
+   *
+   * Commission terms (commission %, approval policy, refund/attribution
+   * windows, sales-page URL) live on the input alongside the listing
+   * fields. The mutation upserts a product-scoped `affiliate_programs`
+   * row from those values, so the affiliate-shop card on /afiliar
+   * shows the exact commission the producer chose — not the legacy
+   * workspace-wide 30% fallback. Producer can later edit via Afiliados
+   * → Programs without touching the listing.
    */
   upsert: workspaceProcedure
     .input(
-      z.object({
-        id: z.string().uuid().optional(),
-        productId: z.string().uuid(),
-        category: Category,
-        headline: z.string().trim().min(2).max(160),
-        pitch: z.string().trim().max(4000),
-        coverImageUrl: z.string().url().nullable().optional(),
-        searchKeywords: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
-      }),
+      z
+        .object({
+          id: z.string().uuid().optional(),
+          productId: z.string().uuid(),
+          category: Category,
+          headline: z.string().trim().min(2).max(160),
+          pitch: z.string().trim().max(4000),
+          coverImageUrl: z.string().url().nullable().optional(),
+          searchKeywords: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+          salesPageUrl: z.string().url().max(500).nullable().optional(),
+          commission: z
+            .object({
+              approvalPolicy: ApprovalPolicy.default('manual'),
+              commissionType: CommissionType.default('percent'),
+              commissionPercent: z.number().int().min(1).max(90).nullable().optional(),
+              commissionFlatCents: z.number().int().min(1).nullable().optional(),
+              recurringCycleLimit: z.number().int().min(1).max(60).nullable().optional(),
+              refundWindowDays: z.number().int().min(0).max(365).default(30),
+              attributionWindowDays: z.number().int().min(1).max(365).default(60),
+            })
+            .optional(),
+        })
+        .superRefine((value, ctx) => {
+          if (!value.commission) return;
+          const c = value.commission;
+          if (c.commissionType === 'flat') {
+            if (c.commissionFlatCents == null || c.commissionFlatCents <= 0) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['commission', 'commissionFlatCents'],
+                message: 'Comissão fixa exige valor em centavos maior que zero.',
+              });
+            }
+          } else if (c.commissionPercent == null) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['commission', 'commissionPercent'],
+              message: 'Comissão percentual é obrigatória pra esse modelo.',
+            });
+          }
+        }),
     )
     .output(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -789,6 +899,7 @@ export const marketplaceRouter = router({
         });
       }
 
+      let listingId: string;
       if (input.id) {
         await ctx.services.db.db
           .update(schema.marketplaceListings)
@@ -798,6 +909,7 @@ export const marketplaceRouter = router({
             pitch: input.pitch,
             coverImageUrl: input.coverImageUrl ?? null,
             searchKeywords: input.searchKeywords,
+            salesPageUrl: input.salesPageUrl?.trim() || null,
             updatedAt: new Date(),
           })
           .where(
@@ -806,33 +918,50 @@ export const marketplaceRouter = router({
               eq(schema.marketplaceListings.workspaceId, ctx.workspaceId),
             ),
           );
-        return { id: input.id };
+        listingId = input.id;
+      } else {
+        const [row] = await ctx.services.db.db
+          .insert(schema.marketplaceListings)
+          .values({
+            workspaceId: ctx.workspaceId,
+            productId: input.productId,
+            status: 'draft',
+            category: input.category,
+            headline: input.headline,
+            pitch: input.pitch,
+            coverImageUrl: input.coverImageUrl ?? null,
+            searchKeywords: input.searchKeywords,
+            salesPageUrl: input.salesPageUrl?.trim() || null,
+          })
+          .returning({ id: schema.marketplaceListings.id });
+        if (!row) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Falha ao criar listing.',
+          });
+        }
+        listingId = row.id;
       }
 
-      const [row] = await ctx.services.db.db
-        .insert(schema.marketplaceListings)
-        .values({
-          workspaceId: ctx.workspaceId,
-          productId: input.productId,
-          status: 'draft',
-          category: input.category,
-          headline: input.headline,
-          pitch: input.pitch,
-          coverImageUrl: input.coverImageUrl ?? null,
-          searchKeywords: input.searchKeywords,
-        })
-        .returning({ id: schema.marketplaceListings.id });
-      if (!row) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Falha ao criar listing.',
-        });
-      }
-      // Pre-provision the affiliate program at draft time too — covers
-      // the path where the producer publishes via direct SQL / future
-      // bulk import without going through `publish`.
+      // Sync the product-scoped affiliate program with the commission
+      // terms the producer just set. Falls back to a sensible default
+      // when commission block is omitted so the workspace-wide
+      // fallback still shows the listing on /afiliar.
+      await upsertProductAffiliateProgram(ctx.services.db.db, {
+        workspaceId: ctx.workspaceId,
+        productId: input.productId,
+        commission: input.commission ?? {
+          approvalPolicy: 'manual',
+          commissionType: 'percent',
+          commissionPercent: 30,
+          refundWindowDays: 30,
+          attributionWindowDays: 60,
+        },
+      });
+      // Belt-and-braces — workspace-wide default still gets provisioned
+      // in case the producer later removes the product-scoped program.
       await ensureDefaultAffiliateProgram(ctx.services.db.db, ctx.workspaceId);
-      return { id: row.id };
+      return { id: listingId };
     }),
 
   publish: workspaceProcedure
@@ -982,4 +1111,82 @@ async function ensureDefaultAffiliateProgram(
   } catch (cause) {
     if ((cause as { code?: string })?.code !== '23505') throw cause;
   }
+}
+
+/**
+ * Sync the product-scoped affiliate program with the commission terms
+ * the producer set on a marketplace listing. UPSERT semantics:
+ *   - If a program already exists for (workspace, product), patch it
+ *     in place (producer is just adjusting their published terms).
+ *   - Otherwise insert a fresh program.
+ *
+ * `is_public = true` + `is_active = true` always — the producer made
+ * a deliberate publish move; they can toggle off later via Afiliados →
+ * Programs without losing the row.
+ */
+interface UpsertCommissionInput {
+  approvalPolicy: 'automatic' | 'manual' | 'invite_only';
+  commissionType: 'percent' | 'flat' | 'recurring' | 'lifetime';
+  commissionPercent?: number | null;
+  commissionFlatCents?: number | null;
+  recurringCycleLimit?: number | null;
+  refundWindowDays: number;
+  attributionWindowDays: number;
+}
+
+async function upsertProductAffiliateProgram(
+  // biome-ignore lint/suspicious/noExplicitAny: drizzle's typed builder collapses to any once stripped of generics.
+  db: any,
+  args: {
+    workspaceId: string;
+    productId: string;
+    commission: UpsertCommissionInput;
+  },
+): Promise<void> {
+  const c = args.commission;
+  const [existing] = await db
+    .select({ id: schema.affiliatePrograms.id })
+    .from(schema.affiliatePrograms)
+    .where(
+      and(
+        eq(schema.affiliatePrograms.workspaceId, args.workspaceId),
+        eq(schema.affiliatePrograms.productId, args.productId),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(schema.affiliatePrograms)
+      .set({
+        approvalPolicy: c.approvalPolicy,
+        commissionType: c.commissionType,
+        commissionPercent: c.commissionPercent ?? null,
+        commissionFlatCents: c.commissionFlatCents != null ? BigInt(c.commissionFlatCents) : null,
+        recurringCycleLimit: c.recurringCycleLimit ?? null,
+        refundWindowDays: c.refundWindowDays,
+        attributionWindowDays: c.attributionWindowDays,
+        isPublic: true,
+        isActive: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.affiliatePrograms.id, existing.id));
+    return;
+  }
+
+  await db.insert(schema.affiliatePrograms).values({
+    workspaceId: args.workspaceId,
+    productId: args.productId,
+    name: 'Programa do produto',
+    description: 'Termos de afiliação configurados pelo produtor no marketplace.',
+    approvalPolicy: c.approvalPolicy,
+    isPublic: true,
+    isActive: true,
+    commissionType: c.commissionType,
+    commissionPercent: c.commissionPercent ?? null,
+    commissionFlatCents: c.commissionFlatCents != null ? BigInt(c.commissionFlatCents) : null,
+    recurringCycleLimit: c.recurringCycleLimit ?? null,
+    refundWindowDays: c.refundWindowDays,
+    attributionWindowDays: c.attributionWindowDays,
+  });
 }

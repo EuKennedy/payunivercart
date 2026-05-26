@@ -106,6 +106,15 @@ export const marketplaceListings = pgTable(
     /** Producer-facing notes (rejection reason, change-required hints).
      *  Visible to the producer in the publish UI. */
     moderationNote: text(),
+    /**
+     * Producer-customised sales page URL the affiliate should send the
+     * buyer to. NULL → fall back to the default checkout
+     * `/c/<product.slug>`. Producers who run their own pre-checkout
+     * landing page (videosales, longform copy) point at it here so the
+     * affiliate's tracking link doesn't dump the buyer straight into
+     * the bare checkout.
+     */
+    salesPageUrl: text(),
     publishedAt: timestampTzNullable(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

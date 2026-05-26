@@ -690,7 +690,8 @@ export const affiliatesRouter = router({
     )
     .output(z.object({ ok: z.literal(true) }))
     .mutation(async ({ ctx, input }) => {
-      const result = await ctx.services.db.db
+      const db = ctx.services.db.db;
+      const result = await db
         .update(schema.affiliateMemberships)
         .set({
           status: 'approved',
@@ -713,6 +714,57 @@ export const affiliatesRouter = router({
           code: 'PRECONDITION_FAILED',
           message: 'Membership não encontrado ou já está aprovado.',
         });
+      }
+      // Mint the affiliate's tracking link on approval — same code path
+      // as `requestMembership` when autoApproved=true. Without this,
+      // the affiliate sees "Aprovado" in /afiliado but has no slug to
+      // share. Skip when one already exists for this (program, affiliate).
+      const [membership] = await db
+        .select({
+          programId: schema.affiliateMemberships.programId,
+          affiliateId: schema.affiliateMemberships.affiliateId,
+        })
+        .from(schema.affiliateMemberships)
+        .where(eq(schema.affiliateMemberships.id, input.membershipId))
+        .limit(1);
+      if (membership) {
+        const [existingLink] = await db
+          .select({ id: schema.affiliateLinks.id })
+          .from(schema.affiliateLinks)
+          .where(
+            and(
+              eq(schema.affiliateLinks.programId, membership.programId),
+              eq(schema.affiliateLinks.affiliateId, membership.affiliateId),
+            ),
+          )
+          .limit(1);
+        if (!existingLink) {
+          const [program] = await db
+            .select({
+              workspaceId: schema.affiliatePrograms.workspaceId,
+              productId: schema.affiliatePrograms.productId,
+            })
+            .from(schema.affiliatePrograms)
+            .where(eq(schema.affiliatePrograms.id, membership.programId))
+            .limit(1);
+          if (program) {
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                await db.insert(schema.affiliateLinks).values({
+                  workspaceId: program.workspaceId,
+                  programId: membership.programId,
+                  affiliateId: membership.affiliateId,
+                  productId: program.productId,
+                  slug: mintLinkSlug(),
+                });
+                break;
+              } catch (cause) {
+                if ((cause as { code?: string })?.code !== '23505') throw cause;
+                if (attempt === 1) throw cause;
+              }
+            }
+          }
+        }
       }
       return { ok: true as const };
     }),

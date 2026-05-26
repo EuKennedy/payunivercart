@@ -141,6 +141,13 @@
       "when": 1779900000000,
       "tag": "0019_default_affiliate_programs_backfill_retry",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1779829002287,
+      "tag": "0020_marketplace_sales_page_url",
+      "breakpoints": true
     }
   ]
 }

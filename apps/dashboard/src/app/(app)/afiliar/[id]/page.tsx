@@ -114,7 +114,9 @@ export default function AffiliateDetailPage() {
 
   const item = detail.data;
   const categoryLabel = CATEGORY_LABELS[item.category] ?? item.category;
-  const productCheckoutUrl = `${checkoutBase}/c/${item.productSlug}`;
+  // Producer's custom sales/landing page wins over the default checkout
+  // URL — they may run a VSL or longform copy before the bare checkout.
+  const productCheckoutUrl = item.salesPageUrl ?? `${checkoutBase}/c/${item.productSlug}`;
 
   return (
     <motion.div
