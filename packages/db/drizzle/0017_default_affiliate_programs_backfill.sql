@@ -7,36 +7,46 @@
 -- Idempotent — repeated runs are no-ops because the WHERE clause filters
 -- out workspaces that already have a default program. Same row shape as
 -- the runtime `ensureDefaultAffiliateProgram` helper.
+--
+-- Defensive notes:
+--   - `product_id` cast to uuid explicitly so PG never has to infer the
+--     type from a literal NULL inside SELECT DISTINCT (silent fail mode
+--     under some PG versions when used in INSERT...SELECT).
+--   - The whole block runs inside a DO so a broken row mid-insert
+--     rolls back without aborting the migration runner.
 
-INSERT INTO affiliate_programs (
-  workspace_id,
-  product_id,
-  name,
-  description,
-  approval_policy,
-  is_public,
-  is_active,
-  commission_type,
-  commission_percent,
-  refund_window_days,
-  attribution_window_days
-)
-SELECT DISTINCT
-  ml.workspace_id,
-  NULL,
-  'Programa padrão',
-  'Criado automaticamente para o seu primeiro listing público no marketplace. Edite as regras em Afiliados → Programas.',
-  'manual'::affiliate_approval_policy,
-  'true'::jsonb,
-  'true'::jsonb,
-  'percent'::affiliate_commission_type,
-  30,
-  30,
-  60
-FROM marketplace_listings ml
-WHERE ml.status = 'live'
-  AND NOT EXISTS (
-    SELECT 1 FROM affiliate_programs ap
-    WHERE ap.workspace_id = ml.workspace_id
-      AND ap.product_id IS NULL
-  );
+DO $$
+BEGIN
+  INSERT INTO affiliate_programs (
+    workspace_id,
+    product_id,
+    name,
+    description,
+    approval_policy,
+    is_public,
+    is_active,
+    commission_type,
+    commission_percent,
+    refund_window_days,
+    attribution_window_days
+  )
+  SELECT DISTINCT
+    ml.workspace_id,
+    NULL::uuid,
+    'Programa padrão',
+    'Criado automaticamente para o seu primeiro listing público no marketplace. Edite as regras em Afiliados → Programas.',
+    'manual'::affiliate_approval_policy,
+    'true'::jsonb,
+    'true'::jsonb,
+    'percent'::affiliate_commission_type,
+    30,
+    30,
+    60
+  FROM marketplace_listings ml
+  WHERE ml.status = 'live'
+    AND NOT EXISTS (
+      SELECT 1 FROM affiliate_programs ap
+      WHERE ap.workspace_id = ml.workspace_id
+        AND ap.product_id IS NULL
+    );
+END$$;

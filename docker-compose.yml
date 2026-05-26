@@ -86,11 +86,23 @@ services:
       context: .
       dockerfile: Dockerfile
       target: migrate
+    # `set -e` aborts on first failure (also implicit via `&&` chain
+    # but explicit is clearer). `set -x` echoes each command before
+    # running so the docker logs identify which step blew up — Coolify
+    # only shows the last lines of stdout on deploy failure, so we want
+    # every command name in there. `ON_ERROR_STOP=1` makes psql exit
+    # non-zero on the first SQL error instead of swallowing it (the
+    # default of psql is to continue + return 0 even on errors, which
+    # would let a broken RLS policy slip past the migrate gate).
     command: >
-      sh -c "
+      sh -ex -c "
+        echo '[migrate] step 1/3: drizzle JS migrator' &&
         pnpm --filter @payunivercart/db migrate &&
-        psql \"$$DATABASE_URL\" -f packages/db/sql/02_rls_policies.sql &&
-        psql \"$$DATABASE_URL\" -f packages/audit/sql/01_lockdown.sql
+        echo '[migrate] step 2/3: RLS policies' &&
+        psql -v ON_ERROR_STOP=1 \"$$DATABASE_URL\" -f packages/db/sql/02_rls_policies.sql &&
+        echo '[migrate] step 3/3: audit lockdown' &&
+        psql -v ON_ERROR_STOP=1 \"$$DATABASE_URL\" -f packages/audit/sql/01_lockdown.sql &&
+        echo '[migrate] done.'
       "
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-payunivercart}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-payunivercart}
