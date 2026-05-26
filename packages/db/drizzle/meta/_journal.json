@@ -127,6 +127,13 @@
       "when": 1779887000000,
       "tag": "0017_default_affiliate_programs_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1779807817790,
+      "tag": "0018_recovery_attempts_attempt_count",
+      "breakpoints": true
     }
   ]
 }

@@ -1182,7 +1182,21 @@ export async function dispatchPaidFanOut(services: AppServices, orderId: string)
     .from(schema.whatsappSessions)
     .where(eq(schema.whatsappSessions.workspaceId, row.workspaceId))
     .limit(1);
-  if (!sessionRow) return;
+  if (!sessionRow) {
+    // Surface structured warn so ops can correlate "buyer got email
+    // but no WhatsApp" reports against a missing session config. The
+    // previous silent `return` made this invisible to monitoring.
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'orderPaid.whatsapp.skipped',
+        reason: 'no_whatsapp_session_configured',
+        orderId,
+        workspaceId: row.workspaceId,
+      })}\n`,
+    );
+    return;
+  }
   const sessionName = sessionRow.sessionName;
 
   const firstName = row.name.split(/\s+/)[0] ?? row.name;
@@ -1362,7 +1376,18 @@ export async function dispatchSubscriptionActivatedFanOut(
     .from(schema.whatsappSessions)
     .where(eq(schema.whatsappSessions.workspaceId, row.workspaceId))
     .limit(1);
-  if (!sessionRow) return;
+  if (!sessionRow) {
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'subscription.activation.whatsapp.skipped',
+        reason: 'no_whatsapp_session_configured',
+        subscriptionId,
+        workspaceId: row.workspaceId,
+      })}\n`,
+    );
+    return;
+  }
   const sessionName = sessionRow.sessionName;
 
   const firstName = row.name.split(/\s+/)[0] ?? row.name;

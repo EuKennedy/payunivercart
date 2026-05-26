@@ -129,6 +129,19 @@ async function main() {
     },
   );
 
+  // WhatsApp session liveness — every 5 min. Reflects real WAHA status
+  // in the local mirror so the dashboard chip + bell stop lying when a
+  // session crashes out-of-band. Tight cadence because a stale chip
+  // means recovery sweeps keep firing into a dead session for hours.
+  await queues.whatsappSessionHealth.upsertJobScheduler(
+    'health',
+    { every: 5 * 60 * 1000 },
+    {
+      name: 'whatsapp.session.health.sweep',
+      data: {},
+    },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,

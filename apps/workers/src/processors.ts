@@ -9,6 +9,7 @@ import { runMarketplaceRollup } from './handlers/marketplace-rollup';
 import { runRecoverySweep } from './handlers/recovery';
 import { runSubscriptionReconcileSweep } from './handlers/subscription-reconcile';
 import { runTrackingDispatchSweep } from './handlers/tracking-dispatch';
+import { runWhatsappSessionHealthSweep } from './handlers/whatsapp-session-health';
 import { QUEUE_NAMES } from './queues';
 
 /**
@@ -161,6 +162,21 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // WhatsApp session health — 5min sweep. Polls WAHA for every
+  // session the local mirror considers WORKING and reflects the real
+  // status when WAHA disagrees. Closes the visibility gap where a
+  // session crashed at 02:00 but the dashboard still claimed WORKING
+  // until the producer manually opened the integrations page.
+  const whatsappSessionHealth = new Worker(
+    QUEUE_NAMES.whatsappSessionHealth,
+    async (job) => {
+      const result = await runWhatsappSessionHealthSweep({ db: dbWrapper.db, waha });
+      logEvent('whatsapp.session.health.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   for (const w of [
     webhookInbound,
     webhookOutbox,
@@ -171,6 +187,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     trackingDispatch,
     marketplaceRollup,
     subscriptionReconcile,
+    whatsappSessionHealth,
   ]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
@@ -186,6 +203,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     trackingDispatch,
     marketplaceRollup,
     subscriptionReconcile,
+    whatsappSessionHealth,
     webhookInbound,
     webhookOutbox,
     recovery,

@@ -1,6 +1,6 @@
 import { PayunivercartError } from '@payunivercart/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { WahaClient } from './client';
+import { WahaClient, isRetryableError } from './client';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -151,4 +151,112 @@ describe('WahaClient — connection failure', () => {
   // `timeoutMs` is currently only consulted as a fallback for callers that
   // do not pass a per-call value; every public method passes one. See
   // TIMEOUTS_MS in client.ts.
+});
+
+describe('isRetryableError', () => {
+  it('flags GATEWAY_UNAVAILABLE as retryable (network / 5xx / timeout)', () => {
+    const err = new PayunivercartError({
+      code: 'GATEWAY_UNAVAILABLE',
+      message: 'upstream down',
+    });
+    expect(isRetryableError(err)).toBe(true);
+  });
+
+  it('flags 5xx-derived errors with details.retryable=true', () => {
+    expect(isRetryableError({ code: 'GATEWAY_ERROR', details: { retryable: true } })).toBe(true);
+  });
+
+  it('rejects 4xx errors (non-retryable by contract)', () => {
+    expect(isRetryableError({ code: 'GATEWAY_ERROR', details: { retryable: false } })).toBe(false);
+  });
+
+  it('rejects unrelated objects', () => {
+    expect(isRetryableError(null)).toBe(false);
+    expect(isRetryableError(undefined)).toBe(false);
+    expect(isRetryableError('boom')).toBe(false);
+    expect(isRetryableError({})).toBe(false);
+  });
+});
+
+describe('WahaClient.sendTextWithRetry', () => {
+  // Lock the placeholder timer to make the backoff sleeps instant.
+  // Real-time backoff (500ms + 2s + 8s) would balloon the test suite.
+  const noSleep = () =>
+    vi.stubGlobal('setTimeout', (fn: () => void) => {
+      fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    });
+
+  it('returns on the first successful attempt without retrying', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 'msg-1' }, 200));
+    const client = build(fetchImpl as unknown as typeof fetch);
+    await client.sendTextWithRetry({
+      session: 's',
+      chatId: '5511999999999@c.us',
+      text: 'oi',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries up to maxAttempts on transient 503, then succeeds', async () => {
+    noSleep();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ error: 'boom' }, 503))
+      .mockResolvedValueOnce(jsonResponse({ id: 'msg-1' }, 200));
+    const client = build(fetchImpl as unknown as typeof fetch);
+    await client.sendTextWithRetry(
+      { session: 's', chatId: '5511999999999@c.us', text: 'oi' },
+      { maxAttempts: 3 },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
+  it('bubbles a 4xx non-retryable error on the first failure', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(jsonResponse({ error: 'bad chatId' }, 422));
+    const client = build(fetchImpl as unknown as typeof fetch);
+    await expect(
+      client.sendTextWithRetry({
+        session: 's',
+        chatId: '5511999999999@c.us',
+        text: 'oi',
+      }),
+    ).rejects.toThrow(PayunivercartError);
+    // 4xx should NOT consume the retry budget.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after maxAttempts even when every response is transient', async () => {
+    noSleep();
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503));
+    const client = build(fetchImpl as unknown as typeof fetch);
+    await expect(
+      client.sendTextWithRetry(
+        { session: 's', chatId: '5511999999999@c.us', text: 'oi' },
+        { maxAttempts: 3 },
+      ),
+    ).rejects.toThrow(PayunivercartError);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    vi.unstubAllGlobals();
+  });
+
+  it('invokes onAttempt for every retry (not for the success or the final throw)', async () => {
+    noSleep();
+    const onAttempt = vi.fn();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, 503))
+      .mockResolvedValueOnce(jsonResponse({}, 503))
+      .mockResolvedValueOnce(jsonResponse({ id: 'msg-1' }, 200));
+    const client = build(fetchImpl as unknown as typeof fetch);
+    await client.sendTextWithRetry(
+      { session: 's', chatId: '5511999999999@c.us', text: 'oi' },
+      { maxAttempts: 3, onAttempt },
+    );
+    expect(onAttempt).toHaveBeenCalledTimes(2);
+    expect(onAttempt).toHaveBeenNthCalledWith(1, 1, expect.any(PayunivercartError));
+    expect(onAttempt).toHaveBeenNthCalledWith(2, 2, expect.any(PayunivercartError));
+    vi.unstubAllGlobals();
+  });
 });

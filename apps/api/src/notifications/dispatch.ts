@@ -102,12 +102,33 @@ export async function dispatchWhatsappNotification(input: WhatsappDispatchInput)
       text = rendered.body;
     }
   }
-  await input.services.waha.sendText({
-    session: input.sessionName,
-    chatId: input.chatId,
-    text,
-    linkPreview: input.linkPreview ?? false,
-  });
+  // Retry layer: 3 attempts with 0.5s/2s/8s backoff on transient
+  // failures (5xx, 429, timeouts). Without this a single WAHA blip
+  // during a deploy would silently drop the notification — and the
+  // outer caller's catch-only-log pattern hides the failure from the
+  // producer dashboard.
+  await input.services.waha.sendTextWithRetry(
+    {
+      session: input.sessionName,
+      chatId: input.chatId,
+      text,
+      linkPreview: input.linkPreview ?? false,
+    },
+    {
+      onAttempt: (attempt, err) => {
+        process.stdout.write(
+          `${JSON.stringify({
+            level: 'warn',
+            event: 'whatsapp.dispatch.retry',
+            workspaceId: input.workspaceId,
+            eventKey: input.eventKey,
+            attempt,
+            error: err instanceof Error ? err.message : String(err),
+          })}\n`,
+        );
+      },
+    },
+  );
 }
 
 /** Re-exported to keep import sites in webhook handlers clean. */

@@ -1,0 +1,1 @@
+ALTER TABLE "recovery_attempts" ADD COLUMN "attempt_count" integer DEFAULT 0 NOT NULL;

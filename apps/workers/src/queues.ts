@@ -33,6 +33,11 @@ export const QUEUE_NAMES = {
    *  the gateway for stale subscriptions so out-of-band cancellations
    *  (buyer cancels in MP app, webhook never fires) reflect locally. */
   subscriptionReconcile: 'subscription.reconcile',
+  /** WhatsApp session liveness — 5min sweep that polls WAHA for every
+   *  session we currently consider WORKING and flips the local mirror
+   *  when WAHA disagrees. Keeps the dashboard honest about a session
+   *  that died out-of-band. */
+  whatsappSessionHealth: 'whatsapp.session.health',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -48,6 +53,7 @@ export interface QueueBundle {
   trackingDispatch: Queue;
   marketplaceRollup: Queue;
   subscriptionReconcile: Queue;
+  whatsappSessionHealth: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -80,5 +86,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     trackingDispatch: new Queue(QUEUE_NAMES.trackingDispatch, opts),
     marketplaceRollup: new Queue(QUEUE_NAMES.marketplaceRollup, opts),
     subscriptionReconcile: new Queue(QUEUE_NAMES.subscriptionReconcile, opts),
+    whatsappSessionHealth: new Queue(QUEUE_NAMES.whatsappSessionHealth, opts),
   };
 }

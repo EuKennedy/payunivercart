@@ -63,6 +63,14 @@ export const recoveryAttempts = pgTable(
     failureReason: text(),
     /** Required: every attempt is scheduled for a specific moment in the future. */
     scheduledFor: timestampTz(),
+    /**
+     * How many times the worker tried to dispatch this row. Bumped on
+     * every transient failure (WAHA 5xx, timeout, network blip) before
+     * the row is re-queued; the worker stops re-queuing after
+     * `MAX_TRANSIENT_RETRIES` and finally flips the row to `failed`.
+     * Default 0 so existing rows behave the same on first sweep.
+     */
+    attemptCount: integer().notNull().default(0),
     sentAt: timestampTzNullable(),
     openedAt: timestampTzNullable(),
     clickedAt: timestampTzNullable(),

@@ -100,6 +100,53 @@ export class WahaClient {
     return wahaSendTextResponseSchema.parse(data);
   }
 
+  /**
+   * Send-with-retry. Built for the recovery worker + webhook fan-out
+   * paths where a single transient WAHA blip should not silently drop
+   * a notification.
+   *
+   * Retries only on errors flagged `retryable: true` in the
+   * `PayunivercartError.details` — i.e. 5xx, 429, and network/timeout.
+   * 4xx errors (bad chatId, malformed body, invalid session) skip retry
+   * because re-sending an identical bad request can't recover.
+   *
+   * Backoff: 500ms → 2s → 8s. Total budget ≤ 26s (3 attempts × 15s
+   * sendText timeout + 10.5s sleep). Single retry layer for the entire
+   * codebase so behaviour is consistent regardless of caller.
+   *
+   * Caveat: WhatsApp's own delivery layer can drop messages even after
+   * WAHA returns 200. This helper only guarantees the HTTP send
+   * completes — not that the buyer's phone rang. Inspecting WhatsApp
+   * delivery acks is a separate feature (and requires a webhook from
+   * WAHA back into us).
+   */
+  async sendTextWithRetry(
+    input: WahaSendTextInput,
+    options: {
+      maxAttempts?: number;
+      onAttempt?: (attempt: number, error: unknown) => void;
+    } = {},
+  ): Promise<WahaSendTextResponse> {
+    const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
+    const delays = [500, 2_000, 8_000];
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.sendText(input);
+      } catch (cause) {
+        lastError = cause;
+        if (!isRetryableError(cause) || attempt === maxAttempts) {
+          throw cause;
+        }
+        options.onAttempt?.(attempt, cause);
+        const delay = delays[attempt - 1] ?? 8_000;
+        await sleep(delay);
+      }
+    }
+    // Unreachable — loop either returns or throws on the last attempt.
+    throw lastError;
+  }
+
   async getSessionStatus(session = this.defaultSession): Promise<WahaSessionStatus> {
     const response = await this.request({
       url: `${this.baseUrl}/api/sessions/${encodeURIComponent(session)}`,
@@ -314,4 +361,24 @@ async function safeReadBody(response: Response): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Decide whether a WAHA error should be retried. Mirrors the contract
+ * of `mapWahaHttpError`: 5xx, 429, network errors, and timeouts carry
+ * `details.retryable = true` (or are `GATEWAY_UNAVAILABLE`, which is
+ * always transient by definition).
+ *
+ * Exported so callers building their own retry loops (e.g. recovery
+ * worker's outer claim/process loop) classify errors identically.
+ */
+export function isRetryableError(cause: unknown): boolean {
+  if (!cause || typeof cause !== 'object') return false;
+  const err = cause as { code?: string; details?: { retryable?: boolean } };
+  if (err.code === 'GATEWAY_UNAVAILABLE') return true;
+  return err.details?.retryable === true;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

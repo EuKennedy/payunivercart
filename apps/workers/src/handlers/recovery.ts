@@ -1,5 +1,5 @@
 import { type DatabaseClient, schema } from '@payunivercart/db';
-import type { WahaChatId, WahaClient } from '@payunivercart/waha';
+import { type WahaChatId, type WahaClient, isRetryableError } from '@payunivercart/waha';
 import { and, eq, lte } from 'drizzle-orm';
 
 /**
@@ -33,11 +33,27 @@ const BATCH_SIZE = 10;
  */
 const INTER_MESSAGE_DELAY_MS = 1_800;
 
+/**
+ * Max times the worker re-queues a single row on transient failures
+ * (WAHA timeout, 5xx, network). After this many tries we flip the row
+ * to `failed` permanently so it stops consuming sweep budget. Spread
+ * across 4 attempts with exponentially-growing scheduledFor offsets
+ * (1m, 5m, 15m, 30m) the worker has ≈50 minutes of recovery window
+ * after the first failure — long enough to ride a typical WAHA hiccup.
+ */
+const MAX_TRANSIENT_RETRIES = 3;
+/** Backoff schedule in seconds, indexed by next `attemptCount` (1-N). */
+const RETRY_DELAYS_SECONDS = [60, 5 * 60, 15 * 60, 30 * 60];
+
 interface SweepResult {
   processed: number;
   sent: number;
   skipped: number;
   failed: number;
+  /** Rows that hit a transient error and got re-scheduled with backoff
+   *  instead of being marked failed. Surfaced in the worker log so ops
+   *  can see retries happening without scanning the table directly. */
+  requeued: number;
 }
 
 interface SweepCtx {
@@ -61,6 +77,7 @@ export async function runRecoverySweep(ctx: SweepCtx): Promise<SweepResult> {
       targetIdentifier: schema.recoveryAttempts.targetIdentifier,
       channel: schema.recoveryAttempts.channel,
       campaignId: schema.recoveryAttempts.campaignId,
+      attemptCount: schema.recoveryAttempts.attemptCount,
     })
     .from(schema.recoveryAttempts)
     .where(
@@ -74,6 +91,7 @@ export async function runRecoverySweep(ctx: SweepCtx): Promise<SweepResult> {
   let sent = 0;
   let skipped = 0;
   let failed = 0;
+  let requeued = 0;
 
   for (const [index, attempt] of due.entries()) {
     const claimed = await claim(ctx.db, attempt.id);
@@ -91,16 +109,64 @@ export async function runRecoverySweep(ctx: SweepCtx): Promise<SweepResult> {
         failed++;
       }
     } catch (cause) {
+      // Transient WAHA error (5xx, timeout, network) + room left in
+      // the retry budget → re-queue with backoff instead of marking
+      // failed. Producer keeps their recovery cadence alive across a
+      // WAHA deploy / hiccup. Non-retryable errors (4xx, bad chatId,
+      // invalid session) skip straight to `failed` because re-sending
+      // the same request can't recover.
       const reason = cause instanceof Error ? cause.message : String(cause);
-      await ctx.db
-        .update(schema.recoveryAttempts)
-        .set({ status: 'failed', failureReason: reason.slice(0, 500) })
-        .where(eq(schema.recoveryAttempts.id, attempt.id));
-      failed++;
+      const nextAttempt = attempt.attemptCount + 1;
+      const retryable = isRetryableError(cause);
+      if (retryable && nextAttempt <= MAX_TRANSIENT_RETRIES) {
+        const delaySec =
+          RETRY_DELAYS_SECONDS[nextAttempt - 1] ??
+          RETRY_DELAYS_SECONDS[RETRY_DELAYS_SECONDS.length - 1] ??
+          60;
+        const scheduledFor = new Date(Date.now() + delaySec * 1000);
+        await ctx.db
+          .update(schema.recoveryAttempts)
+          .set({
+            status: 'queued',
+            attemptCount: nextAttempt,
+            scheduledFor,
+            failureReason: `retry-${nextAttempt}/${MAX_TRANSIENT_RETRIES}: ${reason.slice(0, 400)}`,
+          })
+          .where(eq(schema.recoveryAttempts.id, attempt.id));
+        requeued++;
+        logEvent('recovery.attempt.requeued', {
+          attemptId: attempt.id,
+          workspaceId: attempt.workspaceId,
+          attempt: nextAttempt,
+          retryAt: scheduledFor.toISOString(),
+        });
+      } else {
+        await ctx.db
+          .update(schema.recoveryAttempts)
+          .set({
+            status: 'failed',
+            failureReason: reason.slice(0, 500),
+            attemptCount: nextAttempt,
+          })
+          .where(eq(schema.recoveryAttempts.id, attempt.id));
+        failed++;
+        logEvent('recovery.attempt.failed', {
+          attemptId: attempt.id,
+          workspaceId: attempt.workspaceId,
+          attempts: nextAttempt,
+          retryable,
+          reason: reason.slice(0, 200),
+        });
+      }
     }
   }
 
-  return { processed: due.length, sent, skipped, failed };
+  return { processed: due.length, sent, skipped, failed, requeued };
+}
+
+/** Structured stdout for ops dashboards / log aggregation. */
+function logEvent(event: string, data: Record<string, unknown>): void {
+  process.stdout.write(`${JSON.stringify({ level: 'info', event, ...data })}\n`);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -128,6 +194,7 @@ async function processAttempt(
     targetIdentifier: string;
     channel: 'whatsapp' | 'email';
     campaignId: string;
+    attemptCount: number;
   },
 ): Promise<'sent' | 'skipped' | 'failed'> {
   if (attempt.channel !== 'whatsapp') {
@@ -256,12 +323,21 @@ async function processAttempt(
     codigo: order.publicReference,
   });
 
-  await ctx.waha.sendText({
-    session: sessionName,
-    chatId,
-    text,
-    linkPreview: false,
-  });
+  await ctx.waha.sendTextWithRetry(
+    {
+      session: sessionName,
+      chatId,
+      text,
+      linkPreview: false,
+    },
+    {
+      // Each sweep already has its own re-queue layer; the WAHA-level
+      // retry covers the small in-tick blip (a single re-issue of the
+      // same request) so a 1-of-10 batch hiccup doesn't burn the
+      // entire requeue budget.
+      maxAttempts: 2,
+    },
+  );
 
   await ctx.db
     .update(schema.recoveryAttempts)
