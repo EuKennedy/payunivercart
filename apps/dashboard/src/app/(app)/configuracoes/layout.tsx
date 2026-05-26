@@ -28,6 +28,11 @@ const SECTIONS = [
     label: 'Marca',
     description: 'Logo, nome da empresa e cor',
   },
+  {
+    href: '/configuracoes/notificacoes',
+    label: 'Notificações',
+    description: 'Templates de email e WhatsApp',
+  },
 ] as const;
 
 export default function ConfiguracoesLayout({ children }: { children: React.ReactNode }) {

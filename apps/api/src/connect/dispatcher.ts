@@ -10,6 +10,7 @@ import {
 } from '@payunivercart/connect';
 import { schema } from '@payunivercart/db';
 import { and, eq } from 'drizzle-orm';
+import { dispatchEmailNotification, dispatchWhatsappNotification } from '../notifications/dispatch';
 import type { AppServices } from '../services';
 
 /**
@@ -307,13 +308,30 @@ export class ConnectDispatcher {
     magicLinkUrl: string;
   }): Promise<void> {
     // Email: fire via Resend wrapper. Plain text + HTML.
+    const firstName = (input.name.split(/\s+/)[0] ?? input.name).trim();
+    const vars = {
+      brand: input.partnerName,
+      nome: firstName,
+      parceiro: input.partnerName,
+      produto: input.productName,
+      link: input.magicLinkUrl,
+    };
     try {
-      await this.services.emails.sendEntitlementGranted({
+      await dispatchEmailNotification({
+        services: this.services,
+        workspaceId: input.workspaceId,
+        eventKey: 'entitlement_granted',
         to: input.email,
-        customerName: input.name,
-        partnerName: input.partnerName,
-        productName: input.productName,
-        magicLinkUrl: input.magicLinkUrl,
+        brand: input.partnerName,
+        vars,
+        fallback: () =>
+          this.services.emails.sendEntitlementGranted({
+            to: input.email,
+            customerName: input.name,
+            partnerName: input.partnerName,
+            productName: input.productName,
+            magicLinkUrl: input.magicLinkUrl,
+          }),
       });
     } catch {
       /* swallow — let dispatcher continue, retries handled at infra level */
@@ -327,12 +345,17 @@ export class ConnectDispatcher {
       .where(eq(schema.whatsappSessions.workspaceId, input.workspaceId))
       .limit(1);
     if (!sessionRow) return;
+    const fallbackWaText = `Olá, ${input.name}! 👋\n\nSua assinatura de *${input.productName}* foi confirmada.\nAcesse o ${input.partnerName} aqui e defina sua senha:\n${input.magicLinkUrl}\n\n_Link válido por 72 horas._`;
     try {
-      await this.services.waha.sendText({
-        session: sessionRow.sessionName,
+      await dispatchWhatsappNotification({
+        services: this.services,
+        workspaceId: input.workspaceId,
+        eventKey: 'entitlement_granted',
+        sessionName: sessionRow.sessionName,
         chatId: input.wahaChatId as `${string}@c.us`,
-        text: `Olá, ${input.name}! 👋\n\nSua assinatura de *${input.productName}* foi confirmada.\nAcesse o ${input.partnerName} aqui e defina sua senha:\n${input.magicLinkUrl}\n\n_Link válido por 72 horas._`,
+        fallbackText: fallbackWaText,
         linkPreview: true,
+        vars,
       });
     } catch {
       /* swallow */

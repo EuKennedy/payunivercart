@@ -126,6 +126,9 @@ importers:
       '@payunivercart/emails':
         specifier: workspace:*
         version: link:../../packages/emails
+      '@payunivercart/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@payunivercart/payments':
         specifier: workspace:*
         version: link:../../packages/payments
@@ -501,6 +504,25 @@ importers:
       zod:
         specifier: 3.25.76
         version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: 22.10.5
+        version: 22.10.5
+      typescript:
+        specifier: 5.7.2
+        version: 5.7.2
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.10.5)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.0)
+
+  packages/notifications:
+    dependencies:
+      '@payunivercart/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(kysely@0.28.17)(postgres@3.4.5)
     devDependencies:
       '@types/node':
         specifier: 22.10.5

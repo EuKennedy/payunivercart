@@ -30,6 +30,22 @@ export interface EmailSenderConfig {
 }
 
 export interface EmailSender {
+  /**
+   * Producer-customised dispatch. Subject + plain-text body come from
+   * `notification_templates` (see `@payunivercart/notifications`); we
+   * wrap the body in the same brand shell as the built-in templates
+   * so the look stays consistent across the catalog.
+   *
+   * `bodyText` is treated as plain text: newlines become `<br>` in the
+   * HTML version, no markdown, no HTML in the input. Producers needing
+   * richer HTML can request it as a future iteration.
+   */
+  sendCustom(input: {
+    to: string;
+    subject: string;
+    bodyText: string;
+    brand?: string;
+  }): Promise<void>;
   sendOtp(input: { to: string; code: string; brand?: string }): Promise<void>;
   sendOrderPaid(input: {
     to: string;
@@ -97,6 +113,20 @@ export function createEmailSender(config: EmailSenderConfig): EmailSender {
   }
 
   return {
+    async sendCustom({ to, subject, bodyText, brand }) {
+      const product = brand ?? 'payunivercart';
+      const safeBody = escapeHtml(bodyText).split('\n').join('<br>');
+      await send({
+        to,
+        subject,
+        text: bodyText,
+        html: shell(
+          product,
+          `<div style="font-size:14px;line-height:1.6;color:#1d1d1f;white-space:normal;">${safeBody}</div>`,
+        ),
+      });
+    },
+
     async sendOtp({ to, code, brand }) {
       const product = brand ?? 'payunivercart';
       await send({

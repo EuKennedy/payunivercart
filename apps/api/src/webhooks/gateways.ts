@@ -6,6 +6,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { materializeCommission } from '../affiliates/tracker';
 import { ConnectDispatcher } from '../connect/dispatcher';
+import { dispatchEmailNotification, dispatchWhatsappNotification } from '../notifications/dispatch';
 import type { AppServices } from '../services';
 
 /**
@@ -1127,16 +1128,39 @@ export async function dispatchPaidFanOut(services: AppServices, orderId: string)
   const deliveryInstructions = item?.deliveryInstructions ?? null;
 
   // -- 1. Receipt email -----------------------------------------------------
+  // First-name + access block resolved here so both the workspace-
+  // custom template and the legacy fallback render with the same
+  // values. `acesso` packs URL + instructions into a single string
+  // because the producer's template body is plain text — formatting
+  // is the producer's call.
+  const buyerFirstNameForEmail = (row.name.split(/\s+/)[0] ?? row.name).trim();
+  const accessBlock = [deliveryUrl, deliveryInstructions].filter(Boolean).join('\n');
   try {
-    await services.emails.sendOrderPaid({
+    await dispatchEmailNotification({
+      services,
+      workspaceId: row.workspaceId,
+      eventKey: 'order_paid_buyer',
       to: row.email,
-      customerName: row.name,
-      publicReference: row.ref,
-      productName,
-      amountFormatted,
       brand,
-      deliveryUrl,
-      deliveryInstructions,
+      vars: {
+        brand,
+        nome: buyerFirstNameForEmail,
+        produto: productName,
+        valor: amountFormatted,
+        codigo: row.ref,
+        acesso: accessBlock,
+      },
+      fallback: () =>
+        services.emails.sendOrderPaid({
+          to: row.email,
+          customerName: row.name,
+          publicReference: row.ref,
+          productName,
+          amountFormatted,
+          brand,
+          deliveryUrl,
+          deliveryInstructions,
+        }),
     });
   } catch (cause) {
     process.stdout.write(
@@ -1171,13 +1195,26 @@ export async function dispatchPaidFanOut(services: AppServices, orderId: string)
     `Oi ${firstName}! Pagamento de *${productName}* confirmado ✅\n` +
     `Pedido ${row.ref} · ${amountFormatted}.${deliveryLine}\n\n— ${brand}`;
 
+  const buyerVars = {
+    brand,
+    nome: firstName,
+    produto: productName,
+    valor: amountFormatted,
+    codigo: row.ref,
+    cliente: row.name,
+  };
+
   if (row.customerWahaChatId) {
     try {
-      await services.waha.sendText({
-        session: sessionName,
+      await dispatchWhatsappNotification({
+        services,
+        workspaceId: row.workspaceId,
+        eventKey: 'order_paid_buyer',
+        sessionName,
         chatId: row.customerWahaChatId as `${string}@c.us`,
-        text: buyerText,
+        fallbackText: buyerText,
         linkPreview: !!deliveryUrl,
+        vars: buyerVars,
       });
     } catch (cause) {
       process.stdout.write(
@@ -1198,11 +1235,15 @@ export async function dispatchPaidFanOut(services: AppServices, orderId: string)
       `${row.name} comprou *${productName}* por ${amountFormatted}.\n` +
       `Pedido ${row.ref}.`;
     try {
-      await services.waha.sendText({
-        session: sessionName,
+      await dispatchWhatsappNotification({
+        services,
+        workspaceId: row.workspaceId,
+        eventKey: 'order_paid_producer',
+        sessionName,
         chatId: producerChatId,
-        text: producerText,
+        fallbackText: producerText,
         linkPreview: false,
+        vars: buyerVars,
       });
     } catch (cause) {
       process.stdout.write(
@@ -1275,16 +1316,34 @@ export async function dispatchSubscriptionActivatedFanOut(
   const deliveryInstructions = row.deliveryInstructions ?? null;
 
   // -- 1. Welcome / activation email ---------------------------------------
+  const buyerFirstNameForEmail = (row.name.split(/\s+/)[0] ?? row.name).trim();
+  const accessBlock = [deliveryUrl, deliveryInstructions].filter(Boolean).join('\n');
   try {
-    await services.emails.sendOrderPaid({
+    await dispatchEmailNotification({
+      services,
+      workspaceId: row.workspaceId,
+      eventKey: 'subscription_activated_buyer',
       to: row.email,
-      customerName: row.name,
-      publicReference: row.ref,
-      productName,
-      amountFormatted: `${amountFormatted}${periodLabel}`,
       brand,
-      deliveryUrl,
-      deliveryInstructions,
+      vars: {
+        brand,
+        nome: buyerFirstNameForEmail,
+        produto: productName,
+        valor: `${amountFormatted}${periodLabel}`,
+        codigo: row.ref,
+        acesso: accessBlock,
+      },
+      fallback: () =>
+        services.emails.sendOrderPaid({
+          to: row.email,
+          customerName: row.name,
+          publicReference: row.ref,
+          productName,
+          amountFormatted: `${amountFormatted}${periodLabel}`,
+          brand,
+          deliveryUrl,
+          deliveryInstructions,
+        }),
     });
   } catch (cause) {
     process.stdout.write(
@@ -1316,13 +1375,26 @@ export async function dispatchSubscriptionActivatedFanOut(
     `Oi ${firstName}! Assinatura de *${productName}* ativada ✅\n` +
     `Plano ${amountFormatted}${periodLabel} · Pedido ${row.ref}.${deliveryLine}\n\n— ${brand}`;
 
+  const subVars = {
+    brand,
+    nome: firstName,
+    produto: productName,
+    valor: `${amountFormatted}${periodLabel}`,
+    codigo: row.ref,
+    cliente: row.name,
+  };
+
   if (row.customerWahaChatId) {
     try {
-      await services.waha.sendText({
-        session: sessionName,
+      await dispatchWhatsappNotification({
+        services,
+        workspaceId: row.workspaceId,
+        eventKey: 'subscription_activated_buyer',
+        sessionName,
         chatId: row.customerWahaChatId as `${string}@c.us`,
-        text: buyerText,
+        fallbackText: buyerText,
         linkPreview: !!deliveryUrl,
+        vars: subVars,
       });
     } catch (cause) {
       process.stdout.write(
@@ -1343,11 +1415,15 @@ export async function dispatchSubscriptionActivatedFanOut(
       `${row.name} assinou *${productName}* por ${amountFormatted}${periodLabel}.\n` +
       `Pedido ${row.ref}.`;
     try {
-      await services.waha.sendText({
-        session: sessionName,
+      await dispatchWhatsappNotification({
+        services,
+        workspaceId: row.workspaceId,
+        eventKey: 'subscription_activated_producer',
+        sessionName,
         chatId: producerChatId,
-        text: producerText,
+        fallbackText: producerText,
         linkPreview: false,
+        vars: subVars,
       });
     } catch (cause) {
       process.stdout.write(

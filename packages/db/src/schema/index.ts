@@ -18,3 +18,4 @@ export * from './platform_billing';
 export * from './affiliates';
 export * from './tracking';
 export * from './marketplace';
+export * from './notification_templates';
