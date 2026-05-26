@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { schema } from '@payunivercart/db';
 import { TRPCError } from '@trpc/server';
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { publicProcedure, router, workspaceProcedure } from '../trpc';
 
@@ -136,6 +136,30 @@ export const marketplaceRouter = router({
           : undefined,
       );
 
+      // Price + currency come from either `product_offers` (one-time
+      // products keep a default offer row) OR `subscription_plans`
+      // (subscription products skip the legacy offer row entirely —
+      // the picker on /c/<slug> reads from plans). COALESCE-ing across
+      // both sources prevents the old `innerJoin productOffers` from
+      // silently filtering every subscription listing out of the
+      // marketplace.
+      const priceCentsExpr = sql<string>`COALESCE(
+        (SELECT po.amount_cents::text FROM ${schema.productOffers} po
+          WHERE po.product_id = ${schema.products.id} AND po.is_default = true LIMIT 1),
+        (SELECT sp.amount_cents::text FROM ${schema.subscriptionPlans} sp
+          WHERE sp.product_id = ${schema.products.id} AND sp.is_active = true
+          ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
+        '0'
+      )`;
+      const currencyExpr = sql<string>`COALESCE(
+        (SELECT po.currency::text FROM ${schema.productOffers} po
+          WHERE po.product_id = ${schema.products.id} AND po.is_default = true LIMIT 1),
+        (SELECT sp.currency::text FROM ${schema.subscriptionPlans} sp
+          WHERE sp.product_id = ${schema.products.id} AND sp.is_active = true
+          ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
+        'BRL'
+      )`;
+
       const baseQuery = ctx.services.db.db
         .select({
           id: schema.marketplaceListings.id,
@@ -147,8 +171,8 @@ export const marketplaceRouter = router({
           headline: schema.marketplaceListings.headline,
           pitch: schema.marketplaceListings.pitch,
           coverImageUrl: schema.marketplaceListings.coverImageUrl,
-          priceCents: schema.productOffers.amountCents,
-          currency: schema.productOffers.currency,
+          priceCents: priceCentsExpr,
+          currency: currencyExpr,
           publishedAt: schema.marketplaceListings.publishedAt,
           sortBoost: schema.marketplaceListings.sortBoost,
           cachedPurchases: schema.marketplaceListings.cachedPurchases,
@@ -159,20 +183,12 @@ export const marketplaceRouter = router({
           schema.workspaces,
           eq(schema.workspaces.id, schema.marketplaceListings.workspaceId),
         )
-        // Default offer of the product — gives us price + currency
-        // without joining all offers. `isDefault` is guaranteed unique
-        // per product by the products router.
-        .innerJoin(
-          schema.productOffers,
-          and(
-            eq(schema.productOffers.productId, schema.products.id),
-            eq(schema.productOffers.isDefault, true),
-          ),
-        )
         .where(where)
         .limit(limit + 1);
 
-      // Add the order clause matching the sort bucket.
+      // Add the order clause matching the sort bucket. Price sorts use
+      // the same COALESCE expression as the SELECT so subscription
+      // listings sort by their first plan amount.
       const sortedQuery = (() => {
         switch (sort) {
           case 'popular':
@@ -188,12 +204,12 @@ export const marketplaceRouter = router({
             );
           case 'price_lo':
             return baseQuery.orderBy(
-              asc(schema.productOffers.amountCents),
+              sql`${priceCentsExpr}::bigint asc`,
               desc(schema.marketplaceListings.id),
             );
           case 'price_hi':
             return baseQuery.orderBy(
-              desc(schema.productOffers.amountCents),
+              sql`${priceCentsExpr}::bigint desc`,
               desc(schema.marketplaceListings.id),
             );
         }
@@ -233,6 +249,25 @@ export const marketplaceRouter = router({
     .input(z.object({ listingId: z.string().uuid() }))
     .output(PublicListing.nullable())
     .query(async ({ ctx, input }) => {
+      // Same COALESCE strategy as browse — subscription products have
+      // no `product_offers` row, the price/currency come from the
+      // cheapest active `subscription_plans` row instead.
+      const priceCentsExpr = sql<string>`COALESCE(
+        (SELECT po.amount_cents::text FROM ${schema.productOffers} po
+          WHERE po.product_id = ${schema.products.id} AND po.is_default = true LIMIT 1),
+        (SELECT sp.amount_cents::text FROM ${schema.subscriptionPlans} sp
+          WHERE sp.product_id = ${schema.products.id} AND sp.is_active = true
+          ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
+        '0'
+      )`;
+      const currencyExpr = sql<string>`COALESCE(
+        (SELECT po.currency::text FROM ${schema.productOffers} po
+          WHERE po.product_id = ${schema.products.id} AND po.is_default = true LIMIT 1),
+        (SELECT sp.currency::text FROM ${schema.subscriptionPlans} sp
+          WHERE sp.product_id = ${schema.products.id} AND sp.is_active = true
+          ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
+        'BRL'
+      )`;
       const [row] = await ctx.services.db.db
         .select({
           id: schema.marketplaceListings.id,
@@ -244,8 +279,8 @@ export const marketplaceRouter = router({
           headline: schema.marketplaceListings.headline,
           pitch: schema.marketplaceListings.pitch,
           coverImageUrl: schema.marketplaceListings.coverImageUrl,
-          priceCents: schema.productOffers.amountCents,
-          currency: schema.productOffers.currency,
+          priceCents: priceCentsExpr,
+          currency: currencyExpr,
           publishedAt: schema.marketplaceListings.publishedAt,
         })
         .from(schema.marketplaceListings)
@@ -253,13 +288,6 @@ export const marketplaceRouter = router({
         .innerJoin(
           schema.workspaces,
           eq(schema.workspaces.id, schema.marketplaceListings.workspaceId),
-        )
-        .innerJoin(
-          schema.productOffers,
-          and(
-            eq(schema.productOffers.productId, schema.products.id),
-            eq(schema.productOffers.isDefault, true),
-          ),
         )
         .where(
           and(
@@ -414,6 +442,28 @@ export const marketplaceRouter = router({
         ) t
       )`;
 
+      // Same COALESCE strategy as `browse` — subscription products
+      // skip `product_offers` (see products.create), so the price /
+      // currency must fall back to the cheapest active subscription
+      // plan. The old `innerJoin productOffers` silently filtered
+      // every subscription listing out of /afiliar.
+      const priceCentsExpr = sql<string>`COALESCE(
+        (SELECT po.amount_cents::text FROM ${schema.productOffers} po
+          WHERE po.product_id = ${schema.products.id} AND po.is_default = true LIMIT 1),
+        (SELECT sp.amount_cents::text FROM ${schema.subscriptionPlans} sp
+          WHERE sp.product_id = ${schema.products.id} AND sp.is_active = true
+          ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
+        '0'
+      )`;
+      const currencyExpr = sql<string>`COALESCE(
+        (SELECT po.currency::text FROM ${schema.productOffers} po
+          WHERE po.product_id = ${schema.products.id} AND po.is_default = true LIMIT 1),
+        (SELECT sp.currency::text FROM ${schema.subscriptionPlans} sp
+          WHERE sp.product_id = ${schema.products.id} AND sp.is_active = true
+          ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
+        'BRL'
+      )`;
+
       const baseQuery = ctx.services.db.db
         .select({
           id: schema.marketplaceListings.id,
@@ -425,8 +475,8 @@ export const marketplaceRouter = router({
           headline: schema.marketplaceListings.headline,
           pitch: schema.marketplaceListings.pitch,
           coverImageUrl: schema.marketplaceListings.coverImageUrl,
-          priceCents: schema.productOffers.amountCents,
-          currency: schema.productOffers.currency,
+          priceCents: priceCentsExpr,
+          currency: currencyExpr,
           publishedAt: schema.marketplaceListings.publishedAt,
           program: programJson,
         })
@@ -435,13 +485,6 @@ export const marketplaceRouter = router({
         .innerJoin(
           schema.workspaces,
           eq(schema.workspaces.id, schema.marketplaceListings.workspaceId),
-        )
-        .innerJoin(
-          schema.productOffers,
-          and(
-            eq(schema.productOffers.productId, schema.products.id),
-            eq(schema.productOffers.isDefault, true),
-          ),
         )
         .where(where)
         .limit(limit + 1);
@@ -461,12 +504,12 @@ export const marketplaceRouter = router({
             );
           case 'price_lo':
             return baseQuery.orderBy(
-              asc(schema.productOffers.amountCents),
+              sql`${priceCentsExpr}::bigint asc`,
               desc(schema.marketplaceListings.id),
             );
           case 'price_hi':
             return baseQuery.orderBy(
-              desc(schema.productOffers.amountCents),
+              sql`${priceCentsExpr}::bigint desc`,
               desc(schema.marketplaceListings.id),
             );
         }
@@ -557,6 +600,22 @@ export const marketplaceRouter = router({
         ) t
       )`;
 
+      const priceCentsExpr = sql<string>`COALESCE(
+        (SELECT po.amount_cents::text FROM ${schema.productOffers} po
+          WHERE po.product_id = ${schema.products.id} AND po.is_default = true LIMIT 1),
+        (SELECT sp.amount_cents::text FROM ${schema.subscriptionPlans} sp
+          WHERE sp.product_id = ${schema.products.id} AND sp.is_active = true
+          ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
+        '0'
+      )`;
+      const currencyExpr = sql<string>`COALESCE(
+        (SELECT po.currency::text FROM ${schema.productOffers} po
+          WHERE po.product_id = ${schema.products.id} AND po.is_default = true LIMIT 1),
+        (SELECT sp.currency::text FROM ${schema.subscriptionPlans} sp
+          WHERE sp.product_id = ${schema.products.id} AND sp.is_active = true
+          ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
+        'BRL'
+      )`;
       const [row] = await ctx.services.db.db
         .select({
           id: schema.marketplaceListings.id,
@@ -568,8 +627,8 @@ export const marketplaceRouter = router({
           headline: schema.marketplaceListings.headline,
           pitch: schema.marketplaceListings.pitch,
           coverImageUrl: schema.marketplaceListings.coverImageUrl,
-          priceCents: schema.productOffers.amountCents,
-          currency: schema.productOffers.currency,
+          priceCents: priceCentsExpr,
+          currency: currencyExpr,
           publishedAt: schema.marketplaceListings.publishedAt,
           program: programJson,
         })
@@ -578,13 +637,6 @@ export const marketplaceRouter = router({
         .innerJoin(
           schema.workspaces,
           eq(schema.workspaces.id, schema.marketplaceListings.workspaceId),
-        )
-        .innerJoin(
-          schema.productOffers,
-          and(
-            eq(schema.productOffers.productId, schema.products.id),
-            eq(schema.productOffers.isDefault, true),
-          ),
         )
         .where(
           and(
