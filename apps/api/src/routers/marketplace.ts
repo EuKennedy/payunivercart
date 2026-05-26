@@ -683,6 +683,14 @@ export const marketplaceRouter = router({
       .from(schema.marketplaceListings)
       .where(eq(schema.marketplaceListings.workspaceId, ctx.workspaceId))
       .orderBy(desc(schema.marketplaceListings.publishedAt));
+    // Self-heal: every dashboard visit to /marketplace ensures the
+    // workspace has a default affiliate program so the producer's
+    // listings remain discoverable in /afiliar. Idempotent — the
+    // helper short-circuits when a program already exists, so this
+    // is one indexed lookup per page load.
+    if (rows.some((r) => r.status === 'live')) {
+      await ensureDefaultAffiliateProgram(ctx.services.db.db, ctx.workspaceId);
+    }
     return rows.map((r) => ({
       ...r,
       status: r.status as z.infer<typeof Status>,
@@ -768,6 +776,10 @@ export const marketplaceRouter = router({
           message: 'Falha ao criar listing.',
         });
       }
+      // Pre-provision the affiliate program at draft time too — covers
+      // the path where the producer publishes via direct SQL / future
+      // bulk import without going through `publish`.
+      await ensureDefaultAffiliateProgram(ctx.services.db.db, ctx.workspaceId);
       return { id: row.id };
     }),
 
@@ -847,8 +859,16 @@ async function ensureDefaultAffiliateProgram(
   db: any,
   workspaceId: string,
 ): Promise<void> {
+  // 1. Look up the existing workspace-wide program (if any) AND its
+  //    public+active state. The browseForAffiliation EXISTS filter
+  //    requires both flags true; a program that drifted to private/
+  //    inactive would still be skipped, leaving the producer stuck.
   const [existing] = await db
-    .select({ id: schema.affiliatePrograms.id })
+    .select({
+      id: schema.affiliatePrograms.id,
+      isPublic: schema.affiliatePrograms.isPublic,
+      isActive: schema.affiliatePrograms.isActive,
+    })
     .from(schema.affiliatePrograms)
     .where(
       and(
@@ -857,7 +877,34 @@ async function ensureDefaultAffiliateProgram(
       ),
     )
     .limit(1);
-  if (existing) return;
+  if (existing) {
+    // 2a. Heal in place: a program that exists but isn't public+active
+    //     is treated as drift and flipped on. Producer can later disable
+    //     deliberately via the affiliate programs UI; until then, the
+    //     marketplace surface depends on this being on.
+    const isPublic = existing.isPublic === true;
+    const isActive = existing.isActive === true;
+    if (!isPublic || !isActive) {
+      await db
+        .update(schema.affiliatePrograms)
+        .set({ isPublic: true, isActive: true, updatedAt: new Date() })
+        .where(eq(schema.affiliatePrograms.id, existing.id));
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'info',
+          event: 'affiliate.program.healed',
+          workspaceId,
+          programId: existing.id,
+          wasPublic: isPublic,
+          wasActive: isActive,
+        })}\n`,
+      );
+    }
+    return;
+  }
+  // 2b. No program at all — insert the default. Tolerates the race
+  //     where two concurrent calls each insert; the partial unique
+  //     index catches the second and we swallow the 23505.
   try {
     await db.insert(schema.affiliatePrograms).values({
       workspaceId,
@@ -873,9 +920,14 @@ async function ensureDefaultAffiliateProgram(
       refundWindowDays: 30,
       attributionWindowDays: 60,
     });
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'info',
+        event: 'affiliate.program.provisioned',
+        workspaceId,
+      })}\n`,
+    );
   } catch (cause) {
-    // Partial unique index race — another concurrent publish beat us
-    // to it. Already provisioned, swallow.
     if ((cause as { code?: string })?.code !== '23505') throw cause;
   }
 }
