@@ -16,7 +16,8 @@
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
     "studio": "drizzle-kit studio",
-    "push": "drizzle-kit push"
+    "push": "drizzle-kit push",
+    "rls:smoke": "tsx scripts/rls-smoke.ts"
   },
   "dependencies": {
     "@payunivercart/shared": "workspace:*",

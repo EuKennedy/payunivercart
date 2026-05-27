@@ -151,6 +151,12 @@ export default function AffiliateDashboardPage() {
         )}
       </section>
 
+      {/* Payouts */}
+      <PayoutsSection
+        memberships={memberships.filter((m) => m.status === 'approved')}
+        availableCents={summary.availableCents}
+      />
+
       {/* Recent commissions */}
       <section className="flex flex-col gap-4">
         <h2 className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
@@ -543,4 +549,305 @@ function Th({ children }: { children: React.ReactNode }) {
 
 function Td({ children }: { children: React.ReactNode }) {
   return <td className="px-4 py-3 align-middle">{children}</td>;
+}
+
+/* -------------------------------------------------------------------------- */
+/* PayoutsSection — affiliate-side "Sacar" surface.                            */
+/*                                                                            */
+/* Shows two pieces: a "Solicitar saque" CTA that opens a modal listing the   */
+/* approved memberships (one button per workspace because each producer is a  */
+/* separate financial settlement), and a "Meus saques" history table fed by   */
+/* `affiliates.myPayouts`.                                                    */
+/* -------------------------------------------------------------------------- */
+
+type Membership = {
+  workspaceId: string;
+  workspaceName: string;
+  status: string;
+  programId: string;
+  programName: string | null;
+  linkSlug: string | null;
+  productSlug: string | null;
+};
+
+function PayoutsSection({
+  memberships,
+  availableCents,
+}: {
+  memberships: Membership[];
+  availableCents: number;
+}) {
+  const payouts = trpc.affiliates.myPayouts.useQuery();
+  const utils = trpc.useUtils();
+  const request = trpc.affiliates.requestMyPayout.useMutation({
+    onSuccess: ({ totalCents }) => {
+      utils.affiliates.myPayouts.invalidate();
+      utils.affiliates.myDashboard.invalidate();
+      toast.success(`Saque solicitado · ${formatCents(totalCents, 'BRL')}`);
+      setModalOpen(false);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const canRequest = availableCents > 0 && memberships.length > 0;
+
+  return (
+    <section className="flex flex-col gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="font-semibold text-[11px] text-[var(--color-fg-subtle)] uppercase tracking-[0.14em]">
+            Meus saques
+          </h2>
+          <p className="text-[13px] text-[var(--color-fg-muted)]">
+            Solicite o saque das suas comissões liberadas. Cada produtor é uma transferência
+            separada.
+          </p>
+        </div>
+        <Button
+          size="md"
+          disabled={!canRequest}
+          onClick={() => setModalOpen(true)}
+          title={canRequest ? 'Solicitar saque' : 'Sem comissões liberadas para saque no momento.'}
+        >
+          {canRequest
+            ? `Solicitar saque · ${formatCents(availableCents, 'BRL')}`
+            : 'Sem saldo disponível'}
+        </Button>
+      </header>
+
+      {payouts.isPending ? (
+        <div className="grid gap-2">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: skeleton.
+              key={i}
+              className="h-14 animate-pulse rounded-xl bg-[var(--color-surface-muted)]"
+            />
+          ))}
+        </div>
+      ) : (payouts.data ?? []).length === 0 ? (
+        <p className="rounded-2xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface)] px-6 py-10 text-center text-[13px] text-[var(--color-fg-subtle)]">
+          Você ainda não solicitou nenhum saque. Os pedidos aparecem aqui com o status atualizado
+          pelo produtor.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+          <table className="w-full text-[13px]">
+            <thead className="bg-[var(--color-surface-muted)]/60">
+              <tr className="text-left">
+                <Th>Produtor</Th>
+                <Th>Valor</Th>
+                <Th>Status</Th>
+                <Th>Quando</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--color-border)]">
+              {(payouts.data ?? []).map((p) => (
+                <tr key={p.id}>
+                  <Td>
+                    <span className="font-medium text-[var(--color-fg)]">{p.workspaceName}</span>
+                  </Td>
+                  <Td>
+                    <span className="font-semibold tabular-nums text-[var(--color-fg)]">
+                      {formatCents(p.totalAmountCents, p.currency)}
+                    </span>
+                  </Td>
+                  <Td>
+                    <PayoutStatusPill status={p.status} />
+                    {p.status === 'rejected' && p.failureReason ? (
+                      <p className="mt-1 text-[11px] text-[var(--color-danger)]">
+                        {p.failureReason}
+                      </p>
+                    ) : null}
+                    {p.status === 'paid' && p.gatewayTransactionId ? (
+                      <p className="mt-1 font-mono text-[10px] text-[var(--color-fg-subtle)]">
+                        ref {p.gatewayTransactionId}
+                      </p>
+                    ) : null}
+                  </Td>
+                  <Td>
+                    <time className="text-[12px] text-[var(--color-fg-subtle)]">
+                      {p.paidAt
+                        ? `pago em ${new Date(p.paidAt).toLocaleDateString('pt-BR')}`
+                        : p.reviewedAt
+                          ? `revisado em ${new Date(p.reviewedAt).toLocaleDateString('pt-BR')}`
+                          : `solicitado em ${new Date(p.requestedAt).toLocaleDateString('pt-BR')}`}
+                    </time>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {modalOpen ? (
+          <RequestPayoutModal
+            memberships={memberships}
+            pending={request.isPending}
+            onClose={() => setModalOpen(false)}
+            onConfirm={(workspaceId) => request.mutate({ workspaceId })}
+          />
+        ) : null}
+      </AnimatePresence>
+    </section>
+  );
+}
+
+function PayoutStatusPill({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    requested: {
+      label: 'Solicitado',
+      cls: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]',
+    },
+    reviewing: {
+      label: 'Em análise',
+      cls: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]',
+    },
+    approved: {
+      label: 'Aprovado',
+      cls: 'bg-[var(--color-brand-50)] text-[var(--color-brand-700)]',
+    },
+    processing: {
+      label: 'Processando',
+      cls: 'bg-[var(--color-brand-50)] text-[var(--color-brand-700)]',
+    },
+    paid: {
+      label: '✓ Pago',
+      cls: 'bg-[var(--color-success-bg)] text-[var(--color-success)]',
+    },
+    rejected: {
+      label: 'Recusado',
+      cls: 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]',
+    },
+    cancelled: {
+      label: 'Cancelado',
+      cls: 'bg-[var(--color-surface-muted)] text-[var(--color-fg-subtle)]',
+    },
+  };
+  const meta = map[status] ?? map.requested;
+  if (!meta) return null;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 font-semibold text-[10px] uppercase tracking-wider ${meta.cls}`}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+function RequestPayoutModal({
+  memberships,
+  pending,
+  onClose,
+  onConfirm,
+}: {
+  memberships: Membership[];
+  pending: boolean;
+  onClose: () => void;
+  onConfirm: (workspaceId: string) => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(memberships[0]?.workspaceId ?? null);
+
+  return (
+    <motion.div
+      key="backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18, ease: EASE }}
+      className="fixed inset-0 z-[60] grid place-items-center bg-black/55 px-4 backdrop-blur-md"
+      onClick={pending ? undefined : onClose}
+      // biome-ignore lint/a11y/useSemanticElements: framer-motion AnimatePresence on <dialog> is awkward; keeping role+aria-modal manually.
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="payout-modal-title"
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 14, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.97 }}
+        transition={{ duration: 0.22, ease: EASE }}
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_40px_90px_-30px_rgba(0,0,0,0.55)]"
+      >
+        <div className="flex flex-col gap-4 p-6">
+          <div className="flex flex-col gap-1.5">
+            <h3
+              id="payout-modal-title"
+              className="font-semibold text-[17px] text-[var(--color-fg)] tracking-[-0.01em]"
+            >
+              Solicitar saque
+            </h3>
+            <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
+              Escolha o produtor que vai liberar o pagamento. Cada solicitação vira uma
+              transferência separada — o produtor revisa e paga via Pix.
+            </p>
+          </div>
+          <ul className="flex max-h-[40vh] flex-col gap-2 overflow-y-auto">
+            {memberships.map((m) => {
+              const active = selected === m.workspaceId;
+              return (
+                <li key={m.workspaceId}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(m.workspaceId)}
+                    className={
+                      active
+                        ? 'flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border-2 border-[var(--color-brand-500)] bg-[var(--color-surface)] p-3 text-left ring-2 ring-[var(--color-brand-500)]/15 transition'
+                        : 'flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-left transition hover:border-[var(--color-brand-500)]/50'
+                    }
+                  >
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-semibold text-[14px] text-[var(--color-fg)]">
+                        {m.workspaceName}
+                      </span>
+                      <span className="text-[11px] text-[var(--color-fg-subtle)]">
+                        {m.programName ?? 'Programa padrão'}
+                      </span>
+                    </span>
+                    {active ? (
+                      <span
+                        aria-hidden
+                        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-500)] text-white"
+                      >
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          className="size-3"
+                        >
+                          <title>Selecionado</title>
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M4 8.5L7 11.5 12 5.5"
+                          />
+                        </svg>
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-[var(--color-border)] border-t bg-[var(--color-surface-muted)]/40 px-6 py-4">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
+            Cancelar
+          </Button>
+          <Button
+            size="sm"
+            disabled={!selected || pending}
+            onClick={() => selected && onConfirm(selected)}
+          >
+            {pending ? 'Enviando…' : 'Confirmar solicitação'}
+          </Button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
 }

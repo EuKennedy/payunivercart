@@ -1842,6 +1842,189 @@ export const affiliatesRouter = router({
         })),
       };
     }),
+
+  /**
+   * List the authenticated affiliate's payouts across every producer
+   * workspace. Surfaces the "Histórico de saques" table in the
+   * affiliate dashboard so the user can see what's pending / paid /
+   * rejected without bouncing between workspaces.
+   */
+  myPayouts: authedProcedure
+    .output(
+      z.array(
+        z.object({
+          id: z.string().uuid(),
+          workspaceId: z.string().uuid(),
+          workspaceName: z.string(),
+          status: z.enum([
+            'requested',
+            'reviewing',
+            'approved',
+            'processing',
+            'paid',
+            'rejected',
+            'cancelled',
+          ]),
+          totalAmountCents: z.number().int().nonnegative(),
+          currency: z.enum(['BRL', 'USD', 'EUR']),
+          requestedAt: z.date(),
+          reviewedAt: z.date().nullable(),
+          paidAt: z.date().nullable(),
+          gatewayTransactionId: z.string().nullable(),
+          failureReason: z.string().nullable(),
+        }),
+      ),
+    )
+    .query(async ({ ctx }) => {
+      const db = ctx.services.db.db;
+      const [affiliate] = await db
+        .select({ id: schema.affiliates.id })
+        .from(schema.affiliates)
+        .where(eq(schema.affiliates.userId, ctx.userId))
+        .limit(1);
+      if (!affiliate) return [];
+
+      const rows = await db
+        .select({
+          id: schema.affiliatePayouts.id,
+          workspaceId: schema.affiliatePayouts.workspaceId,
+          workspaceName: schema.workspaces.name,
+          status: schema.affiliatePayouts.status,
+          totalAmountCents: schema.affiliatePayouts.totalAmountCents,
+          currency: schema.affiliatePayouts.currency,
+          requestedAt: schema.affiliatePayouts.requestedAt,
+          reviewedAt: schema.affiliatePayouts.reviewedAt,
+          paidAt: schema.affiliatePayouts.paidAt,
+          gatewayTransactionId: schema.affiliatePayouts.gatewayTransactionId,
+          failureReason: schema.affiliatePayouts.failureReason,
+        })
+        .from(schema.affiliatePayouts)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.affiliatePayouts.workspaceId))
+        .where(eq(schema.affiliatePayouts.affiliateId, affiliate.id))
+        .orderBy(desc(schema.affiliatePayouts.requestedAt));
+
+      return rows.map((r) => ({
+        id: r.id,
+        workspaceId: r.workspaceId,
+        workspaceName: r.workspaceName,
+        status: r.status as
+          | 'requested'
+          | 'reviewing'
+          | 'approved'
+          | 'processing'
+          | 'paid'
+          | 'rejected'
+          | 'cancelled',
+        totalAmountCents: Number(r.totalAmountCents),
+        currency: r.currency,
+        requestedAt: r.requestedAt,
+        reviewedAt: r.reviewedAt,
+        paidAt: r.paidAt,
+        gatewayTransactionId: r.gatewayTransactionId,
+        failureReason: r.failureReason,
+      }));
+    }),
+
+  /**
+   * Affiliate-side payout request. Mirrors the producer-side
+   * `requestPayout` mutation but with the affiliate as the actor —
+   * locks available commissions FOR UPDATE inside a transaction, mints
+   * the payout row in `requested` status, links the included commissions
+   * via `payoutId`. Producer reviews + flips to `paid` via
+   * `updatePayoutStatus`.
+   *
+   * Validations:
+   *   - the authenticated user owns an affiliate identity
+   *   - the affiliate has an approved membership in the workspace
+   *     (avoids strangers minting payouts against any workspace)
+   *   - at least one commission is `available` + `payoutId IS NULL`
+   *     for this (affiliate, workspace)
+   */
+  requestMyPayout: authedProcedure
+    .input(z.object({ workspaceId: z.string().uuid() }))
+    .output(z.object({ payoutId: z.string().uuid(), totalCents: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = ctx.services.db.db;
+      const [affiliate] = await db
+        .select({ id: schema.affiliates.id })
+        .from(schema.affiliates)
+        .where(eq(schema.affiliates.userId, ctx.userId))
+        .limit(1);
+      if (!affiliate) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Cadastro de afiliado não encontrado.',
+        });
+      }
+
+      const [membership] = await db
+        .select({ status: schema.affiliateMemberships.status })
+        .from(schema.affiliateMemberships)
+        .where(
+          and(
+            eq(schema.affiliateMemberships.affiliateId, affiliate.id),
+            eq(schema.affiliateMemberships.workspaceId, input.workspaceId),
+          ),
+        )
+        .limit(1);
+      if (!membership || membership.status !== 'approved') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Você não tem acesso de afiliado aprovado nessa workspace.',
+        });
+      }
+
+      return db.transaction(async (tx) => {
+        const eligible = await tx
+          .select({
+            id: schema.affiliateCommissions.id,
+            amount: schema.affiliateCommissions.commissionAmountCents,
+          })
+          .from(schema.affiliateCommissions)
+          .where(
+            and(
+              eq(schema.affiliateCommissions.workspaceId, input.workspaceId),
+              eq(schema.affiliateCommissions.affiliateId, affiliate.id),
+              eq(schema.affiliateCommissions.status, 'available'),
+              isNull(schema.affiliateCommissions.payoutId),
+            ),
+          )
+          .for('update');
+        if (eligible.length === 0) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Sem comissões disponíveis para saque nesta workspace.',
+          });
+        }
+        const totalCents = eligible.reduce((sum, c) => sum + Number(c.amount), 0);
+        const [payout] = await tx
+          .insert(schema.affiliatePayouts)
+          .values({
+            workspaceId: input.workspaceId,
+            affiliateId: affiliate.id,
+            status: 'requested',
+            totalAmountCents: BigInt(totalCents),
+            includedCommissionIds: eligible.map((c) => c.id),
+          })
+          .returning({ id: schema.affiliatePayouts.id });
+        if (!payout) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Falha ao criar saque.',
+          });
+        }
+        await tx
+          .update(schema.affiliateCommissions)
+          .set({ payoutId: payout.id })
+          .where(
+            inArray(
+              schema.affiliateCommissions.id,
+              eligible.map((c) => c.id),
+            ),
+          );
+        return { payoutId: payout.id, totalCents };
+      });
+    }),
 });
 
 // Used by other routers when needed; placeholder for unused-import lint pacification.
