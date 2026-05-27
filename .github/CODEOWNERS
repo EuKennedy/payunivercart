@@ -1,0 +1,22 @@
+# Code owners — auto-assign reviewers on every PR.
+#
+# Syntax: <pattern> <owner>...
+# First matching line wins (later patterns override earlier ones).
+#
+# Today payunivercart is a single-maintainer repo — Kennedy reviews
+# everything. When the team grows, split by surface (api/, dashboard/,
+# checkout/, workers/, packages/db/, etc.) and assign per-team.
+
+# Default owner — every change defaults to Kennedy until overridden.
+*                   @EuKennedy
+
+# Critical infra paths — explicitly Kennedy until a payments/ops team
+# exists. These also gate the `Require review from Code Owners` branch
+# protection rule.
+/.github/           @EuKennedy
+/Dockerfile         @EuKennedy
+/docker-compose.yml @EuKennedy
+/packages/db/       @EuKennedy
+/packages/crypto/   @EuKennedy
+/packages/audit/    @EuKennedy
+/packages/payments/ @EuKennedy

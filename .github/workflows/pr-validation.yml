@@ -1,0 +1,55 @@
+name: PR validation
+
+# Guards on the PR shape itself — separate from CI so a Dependabot
+# branch pushed without a PR doesn't fail (these checks only fire on
+# pull_request events). Keep the rules cheap enough that a contributor
+# never waits more than ~10 seconds.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Enforce conventional commits on the PR TITLE (not on individual
+  # commits — squash-merge collapses them and the PR title becomes the
+  # commit subject in main). Without this rule the `main` log degrades
+  # into "fix typo" / "wip" / "updates" within a few weeks.
+  title:
+    name: PR title (conventional commits)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            perf
+            test
+            ci
+            build
+            revert
+          # `scope` is optional; producers (`subscriptions`, `pix`, etc.)
+          # are encouraged but not required. We DO require it for the
+          # high-traffic types where context matters most.
+          requireScope: false
+          # Reject PRs whose subject ends with a period — keeps the
+          # squashed commit message a single line tidy.
+          subjectPattern: ^(?![A-Z]).+[^.]$
+          subjectPatternError: |
+            Subject must start with a lowercase letter and not end with a period.
+            Examples:
+              feat(checkout): support PIX subscription flow
+              fix(api): resilient SELECT when migration 0020 hasn't applied

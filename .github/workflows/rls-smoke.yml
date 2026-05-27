@@ -1,0 +1,60 @@
+name: RLS smoke (staging)
+
+# Manual + scheduled smoke test for the row-level-security policies in
+# staging. RUNS NEVER ON MAIN — flipping prod's DATABASE_URL to the
+# restricted role is the gating step in `packages/db/sql/RLS_ROLLOUT.md`
+# and this workflow is the automated half of that checklist.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   - STAGING_DATABASE_URL_OWNER  postgres://payunivercart_owner:...@staging-host/db
+#   - STAGING_DATABASE_URL_APP    postgres://payunivercart_app:...@staging-host/db
+#
+# When the secrets are missing the workflow short-circuits with a clear
+# message — easier than a permissions error mid-run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (staging only).'
+        required: true
+        default: staging
+        type: choice
+        options: [staging]
+  schedule:
+    # Daily at 06:00 UTC — early enough that the SRE team sees the
+    # failure with their morning coffee instead of late-evening.
+    - cron: '0 6 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: RLS smoke (${{ inputs.environment || 'scheduled' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Guard — secrets must exist
+        env:
+          OWNER_URL: ${{ secrets.STAGING_DATABASE_URL_OWNER }}
+          APP_URL: ${{ secrets.STAGING_DATABASE_URL_APP }}
+        run: |
+          if [ -z "$OWNER_URL" ] || [ -z "$APP_URL" ]; then
+            echo "::error::Missing STAGING_DATABASE_URL_OWNER or STAGING_DATABASE_URL_APP secret."
+            echo "::error::Configure them at Settings → Secrets and variables → Actions before running."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Run the smoke script; exit code is the gate.
+      - name: rls-smoke
+        env:
+          STAGING_DATABASE_URL_OWNER: ${{ secrets.STAGING_DATABASE_URL_OWNER }}
+          STAGING_DATABASE_URL_APP: ${{ secrets.STAGING_DATABASE_URL_APP }}
+        run: |
+          pnpm --filter @payunivercart/db rls:smoke \
+            --owner "$STAGING_DATABASE_URL_OWNER" \
+            --app "$STAGING_DATABASE_URL_APP"

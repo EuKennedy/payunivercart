@@ -1,0 +1,61 @@
+name: CodeQL
+
+# SAST coverage. Runs on every push to main + every PR + weekly cron
+# (catches new advisories that landed after a stable PR merged). Github
+# pays for the runner minutes on public repos; for private repos this
+# counts toward the Actions quota. If quota becomes a concern, drop the
+# cron schedule first.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Sunday 04:00 UTC — early-Sunday slot has the lowest API contention
+    # on the GitHub-hosted runner fleet, so the scan is cheaper.
+    - cron: '0 4 * * 0'
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # CodeQL writes SARIF results back to the Security tab. Without
+  # `security-events: write` the findings disappear and the dashboard
+  # stays empty.
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # `javascript-typescript` covers BOTH .js and .ts in a single
+        # analysis pass (vs the legacy two-language split). One pass =
+        # half the runner minutes.
+        language: ['javascript-typescript']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # `security-and-quality` adds CWE-787, CWE-78, and other
+          # higher-noise rules on top of `security-extended`. Worth the
+          # noise on a payments backend.
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'
