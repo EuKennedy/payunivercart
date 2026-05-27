@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Button, Heading, Kicker } from '../../../../components/ui';
 import { trpc } from '../../../../lib/trpc';
@@ -153,6 +153,7 @@ export default function PixelsPage() {
 
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [selectedProvider, setSelectedProvider] = useState<ProviderId | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<PixelRow | null>(null);
 
   const configuredByProvider = useMemo(() => {
     const map: Partial<Record<ProviderId, number>> = {};
@@ -224,7 +225,7 @@ export default function PixelsPage() {
               list={list.data ?? []}
               isPending={list.isPending}
               onTest={(id) => test.mutate({ id })}
-              onRemove={(id) => remove.mutate({ id })}
+              onRemoveRequest={(pixel) => setPendingRemoval(pixel)}
               onSetDefault={(id) => setDefault.mutate({ id })}
               onAddPixel={() => {
                 setActiveTab('configure');
@@ -267,6 +268,16 @@ export default function PixelsPage() {
           </motion.section>
         ) : null}
       </AnimatePresence>
+
+      <ConfirmRemoveDialog
+        pixel={pendingRemoval}
+        pending={remove.isPending}
+        onCancel={() => setPendingRemoval(null)}
+        onConfirm={() => {
+          if (!pendingRemoval) return;
+          remove.mutate({ id: pendingRemoval.id }, { onSettled: () => setPendingRemoval(null) });
+        }}
+      />
     </div>
   );
 }
@@ -573,7 +584,7 @@ function OverviewTab({
   list,
   isPending,
   onTest,
-  onRemove,
+  onRemoveRequest,
   onSetDefault,
   onAddPixel,
   isMutating,
@@ -581,7 +592,7 @@ function OverviewTab({
   list: PixelRow[];
   isPending: boolean;
   onTest: (id: string) => void;
-  onRemove: (id: string) => void;
+  onRemoveRequest: (pixel: PixelRow) => void;
   onSetDefault: (id: string) => void;
   onAddPixel: () => void;
   isMutating: boolean;
@@ -712,10 +723,7 @@ function OverviewTab({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      if (!confirm(`Remover "${pixel.label}"?`)) return;
-                      onRemove(pixel.id);
-                    }}
+                    onClick={() => onRemoveRequest(pixel)}
                     disabled={isMutating}
                   >
                     Remover
@@ -761,6 +769,11 @@ function ConfigureTab({
   error: string | null;
 }) {
   const activeTile = TILES.find((t) => t.id === selectedProvider) ?? null;
+  // First pixel of a provider auto-defaults to default; subsequent ones
+  // opt-in via the toggle so a fresh save never silently steals the
+  // default flag from a previously-configured pixel.
+  const activeCount = activeTile ? (configuredByProvider[activeTile.id] ?? 0) : 0;
+  const defaultToggleInitial = activeCount === 0;
 
   return (
     <div className="flex flex-col gap-8">
@@ -876,17 +889,47 @@ function ConfigureTab({
             </header>
             <div className="px-6 py-6">
               {activeTile.id === 'meta' ? (
-                <MetaForm onSubmit={onSubmit} pending={pending} error={error} />
+                <MetaForm
+                  onSubmit={onSubmit}
+                  pending={pending}
+                  error={error}
+                  defaultToggleInitial={defaultToggleInitial}
+                />
               ) : activeTile.id === 'ga4' ? (
-                <Ga4Form onSubmit={onSubmit} pending={pending} error={error} />
+                <Ga4Form
+                  onSubmit={onSubmit}
+                  pending={pending}
+                  error={error}
+                  defaultToggleInitial={defaultToggleInitial}
+                />
               ) : activeTile.id === 'tiktok' ? (
-                <TikTokForm onSubmit={onSubmit} pending={pending} error={error} />
+                <TikTokForm
+                  onSubmit={onSubmit}
+                  pending={pending}
+                  error={error}
+                  defaultToggleInitial={defaultToggleInitial}
+                />
               ) : activeTile.id === 'google_ads' ? (
-                <GoogleAdsForm onSubmit={onSubmit} pending={pending} error={error} />
+                <GoogleAdsForm
+                  onSubmit={onSubmit}
+                  pending={pending}
+                  error={error}
+                  defaultToggleInitial={defaultToggleInitial}
+                />
               ) : activeTile.id === 'pinterest' ? (
-                <PinterestForm onSubmit={onSubmit} pending={pending} error={error} />
+                <PinterestForm
+                  onSubmit={onSubmit}
+                  pending={pending}
+                  error={error}
+                  defaultToggleInitial={defaultToggleInitial}
+                />
               ) : (
-                <KwaiForm onSubmit={onSubmit} pending={pending} error={error} />
+                <KwaiForm
+                  onSubmit={onSubmit}
+                  pending={pending}
+                  error={error}
+                  defaultToggleInitial={defaultToggleInitial}
+                />
               )}
             </div>
           </motion.section>
@@ -904,14 +947,20 @@ type FormProps = {
   onSubmit: (input: UpsertInput) => void;
   pending: boolean;
   error: string | null;
+  /** Pre-populate the "Definir como padrão" toggle. true when no
+   *  pixel of this provider exists yet so the first save is the
+   *  default; false otherwise so a second pixel doesn't silently
+   *  steal the flag. */
+  defaultToggleInitial: boolean;
 };
 
-function MetaForm({ onSubmit, pending, error }: FormProps) {
+function MetaForm({ onSubmit, pending, error, defaultToggleInitial }: FormProps) {
   const [label, setLabel] = useState('Meta — Principal');
   const [pixelId, setPixelId] = useState('');
   const [accessToken, setAccessToken] = useState('');
   const [testEventCode, setTestEventCode] = useState('');
   const [testMode, setTestMode] = useState(false);
+  const [makeDefault, setMakeDefault] = useState(defaultToggleInitial);
   return (
     <FormShell
       onSubmit={(e) => {
@@ -925,7 +974,7 @@ function MetaForm({ onSubmit, pending, error }: FormProps) {
           },
           label: label.trim(),
           testMode,
-          isDefault: true,
+          isDefault: makeDefault,
           enabled: true,
           validateBeforeSave: true,
         });
@@ -955,15 +1004,22 @@ function MetaForm({ onSubmit, pending, error }: FormProps) {
         label="Modo teste"
         hint="Eventos vão pro painel de teste do Meta — não otimizam campanhas."
       />
+      <ToggleRow
+        checked={makeDefault}
+        onChange={setMakeDefault}
+        label="Definir como padrão"
+        hint="Marcado: passa a ser o pixel usado por padrão. Desmarcado: salva sem mexer no atual."
+      />
     </FormShell>
   );
 }
 
-function Ga4Form({ onSubmit, pending, error }: FormProps) {
+function Ga4Form({ onSubmit, pending, error, defaultToggleInitial }: FormProps) {
   const [label, setLabel] = useState('GA4 — Principal');
   const [measurementId, setMeasurementId] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [testMode, setTestMode] = useState(false);
+  const [makeDefault, setMakeDefault] = useState(defaultToggleInitial);
   return (
     <FormShell
       onSubmit={(e) => {
@@ -973,7 +1029,7 @@ function Ga4Form({ onSubmit, pending, error }: FormProps) {
           credentials: { measurementId: measurementId.trim(), apiSecret: apiSecret.trim() },
           label: label.trim(),
           testMode,
-          isDefault: true,
+          isDefault: makeDefault,
           enabled: true,
           validateBeforeSave: true,
         });
@@ -1001,16 +1057,23 @@ function Ga4Form({ onSubmit, pending, error }: FormProps) {
         label="Debug mode"
         hint="Eventos aparecem em DebugView e não somam em relatórios padrão."
       />
+      <ToggleRow
+        checked={makeDefault}
+        onChange={setMakeDefault}
+        label="Definir como padrão"
+        hint="Marcado: passa a ser o pixel usado por padrão. Desmarcado: salva sem mexer no atual."
+      />
     </FormShell>
   );
 }
 
-function TikTokForm({ onSubmit, pending, error }: FormProps) {
+function TikTokForm({ onSubmit, pending, error, defaultToggleInitial }: FormProps) {
   const [label, setLabel] = useState('TikTok — Principal');
   const [pixelCode, setPixelCode] = useState('');
   const [accessToken, setAccessToken] = useState('');
   const [testEventCode, setTestEventCode] = useState('');
   const [testMode, setTestMode] = useState(false);
+  const [makeDefault, setMakeDefault] = useState(defaultToggleInitial);
   return (
     <FormShell
       onSubmit={(e) => {
@@ -1024,7 +1087,7 @@ function TikTokForm({ onSubmit, pending, error }: FormProps) {
           },
           label: label.trim(),
           testMode,
-          isDefault: true,
+          isDefault: makeDefault,
           enabled: true,
           validateBeforeSave: true,
         });
@@ -1054,11 +1117,17 @@ function TikTokForm({ onSubmit, pending, error }: FormProps) {
         label="Modo teste"
         hint="Eventos vão pro Test Events do TikTok."
       />
+      <ToggleRow
+        checked={makeDefault}
+        onChange={setMakeDefault}
+        label="Definir como padrão"
+        hint="Marcado: passa a ser o pixel usado por padrão. Desmarcado: salva sem mexer no atual."
+      />
     </FormShell>
   );
 }
 
-function GoogleAdsForm({ onSubmit, pending, error }: FormProps) {
+function GoogleAdsForm({ onSubmit, pending, error, defaultToggleInitial }: FormProps) {
   const [label, setLabel] = useState('Google Ads — Principal');
   const [customerId, setCustomerId] = useState('');
   const [conversionActionId, setConversionActionId] = useState('');
@@ -1068,6 +1137,7 @@ function GoogleAdsForm({ onSubmit, pending, error }: FormProps) {
   const [developerToken, setDeveloperToken] = useState('');
   const [loginCustomerId, setLoginCustomerId] = useState('');
   const [testMode, setTestMode] = useState(false);
+  const [makeDefault, setMakeDefault] = useState(defaultToggleInitial);
   return (
     <FormShell
       onSubmit={(e) => {
@@ -1085,7 +1155,7 @@ function GoogleAdsForm({ onSubmit, pending, error }: FormProps) {
           },
           label: label.trim(),
           testMode,
-          isDefault: true,
+          isDefault: makeDefault,
           enabled: true,
           validateBeforeSave: true,
         });
@@ -1132,17 +1202,24 @@ function GoogleAdsForm({ onSubmit, pending, error }: FormProps) {
         label="Validação apenas"
         hint="Eventos vão como validateOnly — não criam conversão real."
       />
+      <ToggleRow
+        checked={makeDefault}
+        onChange={setMakeDefault}
+        label="Definir como padrão"
+        hint="Marcado: passa a ser o pixel usado por padrão. Desmarcado: salva sem mexer no atual."
+      />
     </FormShell>
   );
 }
 
-function PinterestForm({ onSubmit, pending, error }: FormProps) {
+function PinterestForm({ onSubmit, pending, error, defaultToggleInitial }: FormProps) {
   const [label, setLabel] = useState('Pinterest — Principal');
   const [adAccountId, setAdAccountId] = useState('');
   const [conversionToken, setConversionToken] = useState('');
   const [tagId, setTagId] = useState('');
   const [testEventCode, setTestEventCode] = useState('');
   const [testMode, setTestMode] = useState(false);
+  const [makeDefault, setMakeDefault] = useState(defaultToggleInitial);
   return (
     <FormShell
       onSubmit={(e) => {
@@ -1157,7 +1234,7 @@ function PinterestForm({ onSubmit, pending, error }: FormProps) {
           },
           label: label.trim(),
           testMode,
-          isDefault: true,
+          isDefault: makeDefault,
           enabled: true,
           validateBeforeSave: true,
         });
@@ -1194,16 +1271,23 @@ function PinterestForm({ onSubmit, pending, error }: FormProps) {
         label="Modo teste"
         hint="Eventos vão pro Test Events Manager."
       />
+      <ToggleRow
+        checked={makeDefault}
+        onChange={setMakeDefault}
+        label="Definir como padrão"
+        hint="Marcado: passa a ser o pixel usado por padrão. Desmarcado: salva sem mexer no atual."
+      />
     </FormShell>
   );
 }
 
-function KwaiForm({ onSubmit, pending, error }: FormProps) {
+function KwaiForm({ onSubmit, pending, error, defaultToggleInitial }: FormProps) {
   const [label, setLabel] = useState('Kwai — Principal');
   const [pixelId, setPixelId] = useState('');
   const [accessToken, setAccessToken] = useState('');
   const [testEventCode, setTestEventCode] = useState('');
   const [testMode, setTestMode] = useState(false);
+  const [makeDefault, setMakeDefault] = useState(defaultToggleInitial);
   return (
     <FormShell
       onSubmit={(e) => {
@@ -1217,7 +1301,7 @@ function KwaiForm({ onSubmit, pending, error }: FormProps) {
           },
           label: label.trim(),
           testMode,
-          isDefault: true,
+          isDefault: makeDefault,
           enabled: true,
           validateBeforeSave: true,
         });
@@ -1242,6 +1326,12 @@ function KwaiForm({ onSubmit, pending, error }: FormProps) {
         onChange={setTestMode}
         label="Modo teste"
         hint="Eventos vão pro painel de teste do Kwai."
+      />
+      <ToggleRow
+        checked={makeDefault}
+        onChange={setMakeDefault}
+        label="Definir como padrão"
+        hint="Marcado: passa a ser o pixel usado por padrão. Desmarcado: salva sem mexer no atual."
       />
     </FormShell>
   );
@@ -1494,6 +1584,154 @@ function Spinner() {
         strokeWidth="3"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* CONFIRM REMOVE DIALOG — replaces window.confirm() with a premium modal     */
+/* -------------------------------------------------------------------------- */
+
+function ConfirmRemoveDialog({
+  pixel,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  pixel: PixelRow | null;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const open = pixel !== null;
+
+  // Close on ESC; lock body scroll while open so the page behind doesn't
+  // shift when overflow disappears.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !pending) onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open, pending, onCancel]);
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          key="backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18, ease: EASE }}
+          className="fixed inset-0 z-[60] grid place-items-center bg-black/55 px-4 backdrop-blur-md"
+          onClick={pending ? undefined : onCancel}
+          // biome-ignore lint/a11y/useSemanticElements: native <dialog> doesn't play with framer-motion AnimatePresence; we keep role="dialog" + aria-modal + ESC + click-outside manually.
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-remove-title"
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 14, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 14, scale: 0.97 }}
+            transition={{ duration: 0.22, ease: EASE }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_40px_90px_-30px_rgba(0,0,0,0.55)]"
+          >
+            {/* Danger glow header */}
+            <div
+              aria-hidden
+              className="-top-16 -right-16 pointer-events-none absolute h-44 w-44 rounded-full bg-gradient-to-br from-[var(--color-danger)]/45 to-transparent blur-3xl"
+            />
+
+            <div className="relative flex items-start gap-4 p-6">
+              <span
+                aria-hidden
+                className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[var(--color-danger-bg)] text-[var(--color-danger)] ring-1 ring-[var(--color-danger)]/30"
+              >
+                <TrashIcon />
+              </span>
+              <div className="flex flex-col gap-1.5">
+                <h3
+                  id="confirm-remove-title"
+                  className="font-semibold text-[17px] text-[var(--color-fg)] tracking-[-0.01em]"
+                >
+                  Remover pixel?
+                </h3>
+                <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
+                  Você está prestes a remover{' '}
+                  <span className="font-semibold text-[var(--color-fg)]">
+                    “{pixel?.label ?? ''}”
+                  </span>
+                  . Os disparos vão parar na hora e os checkouts não vão mais carregar esse pixel.
+                </p>
+                {pixel?.isDefault ? (
+                  <p className="mt-1 rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning-bg)] px-3 py-2 text-[12px] text-[var(--color-warning)] leading-[1.45]">
+                    Este pixel está marcado como <strong>padrão</strong> do provedor. Marque outro
+                    como padrão antes pra não perder o disparo automático.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="relative flex items-center justify-end gap-2 border-[var(--color-border)] border-t bg-[var(--color-surface-muted)]/40 px-6 py-4">
+              <Button variant="ghost" size="sm" onClick={onCancel} disabled={pending}>
+                Cancelar
+              </Button>
+              <motion.button
+                type="button"
+                onClick={onConfirm}
+                disabled={pending}
+                whileHover={pending ? undefined : { scale: 1.02 }}
+                whileTap={pending ? undefined : { scale: 0.97 }}
+                transition={{ duration: 0.14, ease: EASE }}
+                className={
+                  pending
+                    ? 'inline-flex cursor-not-allowed items-center gap-2 rounded-xl bg-[var(--color-surface-muted)] px-4 py-2 font-semibold text-[13px] text-[var(--color-fg-subtle)]'
+                    : 'inline-flex cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-br from-[var(--color-danger)] to-[#9F1239] px-4 py-2 font-semibold text-[13px] text-white shadow-[0_10px_24px_-8px_rgba(220,38,38,0.55)] transition hover:brightness-110'
+                }
+              >
+                {pending ? (
+                  <>
+                    <Spinner /> Removendo…
+                  </>
+                ) : (
+                  'Remover pixel'
+                )}
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-5"
+      aria-hidden
+    >
+      <title>Remover</title>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
     </svg>
   );
 }

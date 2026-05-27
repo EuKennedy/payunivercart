@@ -80,7 +80,7 @@ const NAV: NavGroup[] = [
       { href: '/integrations/gateways', label: 'Pagamentos', icon: <IconCard /> },
       { href: '/integrations/whatsapp', label: 'WhatsApp', icon: <IconChat /> },
       { href: '/integrations/email', label: 'Email', icon: <IconMail /> },
-      { href: '/integrations/pixels', label: 'Pixels', icon: <IconBolt />, badge: 'new' },
+      { href: '/integrations/pixels', label: 'Configurar Pixel', icon: <IconBolt />, badge: 'new' },
     ],
   },
 ];
