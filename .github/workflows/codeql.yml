@@ -56,6 +56,12 @@ jobs:
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform analysis
+        # `continue-on-error` so this job doesn't block the merge gate
+        # until Code Scanning is enabled in the repo settings
+        # (Settings → Code security → Code scanning → Set up → Default).
+        # Once enabled, drop this flag — the analyze step needs to be a
+        # hard gate against the security backlog.
+        continue-on-error: true
         uses: github/codeql-action/analyze@v3
         with:
           category: '/language:${{ matrix.language }}'
