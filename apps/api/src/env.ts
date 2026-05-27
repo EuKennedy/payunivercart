@@ -142,6 +142,26 @@ const envSchema = z.object({
    * partner's webhook handler — this is only the default landing page.
    */
   CHECKOUT_PUBLIC_URL: z.string().url().optional(),
+
+  /**
+   * Run drizzle migrations on API boot, before the HTTP server starts
+   * listening. Defends against the Coolify pitfall where the compose
+   * `migrate` one-shot is skipped between deploys because it's already
+   * "completed", leaving the schema behind the app code and 500-ing every
+   * SELECT that references a new column.
+   *
+   * Drizzle's migrator records applied migrations in `__drizzle_migrations`,
+   * so running it on every boot is idempotent and cheap (one round-trip
+   * to read the journal, zero writes when already up to date).
+   *
+   * Default: `true` (always on). Set `RUN_MIGRATIONS_ON_BOOT=false` to
+   * opt out — e.g. when a separate CI job owns the migrate step and you
+   * want the API container to refuse to start instead of healing the gap.
+   */
+  RUN_MIGRATIONS_ON_BOOT: z
+    .union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0')])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

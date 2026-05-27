@@ -9,6 +9,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { recordClick } from './affiliates/tracker';
+import { runBootMigrations } from './boot-migrate';
 import { mountConnectApi } from './connect/router';
 import { loadEnv } from './env';
 import { authRateLimit, checkoutRateLimit, webhookRateLimit } from './rate-limit';
@@ -311,4 +312,35 @@ process.stdout.write(
   `${JSON.stringify({ level: 'info', event: 'api.boot', port: env.PORT, nodeEnv: env.NODE_ENV })}\n`,
 );
 
-serve({ fetch: app.fetch, port: env.PORT });
+/**
+ * Run schema migrations BEFORE listening so a fresh deploy that depends
+ * on a brand-new column never serves a single request against a stale
+ * schema. Coolify's compose `migrate` one-shot occasionally gets skipped
+ * between deploys (it's `restart: "no"`), so the API guarding itself is
+ * defense-in-depth, not a replacement for the dedicated runner.
+ *
+ * Drizzle's migrator is idempotent (checks `__drizzle_migrations` before
+ * applying each file), so the cost on an already-current DB is one
+ * round-trip. A migration failure throws and the process exits non-zero
+ * so the deploy fails loudly instead of half-serving with a broken
+ * schema.
+ */
+async function boot() {
+  if (env.RUN_MIGRATIONS_ON_BOOT) {
+    try {
+      await runBootMigrations(env.DATABASE_URL);
+    } catch (err) {
+      process.stderr.write(
+        `${JSON.stringify({
+          level: 'error',
+          event: 'api.boot.migrations.failed',
+          error: err instanceof Error ? err.message : String(err),
+        })}\n`,
+      );
+      process.exit(1);
+    }
+  }
+  serve({ fetch: app.fetch, port: env.PORT });
+}
+
+void boot();
