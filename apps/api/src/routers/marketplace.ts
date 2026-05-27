@@ -28,6 +28,44 @@ import { publicProcedure, router, workspaceProcedure } from '../trpc';
  * encoded "publishedAt|id") so large catalogs don't trash the index.
  */
 
+/* -------------------------------------------------------------------------- */
+/* Migration 0020 resilience                                                  */
+/*                                                                            */
+/* `marketplace_listings.sales_page_url` ships in migration 0020. If the      */
+/* deploy that pushes new app code lands BEFORE the migrate one-shot          */
+/* succeeds in prod (Coolify pitfall: `restart: "no"` services don't always   */
+/* recreate between deploys), every SELECT that references the column blows   */
+/* up the whole tRPC call → the dashboard's "Meu Marketplace" + the public    */
+/* `/afiliar` page both render empty. We probe `information_schema.columns`   */
+/* once per process and memoise the result, so the per-call overhead is one   */
+/* lookup at boot.                                                            */
+/* -------------------------------------------------------------------------- */
+
+let salesPageColPromise: Promise<boolean> | null = null;
+// biome-ignore lint/suspicious/noExplicitAny: drizzle DatabaseClient generic is awkward to thread here; the helper only needs `.execute(sql)`.
+async function hasSalesPageColumn(db: any): Promise<boolean> {
+  if (salesPageColPromise) return salesPageColPromise;
+  salesPageColPromise = (async () => {
+    try {
+      const probe = await db.execute(sql`
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_name = 'marketplace_listings'
+           AND column_name = 'sales_page_url'
+         LIMIT 1
+      `);
+      // postgres-js + drizzle return the result as an array-like object.
+      const len = (probe as { length?: number } | undefined)?.length ?? 0;
+      return len > 0;
+    } catch {
+      // Defensive: assume missing so we don't take the dashboard down.
+      // The next deploy after the migration applies clears the cache.
+      return false;
+    }
+  })();
+  return salesPageColPromise;
+}
+
 const Category = z.enum([
   'cursos',
   'mentorias',
@@ -485,6 +523,14 @@ export const marketplaceRouter = router({
         'BRL'
       )`;
 
+      // Same migration-0020 guard as listMine: drop the `sales_page_url`
+      // column from the SELECT when prod hasn't applied the migration
+      // yet so /afiliar keeps rendering instead of 500-ing.
+      const salesPageColExists = await hasSalesPageColumn(ctx.services.db.db);
+      const salesPageExpr = salesPageColExists
+        ? sql<string | null>`${schema.marketplaceListings.salesPageUrl}`
+        : sql<string | null>`NULL::text`;
+
       const baseQuery = ctx.services.db.db
         .select({
           id: schema.marketplaceListings.id,
@@ -496,7 +542,7 @@ export const marketplaceRouter = router({
           headline: schema.marketplaceListings.headline,
           pitch: schema.marketplaceListings.pitch,
           coverImageUrl: schema.marketplaceListings.coverImageUrl,
-          salesPageUrl: schema.marketplaceListings.salesPageUrl,
+          salesPageUrl: salesPageExpr,
           priceCents: priceCentsExpr,
           currency: currencyExpr,
           publishedAt: schema.marketplaceListings.publishedAt,
@@ -639,6 +685,12 @@ export const marketplaceRouter = router({
           ORDER BY sp.amount_cents ASC, sp.id ASC LIMIT 1),
         'BRL'
       )`;
+      // Same migration-0020 guard as listMine / browseForAffiliation.
+      const salesPageColExists = await hasSalesPageColumn(ctx.services.db.db);
+      const salesPageExpr = salesPageColExists
+        ? sql<string | null>`${schema.marketplaceListings.salesPageUrl}`
+        : sql<string | null>`NULL::text`;
+
       const [row] = await ctx.services.db.db
         .select({
           id: schema.marketplaceListings.id,
@@ -650,7 +702,7 @@ export const marketplaceRouter = router({
           headline: schema.marketplaceListings.headline,
           pitch: schema.marketplaceListings.pitch,
           coverImageUrl: schema.marketplaceListings.coverImageUrl,
-          salesPageUrl: schema.marketplaceListings.salesPageUrl,
+          salesPageUrl: salesPageExpr,
           priceCents: priceCentsExpr,
           currency: currencyExpr,
           publishedAt: schema.marketplaceListings.publishedAt,
@@ -742,25 +794,43 @@ export const marketplaceRouter = router({
   /* ============================= PRODUCER ============================ */
 
   listMine: workspaceProcedure.output(z.array(ProducerListing)).query(async ({ ctx }) => {
-    const rows = await ctx.services.db.db
-      .select({
-        id: schema.marketplaceListings.id,
-        productId: schema.marketplaceListings.productId,
-        status: schema.marketplaceListings.status,
-        category: schema.marketplaceListings.category,
-        headline: schema.marketplaceListings.headline,
-        pitch: schema.marketplaceListings.pitch,
-        coverImageUrl: schema.marketplaceListings.coverImageUrl,
-        searchKeywords: schema.marketplaceListings.searchKeywords,
-        salesPageUrl: schema.marketplaceListings.salesPageUrl,
-        cachedClicks: schema.marketplaceListings.cachedClicks,
-        cachedPurchases: schema.marketplaceListings.cachedPurchases,
-        publishedAt: schema.marketplaceListings.publishedAt,
-        moderationNote: schema.marketplaceListings.moderationNote,
-      })
-      .from(schema.marketplaceListings)
-      .where(eq(schema.marketplaceListings.workspaceId, ctx.workspaceId))
-      .orderBy(desc(schema.marketplaceListings.publishedAt));
+    // `salesPageUrl` was added by migration 0020. Production deploys
+    // that ran the new app code BEFORE the migration applied would
+    // crash the entire query with `column "sales_page_url" does not
+    // exist`, wiping every listing from the producer dashboard. The
+    // shared `hasSalesPageColumn` helper memoises a one-shot probe so
+    // we skip the column from the SELECT when the migration hasn't
+    // applied yet. The result schema still emits `salesPageUrl: null`
+    // so the client contract holds.
+    const salesPageColExists = await hasSalesPageColumn(ctx.services.db.db);
+
+    const baseSelect = {
+      id: schema.marketplaceListings.id,
+      productId: schema.marketplaceListings.productId,
+      status: schema.marketplaceListings.status,
+      category: schema.marketplaceListings.category,
+      headline: schema.marketplaceListings.headline,
+      pitch: schema.marketplaceListings.pitch,
+      coverImageUrl: schema.marketplaceListings.coverImageUrl,
+      searchKeywords: schema.marketplaceListings.searchKeywords,
+      cachedClicks: schema.marketplaceListings.cachedClicks,
+      cachedPurchases: schema.marketplaceListings.cachedPurchases,
+      publishedAt: schema.marketplaceListings.publishedAt,
+      moderationNote: schema.marketplaceListings.moderationNote,
+    } as const;
+    const rows = salesPageColExists
+      ? await ctx.services.db.db
+          .select({ ...baseSelect, salesPageUrl: schema.marketplaceListings.salesPageUrl })
+          .from(schema.marketplaceListings)
+          .where(eq(schema.marketplaceListings.workspaceId, ctx.workspaceId))
+          .orderBy(desc(schema.marketplaceListings.publishedAt))
+      : (
+          await ctx.services.db.db
+            .select(baseSelect)
+            .from(schema.marketplaceListings)
+            .where(eq(schema.marketplaceListings.workspaceId, ctx.workspaceId))
+            .orderBy(desc(schema.marketplaceListings.publishedAt))
+        ).map((r) => ({ ...r, salesPageUrl: null as string | null }));
     // Self-heal: every dashboard visit to /marketplace ensures the
     // workspace has a default affiliate program so the producer's
     // listings remain discoverable in /afiliar. Idempotent — the
