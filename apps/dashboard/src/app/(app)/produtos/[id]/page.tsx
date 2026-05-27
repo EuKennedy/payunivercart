@@ -709,6 +709,12 @@ function SubscriptionPlansSection({
   const utils = trpc.useUtils();
   const [copiedPlanId, setCopiedPlanId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  /**
+   * Plan id whose payment-methods picker is currently expanded. Only one
+   * plan can be in edit mode at a time so the producer doesn't get a
+   * wall of pickers when they have many plans.
+   */
+  const [editingMethodsPlanId, setEditingMethodsPlanId] = useState<string | null>(null);
   const copyPlanLink = async (planId: string) => {
     const url = `${CHECKOUT_URL}/c/${productSlug}?plan=${planId}`;
     try {
@@ -874,7 +880,12 @@ function SubscriptionPlansSection({
                   {p.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="font-semibold text-[14px] text-[var(--color-fg)]">{p.name}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-[14px] text-[var(--color-fg)]">
+                      {p.name}
+                    </span>
+                    <PlanMethodsBadge paymentMethod={p.paymentMethod} />
+                  </div>
                   <span className="text-[12px] text-[var(--color-fg-subtle)]">
                     {p.trialDays > 0 ? `${p.trialDays} dias de trial · ` : ''}
                     {p.isActive ? 'Ativo' : 'Desativado'}
@@ -969,6 +980,18 @@ function SubscriptionPlansSection({
                   </button>
                   <button
                     type="button"
+                    onClick={() => setEditingMethodsPlanId((prev) => (prev === p.id ? null : p.id))}
+                    className={`rounded-lg px-3 py-1.5 font-medium text-[12px] transition ${
+                      editingMethodsPlanId === p.id
+                        ? 'border border-[var(--color-brand-500)] bg-[var(--color-brand-50)] text-[var(--color-brand-700)]'
+                        : 'border border-[var(--color-border)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-fg)]'
+                    }`}
+                    title="Alterar métodos de pagamento aceitos"
+                  >
+                    Métodos
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => update.mutate({ id: p.id, isActive: !p.isActive })}
                     className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] transition hover:border-[var(--color-border-strong)]"
                   >
@@ -982,6 +1005,59 @@ function SubscriptionPlansSection({
                     Excluir
                   </button>
                 </div>
+                {editingMethodsPlanId === p.id ? (
+                  <div className="mt-3 flex flex-col gap-2 border-[var(--color-border)] border-t pt-3">
+                    <span className="font-medium text-[12px] text-[var(--color-fg-muted)]">
+                      Métodos de pagamento aceitos
+                    </span>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {(['card', 'pix', 'both'] as const).map((m) => {
+                        const meta =
+                          m === 'card'
+                            ? {
+                                title: 'Cartão de crédito',
+                                subtitle: 'Cobrança recorrente automática',
+                                badge: 'Padrão',
+                              }
+                            : m === 'pix'
+                              ? {
+                                  title: 'PIX',
+                                  subtitle: 'Nova cobrança gerada a cada ciclo',
+                                  badge: '0% tarifa',
+                                }
+                              : {
+                                  title: 'Ambos',
+                                  subtitle: 'Cliente escolhe no checkout',
+                                  badge: 'Recomendado',
+                                };
+                        return (
+                          <PaymentMethodCard
+                            key={m}
+                            active={p.paymentMethod === m}
+                            onClick={() => {
+                              if (p.paymentMethod === m) {
+                                setEditingMethodsPlanId(null);
+                                return;
+                              }
+                              update.mutate(
+                                { id: p.id, paymentMethod: m },
+                                {
+                                  onSuccess: () => {
+                                    toast.success(`Métodos atualizados: ${meta.title}`);
+                                    setEditingMethodsPlanId(null);
+                                  },
+                                },
+                              );
+                            }}
+                            title={meta.title}
+                            subtitle={meta.subtitle}
+                            badge={meta.badge}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -1228,6 +1304,30 @@ function PlanPriceEditor({
         <path strokeLinecap="round" strokeLinejoin="round" d="M11.5 2.5l2 2L5 13l-3 .5.5-3 9-8z" />
       </svg>
     </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* PlanMethodsBadge — compact pill shown next to a plan's name in the list.    */
+/*                                                                            */
+/* Tells the producer at a glance which methods buyers can use without        */
+/* expanding the picker. Color is monochrome so it never competes with the    */
+/* Connect / "Sem Connect" badge that already lives on the same row.          */
+/* -------------------------------------------------------------------------- */
+function PlanMethodsBadge({ paymentMethod }: { paymentMethod: 'card' | 'pix' | 'both' }) {
+  const label =
+    paymentMethod === 'pix'
+      ? '⚡ PIX'
+      : paymentMethod === 'both'
+        ? '💳 + ⚡ Cartão & PIX'
+        : '💳 Cartão';
+  return (
+    <span
+      title="Métodos de pagamento aceitos por este plano"
+      className="inline-flex items-center rounded-md bg-[var(--color-surface-muted)] px-1.5 py-0.5 font-medium text-[10px] text-[var(--color-fg-muted)] uppercase tracking-wider"
+    >
+      {label}
+    </span>
   );
 }
 
