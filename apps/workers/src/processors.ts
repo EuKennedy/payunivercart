@@ -8,6 +8,7 @@ import { runAffiliateFraudAutoSuspendSweep } from './handlers/affiliate-fraud-au
 import { runAffiliateProgramBackfill } from './handlers/affiliate-program-backfill';
 import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
 import { runMarketplaceRollup } from './handlers/marketplace-rollup';
+import { runPixSubscriptionCycleSweep } from './handlers/pix-subscription-cycle';
 import { runPixSubscriptionReminderSweep } from './handlers/pix-subscription-reminders';
 import { runRecoverySweep } from './handlers/recovery';
 import { runSubscriptionReconcileSweep } from './handlers/subscription-reconcile';
@@ -216,6 +217,24 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // Pilar 5 — PIX subscription CYCLE generator. Tighter cadence (5min)
+  // because a sub due in <4h can't wait an hour for the QR. Hits MP
+  // createPix only when there's actually a sub to charge, so an empty
+  // workspace is a one-query no-op.
+  const pixSubscriptionCycle = new Worker(
+    QUEUE_NAMES.pixSubscriptionCycle,
+    async (job) => {
+      const result = await runPixSubscriptionCycleSweep({
+        db: dbWrapper.db,
+        crypto,
+        apiPublicUrl: ctx.env.API_PUBLIC_URL ?? null,
+      });
+      logEvent('pix.subscription.cycle.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   // Pilar 1 — affiliate fraud auto-suspend. Hourly enforcement of the
   // fraud-signal ledger: critical signals OR ≥3 warns in 7d flip
   // affiliate memberships to suspended in the affected workspace.
@@ -244,6 +263,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     whatsappSessionHealth,
     affiliateProgramBackfill,
     pixSubscriptionReminders,
+    pixSubscriptionCycle,
     affiliateFraudAutoSuspend,
   ]) {
     w.on('failed', (job, err) => {
@@ -263,6 +283,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     whatsappSessionHealth,
     affiliateProgramBackfill,
     pixSubscriptionReminders,
+    pixSubscriptionCycle,
     affiliateFraudAutoSuspend,
     webhookInbound,
     webhookOutbox,

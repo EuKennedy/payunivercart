@@ -174,6 +174,19 @@ async function main() {
     },
   );
 
+  // PIX subscription CYCLE generator — 5min tick. Mints a fresh MP
+  // createPix charge for every active PIX sub whose nextChargeAt
+  // window opens (4h ahead by default). Companion to the reminder
+  // worker above.
+  await queues.pixSubscriptionCycle.upsertJobScheduler(
+    'cycle',
+    { every: 5 * 60 * 1000 },
+    {
+      name: 'pix.subscription.cycle.sweep',
+      data: {},
+    },
+  );
+
   // Affiliate fraud auto-suspend — hourly enforcement of the
   // affiliate_fraud_signals ledger.
   await queues.affiliateFraudAutoSuspend.upsertJobScheduler(

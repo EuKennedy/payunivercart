@@ -48,6 +48,11 @@ export const QUEUE_NAMES = {
    *  T-3 reminders, overdue pings during grace, and grace expiry
    *  cancellations. */
   pixSubscriptionReminders: 'pix.subscription.reminders',
+  /** Pilar 5 — PIX subscription CYCLE generator. 5-minute tick mints
+   *  a fresh MP createPix charge for every active PIX sub whose
+   *  `nextChargeAt` window has opened and that doesn't already have a
+   *  live charge attached. Companion to `pixSubscriptionReminders`. */
+  pixSubscriptionCycle: 'pix.subscription.cycle',
   /** Pilar 1 — affiliate fraud auto-suspend. Hourly sweep that
    *  enforces the fraud-signal ledger by suspending affiliates with
    *  critical signals or repeated warns. */
@@ -70,6 +75,7 @@ export interface QueueBundle {
   whatsappSessionHealth: Queue;
   affiliateProgramBackfill: Queue;
   pixSubscriptionReminders: Queue;
+  pixSubscriptionCycle: Queue;
   affiliateFraudAutoSuspend: Queue;
 }
 
@@ -106,6 +112,7 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     whatsappSessionHealth: new Queue(QUEUE_NAMES.whatsappSessionHealth, opts),
     affiliateProgramBackfill: new Queue(QUEUE_NAMES.affiliateProgramBackfill, opts),
     pixSubscriptionReminders: new Queue(QUEUE_NAMES.pixSubscriptionReminders, opts),
+    pixSubscriptionCycle: new Queue(QUEUE_NAMES.pixSubscriptionCycle, opts),
     affiliateFraudAutoSuspend: new Queue(QUEUE_NAMES.affiliateFraudAutoSuspend, opts),
   };
 }

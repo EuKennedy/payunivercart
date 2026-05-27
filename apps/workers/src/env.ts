@@ -30,6 +30,12 @@ const schema = z.object({
   /** Worker concurrency per queue. */
   WORKERS_CONCURRENCY: z.coerce.number().int().positive().default(5),
 
+  /** Public URL of the api service — used by the PIX cycle worker to
+   *  feed gateway webhook URLs back to MP so the IPN lands on the right
+   *  host. Optional; when empty the adapter falls back to whatever URL
+   *  the producer set globally in their gateway dashboard. */
+  API_PUBLIC_URL: z.string().url().optional(),
+
   /** Sentry DSN — no-op when empty. */
   SENTRY_DSN: z.string().optional(),
   SENTRY_RELEASE: z.string().optional(),

@@ -1246,61 +1246,76 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                   ) : null}
 
                   <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-4">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-[13px] text-[var(--ink-100)]">
-                        Cartão de crédito
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
-                        <ShieldIcon size={11} /> Renovação automática
-                      </span>
-                    </div>
-                    <Field label="Nome impresso no cartão">
-                      <input
-                        type="text"
-                        value={cardHolder}
-                        onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
-                        placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
-                        autoComplete="cc-name"
-                        maxLength={60}
+                    <SubMethodTabs
+                      planPaymentMethod={planPaymentMethod}
+                      value={subMethod}
+                      onChange={setSubMethod}
+                    />
+                    {subMethod === 'card' ? (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-[13px] text-[var(--ink-100)]">
+                            Cartão de crédito
+                          </span>
+                          <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
+                            <ShieldIcon size={11} /> Renovação automática
+                          </span>
+                        </div>
+                        <Field label="Nome impresso no cartão">
+                          <input
+                            type="text"
+                            value={cardHolder}
+                            onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                            placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
+                            autoComplete="cc-name"
+                            maxLength={60}
+                          />
+                        </Field>
+                        <Field label="Número do cartão">
+                          <input
+                            type="text"
+                            value={cardNumber}
+                            onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                            placeholder="0000 0000 0000 0000"
+                            inputMode="numeric"
+                            autoComplete="cc-number"
+                          />
+                        </Field>
+                        <div className="grid grid-cols-2 gap-3">
+                          <Field label="Validade (MM/AA)">
+                            <input
+                              type="text"
+                              value={cardExpiry}
+                              onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
+                              placeholder="12/30"
+                              inputMode="numeric"
+                              autoComplete="cc-exp"
+                            />
+                          </Field>
+                          <Field label="CVV">
+                            <input
+                              type="text"
+                              value={cardCvc}
+                              onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
+                              placeholder="000"
+                              inputMode="numeric"
+                              autoComplete="cc-csc"
+                            />
+                          </Field>
+                        </div>
+                      </>
+                    ) : (
+                      <PixSubscriptionInfo
+                        amountCents={selectedPlan?.amountCents ?? 0}
+                        currency={selectedPlan?.currency ?? 'BRL'}
+                        billingPeriod={selectedPlan?.billingPeriod ?? 'monthly'}
                       />
-                    </Field>
-                    <Field label="Número do cartão">
-                      <input
-                        type="text"
-                        value={cardNumber}
-                        onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
-                        placeholder="0000 0000 0000 0000"
-                        inputMode="numeric"
-                        autoComplete="cc-number"
-                      />
-                    </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Validade (MM/AA)">
-                        <input
-                          type="text"
-                          value={cardExpiry}
-                          onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
-                          placeholder="12/30"
-                          inputMode="numeric"
-                          autoComplete="cc-exp"
-                        />
-                      </Field>
-                      <Field label="CVV">
-                        <input
-                          type="text"
-                          value={cardCvc}
-                          onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
-                          placeholder="000"
-                          inputMode="numeric"
-                          autoComplete="cc-csc"
-                        />
-                      </Field>
-                    </div>
+                    )}
                   </div>
 
-                  {subscribe.error ? (
+                  {subscribe.error || subscribePix.error ? (
                     <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger-text)] leading-[1.5]">
-                      {subscribe.error.message}
+                      {(subscribe.error ?? subscribePix.error)?.message}
                     </p>
                   ) : null}
 
@@ -1310,10 +1325,14 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                     className="btn btn-primary inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
                   >
                     <LockIcon size={14} />{' '}
-                    {subscribe.isPending
-                      ? 'Confirmando assinatura…'
+                    {submitting
+                      ? subMethod === 'pix'
+                        ? 'Gerando PIX…'
+                        : 'Confirmando assinatura…'
                       : selectedPlan
-                        ? `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                        ? subMethod === 'pix'
+                          ? `Gerar PIX · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                          : `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
                         : 'Escolha um plano'}
                   </button>
                   <p className="text-center text-[11px] text-[var(--ink-50)] leading-[1.5]">
@@ -1610,69 +1629,85 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
 
               <StitchStepCard
                 n={singlePlanLocked ? 2 : 3}
-                label="Cartão de crédito"
+                label={subMethod === 'pix' ? 'Pagamento via PIX' : 'Cartão de crédito'}
                 state={payState}
               >
                 {stepperStep !== 'pay' ? (
                   <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
-                    Complete os passos acima para informar o cartão.
+                    Complete os passos acima para escolher o pagamento.
                   </p>
                 ) : (
                   <div className="flex flex-col gap-5">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[13px] text-[var(--ink-70)] leading-[1.55]">
-                        Assinatura recorrente — cobrança automática no cartão.
-                      </p>
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
-                        <ShieldIcon size={11} /> Tokenizado
-                      </span>
-                    </div>
-                    <Field label="Nome impresso no cartão">
-                      <input
-                        type="text"
-                        value={cardHolder}
-                        onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
-                        placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
-                        autoComplete="cc-name"
-                        maxLength={60}
-                      />
-                    </Field>
-                    <Field label="Número do cartão">
-                      <input
-                        type="text"
-                        value={cardNumber}
-                        onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
-                        placeholder="0000 0000 0000 0000"
-                        inputMode="numeric"
-                        autoComplete="cc-number"
-                      />
-                    </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Validade (MM/AA)">
-                        <input
-                          type="text"
-                          value={cardExpiry}
-                          onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
-                          placeholder="12/30"
-                          inputMode="numeric"
-                          autoComplete="cc-exp"
-                        />
-                      </Field>
-                      <Field label="CVV">
-                        <input
-                          type="text"
-                          value={cardCvc}
-                          onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
-                          placeholder="000"
-                          inputMode="numeric"
-                          autoComplete="cc-csc"
-                        />
-                      </Field>
-                    </div>
+                    <SubMethodTabs
+                      planPaymentMethod={planPaymentMethod}
+                      value={subMethod}
+                      onChange={setSubMethod}
+                    />
 
-                    {subscribe.error ? (
+                    {subMethod === 'card' ? (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <p className="text-[13px] text-[var(--ink-70)] leading-[1.55]">
+                            Assinatura recorrente — cobrança automática no cartão.
+                          </p>
+                          <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
+                            <ShieldIcon size={11} /> Tokenizado
+                          </span>
+                        </div>
+                        <Field label="Nome impresso no cartão">
+                          <input
+                            type="text"
+                            value={cardHolder}
+                            onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                            placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
+                            autoComplete="cc-name"
+                            maxLength={60}
+                          />
+                        </Field>
+                        <Field label="Número do cartão">
+                          <input
+                            type="text"
+                            value={cardNumber}
+                            onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                            placeholder="0000 0000 0000 0000"
+                            inputMode="numeric"
+                            autoComplete="cc-number"
+                          />
+                        </Field>
+                        <div className="grid grid-cols-2 gap-3">
+                          <Field label="Validade (MM/AA)">
+                            <input
+                              type="text"
+                              value={cardExpiry}
+                              onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
+                              placeholder="12/30"
+                              inputMode="numeric"
+                              autoComplete="cc-exp"
+                            />
+                          </Field>
+                          <Field label="CVV">
+                            <input
+                              type="text"
+                              value={cardCvc}
+                              onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
+                              placeholder="000"
+                              inputMode="numeric"
+                              autoComplete="cc-csc"
+                            />
+                          </Field>
+                        </div>
+                      </>
+                    ) : (
+                      <PixSubscriptionInfo
+                        amountCents={selectedPlan?.amountCents ?? 0}
+                        currency={selectedPlan?.currency ?? 'BRL'}
+                        billingPeriod={selectedPlan?.billingPeriod ?? 'monthly'}
+                      />
+                    )}
+
+                    {subscribe.error || subscribePix.error ? (
                       <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger-text)] leading-[1.5]">
-                        {subscribe.error.message}
+                        {(subscribe.error ?? subscribePix.error)?.message}
                       </p>
                     ) : null}
 
@@ -1681,14 +1716,20 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                       disabled={!canSubmit}
                       className="btn btn-primary inline-flex w-full items-center justify-center gap-3 py-4 text-[16px]"
                     >
-                      {subscribe.isPending
-                        ? 'Confirmando assinatura…'
+                      {submitting
+                        ? subMethod === 'pix'
+                          ? 'Gerando PIX…'
+                          : 'Confirmando assinatura…'
                         : selectedPlan
-                          ? `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                          ? subMethod === 'pix'
+                            ? `Gerar PIX · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                            : `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
                           : 'Escolha um plano'}
                     </button>
                     <p className="text-center text-[11px] text-[var(--ink-50)] leading-[1.5]">
-                      Cobrança automática. Cancele quando quiser.
+                      {subMethod === 'pix'
+                        ? 'Cada renovação gera um novo PIX. Avisamos com 3 dias.'
+                        : 'Cobrança automática. Cancele quando quiser.'}
                     </p>
                   </div>
                 )}
