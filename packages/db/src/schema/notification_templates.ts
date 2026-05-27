@@ -47,6 +47,11 @@ export const notificationEventEnum = pgEnum('notification_event', [
   'subscription_activated_producer',
   'entitlement_granted',
   'cart_recovery',
+  // Pilar 5 — PIX recorrente lifecycle.
+  'subscription_renewal_reminder',
+  'subscription_renewal_due',
+  'subscription_renewal_overdue',
+  'subscription_grace_expired',
 ]);
 
 export const notificationChannelEnum = pgEnum('notification_channel', ['email', 'whatsapp']);

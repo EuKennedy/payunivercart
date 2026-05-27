@@ -1,4 +1,13 @@
-import { bigint, boolean, index, integer, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  boolean,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 import {
   createdAt,
   currencyEnum,
@@ -11,6 +20,38 @@ import {
 import { partnerAccounts } from './partners';
 import { products } from './products';
 import { workspaces } from './workspaces';
+
+/**
+ * Payment method allowed for a subscription. `card` = MP preapproval
+ * (auto-debit), `pix` = manual cycle (new PIX per renewal, worker
+ * generates + dispatches via WhatsApp/email), `both` = buyer chooses
+ * at checkout time.
+ */
+export const subscriptionPaymentMethodEnum = pgEnum('subscription_payment_method', [
+  'card',
+  'pix',
+  'both',
+]);
+
+/**
+ * Cycle state for PIX subscriptions. Cards use `subscriptions.status`
+ * directly (active/past_due/cancelled). PIX needs an extra axis because
+ * the producer's grace period sits between "buyer didn't pay yet" and
+ * "we gave up + cancelled".
+ *   - `paid`               current cycle settled, nextChargeAt is the
+ *                          due date for the next cycle.
+ *   - `pending_pix`        worker generated a fresh PIX for the cycle;
+ *                          buyer hasn't paid yet.
+ *   - `overdue`            past due date + still unpaid + inside grace.
+ *   - `cancelled_by_grace` grace window expired without payment; sub
+ *                          flipped to cancelled + entitlement revoked.
+ */
+export const subscriptionCycleStatusEnum = pgEnum('subscription_cycle_status', [
+  'paid',
+  'pending_pix',
+  'overdue',
+  'cancelled_by_grace',
+]);
 
 /**
  * Subscription plans — producer-defined recurring offers attached to
@@ -58,6 +99,13 @@ export const subscriptionPlans = pgTable(
     isActive: boolean().notNull().default(true),
     /** Render order on the public plan picker. Smaller = first. */
     sortOrder: integer().notNull().default(0),
+    /**
+     * Payment method this plan supports. Card-only is the default
+     * (preserves Hotmart-style auto-renew). PIX needs a worker to
+     * generate a fresh charge each cycle. `both` lets the buyer
+     * choose at checkout time.
+     */
+    paymentMethod: subscriptionPaymentMethodEnum().notNull().default('card'),
     /** Optional flag rendered as "Mais escolhido" badge on the picker. */
     isHighlighted: boolean().notNull().default(false),
     /**
@@ -129,6 +177,24 @@ export const subscriptions = pgTable(
      *  recurring engine. Stays referentially independent so the
      *  producer can rotate credentials without orphaning the row. */
     gatewayCredentialId: fk(),
+    /**
+     * Effective payment method for this row (denormalised from plan
+     * because `both` plans collapse to a single method once the buyer
+     * picks at checkout time). Card subs ignore the cycle/grace
+     * fields below.
+     */
+    paymentMethod: subscriptionPaymentMethodEnum().notNull().default('card'),
+    /** Set when payment_method=pix: id of the transactions row that
+     *  holds the active PIX qr/copy-paste for the current cycle. */
+    pixCurrentChargeId: fk(),
+    /** Days the producer tolerates an unpaid PIX cycle before we flip
+     *  the subscription to cancelled + revoke entitlement. 3 is the
+     *  empirical sweet spot for BR — long enough for the buyer to
+     *  notice the WhatsApp reminder, short enough that the producer
+     *  doesn't carry month-long delinquency. */
+    gracePeriodDays: integer().notNull().default(3),
+    /** PIX-only cycle state (see enum docblock). Card subs stay 'paid'. */
+    currentCycleStatus: subscriptionCycleStatusEnum().notNull().default('paid'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -138,5 +204,11 @@ export const subscriptions = pgTable(
     index('subscriptions_product_idx').on(table.productId),
     index('subscriptions_plan_idx').on(table.planId),
     index('subscriptions_status_next_idx').on(table.status, table.nextChargeAt),
+    // Hot path for the pix-subscription-cycle sweeper.
+    index('subscriptions_pix_cycle_idx').on(
+      table.paymentMethod,
+      table.currentCycleStatus,
+      table.nextChargeAt,
+    ),
   ],
 );

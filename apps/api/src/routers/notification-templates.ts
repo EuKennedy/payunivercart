@@ -42,6 +42,10 @@ const EventKey = z.enum([
   'subscription_activated_producer',
   'entitlement_granted',
   'cart_recovery',
+  'subscription_renewal_reminder',
+  'subscription_renewal_due',
+  'subscription_renewal_overdue',
+  'subscription_grace_expired',
 ]);
 const Channel = z.enum(['email', 'whatsapp']);
 

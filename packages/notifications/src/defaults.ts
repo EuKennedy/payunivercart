@@ -19,7 +19,11 @@ export type NotificationEventKey =
   | 'subscription_activated_buyer'
   | 'subscription_activated_producer'
   | 'entitlement_granted'
-  | 'cart_recovery';
+  | 'cart_recovery'
+  | 'subscription_renewal_reminder'
+  | 'subscription_renewal_due'
+  | 'subscription_renewal_overdue'
+  | 'subscription_grace_expired';
 
 export type NotificationChannel = 'email' | 'whatsapp';
 
@@ -217,6 +221,112 @@ export const NOTIFICATION_EVENTS: EventDefinition[] = [
       whatsapp: {
         subject: null,
         body: 'Oi {nome}, faltou o pagamento de *{produto}* ({valor}).\n\nFinalize aqui: {link}\nPedido {codigo}.',
+      },
+    },
+  },
+  // ─── Pilar 5 — PIX recorrente lifecycle ──────────────────────────────────
+  {
+    key: 'subscription_renewal_reminder',
+    title: 'PIX recorrente — lembrete 3 dias antes',
+    description: 'Disparado 3 dias antes da próxima cobrança em assinaturas PIX.',
+    variables: [
+      ...COMMON,
+      { key: 'produto', label: 'Nome do produto', sample: 'Comunidade Mensal' },
+      { key: 'valor', label: 'Valor da próxima cobrança', sample: 'R$ 97,00' },
+      { key: 'vencimento', label: 'Data de vencimento', sample: '03/06/2026' },
+      { key: 'codigo', label: 'Código da assinatura', sample: 'SUB-X9Y8Z7' },
+    ],
+    defaults: {
+      email: {
+        subject: '{brand} — sua renovação chega em 3 dias',
+        body: [
+          'Oi {nome},',
+          '',
+          'Sua próxima cobrança da assinatura {produto} ({valor}) vence em {vencimento}.',
+          '',
+          'No dia do vencimento você recebe um Pix novo aqui e no WhatsApp pra renovar.',
+          '',
+          'Código {codigo}.',
+        ].join('\n'),
+      },
+      whatsapp: {
+        subject: null,
+        body: 'Oi {nome}! Sua renovação de *{produto}* ({valor}) vence em *{vencimento}*. No dia você recebe um Pix novo aqui.\n\n— {brand}',
+      },
+    },
+  },
+  {
+    key: 'subscription_renewal_due',
+    title: 'PIX recorrente — vencimento de hoje',
+    description: 'Disparado no dia do vencimento com o QR/copia-cola do PIX gerado.',
+    variables: [
+      ...COMMON,
+      { key: 'produto', label: 'Nome do produto', sample: 'Comunidade Mensal' },
+      { key: 'valor', label: 'Valor da cobrança', sample: 'R$ 97,00' },
+      { key: 'codigo', label: 'Código da assinatura', sample: 'SUB-X9Y8Z7' },
+      { key: 'link', label: 'Link do PIX', sample: 'https://pay.univercart.com/pix/abc' },
+    ],
+    defaults: {
+      email: {
+        subject: '{brand} — seu Pix de renovação está pronto',
+        body: [
+          'Oi {nome},',
+          '',
+          'Hora de renovar {produto} por {valor}.',
+          '',
+          'Pague em segundos: {link}',
+          '',
+          'Código {codigo}.',
+        ].join('\n'),
+      },
+      whatsapp: {
+        subject: null,
+        body: 'Oi {nome}! Seu Pix de renovação de *{produto}* ({valor}) está pronto.\n\nPague em segundos: {link}\n\n— {brand}',
+      },
+    },
+  },
+  {
+    key: 'subscription_renewal_overdue',
+    title: 'PIX recorrente — atrasado',
+    description: 'Disparado a cada dia da janela de tolerância sem pagamento.',
+    variables: [
+      ...COMMON,
+      { key: 'produto', label: 'Nome do produto', sample: 'Comunidade Mensal' },
+      { key: 'valor', label: 'Valor da cobrança', sample: 'R$ 97,00' },
+      { key: 'codigo', label: 'Código da assinatura', sample: 'SUB-X9Y8Z7' },
+      { key: 'link', label: 'Link do PIX', sample: 'https://pay.univercart.com/pix/abc' },
+      { key: 'diasRestantes', label: 'Dias até cancelamento', sample: '2' },
+    ],
+    defaults: {
+      whatsapp: {
+        subject: null,
+        body: 'Oi {nome}, faltou pagar a renovação de *{produto}* ({valor}).\n\nVocê tem mais {diasRestantes} dias antes que sua assinatura seja cancelada.\n\nPague aqui: {link}',
+      },
+    },
+  },
+  {
+    key: 'subscription_grace_expired',
+    title: 'PIX recorrente — assinatura encerrada',
+    description: 'Disparado quando a janela de tolerância expirou sem pagamento.',
+    variables: [
+      ...COMMON,
+      { key: 'produto', label: 'Nome do produto', sample: 'Comunidade Mensal' },
+      { key: 'codigo', label: 'Código da assinatura', sample: 'SUB-X9Y8Z7' },
+    ],
+    defaults: {
+      email: {
+        subject: '{brand} — sua assinatura foi encerrada',
+        body: [
+          'Oi {nome},',
+          '',
+          'Sua assinatura de {produto} foi encerrada porque o pagamento da renovação não chegou dentro da janela de tolerância.',
+          '',
+          'Quer voltar? Fale com a gente — código {codigo}.',
+        ].join('\n'),
+      },
+      whatsapp: {
+        subject: null,
+        body: 'Oi {nome}, sua assinatura de *{produto}* foi encerrada por falta de pagamento.\n\nQuer voltar? Responde aqui que a gente reativa.\n\n— {brand}',
       },
     },
   },
