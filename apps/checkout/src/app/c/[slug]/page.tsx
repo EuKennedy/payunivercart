@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { ThemeToggle } from '../../../components/ThemeToggle';
+import { TrackingScripts } from '../../../components/TrackingScripts';
 import {
   maskBrPhone,
   maskCardExpiry,
@@ -74,17 +75,38 @@ export default function CheckoutPage({ params }: { params: Promise<{ slug: strin
   //  - `express`  → 3-col Lizzon layout (Plano | Identificação+Cartão | Resumo)
   //  - `stepper`  → 3-step accordion (Plano → Identificação → Cartão)
   //  - `single`   → 2-col single-page (default)
+  const pixels = product.data.pixels ?? [];
   if (product.data.product.isSubscription) {
-    return <SubscriptionCheckoutView slug={slug} data={product.data} />;
+    return (
+      <>
+        <TrackingScripts pixels={pixels} />
+        <SubscriptionCheckoutView slug={slug} data={product.data} />
+      </>
+    );
   }
   const tpl = product.data.workspace.checkoutTemplate;
   if (tpl === 'express') {
-    return <ExpressCheckoutView slug={slug} data={product.data} />;
+    return (
+      <>
+        <TrackingScripts pixels={pixels} />
+        <ExpressCheckoutView slug={slug} data={product.data} />
+      </>
+    );
   }
   if (tpl === 'stepper') {
-    return <StepperCheckoutView slug={slug} data={product.data} />;
+    return (
+      <>
+        <TrackingScripts pixels={pixels} />
+        <StepperCheckoutView slug={slug} data={product.data} />
+      </>
+    );
   }
-  return <CheckoutView slug={slug} data={product.data} />;
+  return (
+    <>
+      <TrackingScripts pixels={pixels} />
+      <CheckoutView slug={slug} data={product.data} />
+    </>
+  );
 }
 
 /**

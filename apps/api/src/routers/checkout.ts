@@ -208,6 +208,12 @@ export const checkoutRouter = router({
       z.object({
         product: ProductPublicShape,
         workspace: WorkspacePublicShape,
+        pixels: z.array(
+          z.object({
+            provider: z.enum(['meta', 'ga4', 'tiktok', 'google_ads', 'pinterest', 'kwai']),
+            publicPixelId: z.string(),
+          }),
+        ),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -293,6 +299,26 @@ export const checkoutRouter = router({
             .orderBy(schema.subscriptionPlans.sortOrder, schema.subscriptionPlans.amountCents)
         : [];
 
+      // Public pixel ids — `publicPixelId` only, never credentials.
+      // The checkout page injects browser-side scripts (fbq, gtag, ttq,
+      // _pintrk, kwaiq) using these. Pairs with the server-side CAPI
+      // dispatch via shared event_id for Meta-style dedupe. We filter
+      // by enabled + not soft-deleted so a producer who paused a pixel
+      // in the dashboard doesn't keep firing it from the buyer's
+      // browser.
+      const pixelRows = await ctx.services.db.db
+        .select({
+          provider: schema.trackingPixels.provider,
+          publicPixelId: schema.trackingPixels.publicPixelId,
+        })
+        .from(schema.trackingPixels)
+        .where(
+          and(
+            eq(schema.trackingPixels.workspaceId, row.workspaceId),
+            eq(schema.trackingPixels.enabled, true),
+          ),
+        );
+
       return {
         product: {
           id: row.productId,
@@ -330,6 +356,10 @@ export const checkoutRouter = router({
                 : ('single' as const),
           acceptBoleto: row.workspaceAcceptBoleto,
         },
+        pixels: pixelRows.map((p) => ({
+          provider: p.provider as 'meta' | 'ga4' | 'tiktok' | 'google_ads' | 'pinterest' | 'kwai',
+          publicPixelId: p.publicPixelId,
+        })),
       };
     }),
 
