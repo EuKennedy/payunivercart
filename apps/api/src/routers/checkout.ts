@@ -50,6 +50,14 @@ const SubscriptionPlanPublic = z.object({
   currency: z.enum(['BRL', 'USD', 'EUR']),
   trialDays: z.number().int().nonnegative(),
   isHighlighted: z.boolean(),
+  /**
+   * Methods the producer accepts for this plan. The checkout UI uses
+   * this to render the right payment-method tabs:
+   *   - `card` → only the credit-card tab
+   *   - `pix`  → only the PIX tab (recurring PIX cycle worker takes over)
+   *   - `both` → buyer picks between the two
+   */
+  paymentMethod: z.enum(['card', 'pix', 'both']),
 });
 
 const ProductPublicShape = z.object({
@@ -288,6 +296,7 @@ export const checkoutRouter = router({
               currency: schema.subscriptionPlans.currency,
               trialDays: schema.subscriptionPlans.trialDays,
               isHighlighted: schema.subscriptionPlans.isHighlighted,
+              paymentMethod: schema.subscriptionPlans.paymentMethod,
             })
             .from(schema.subscriptionPlans)
             .where(
@@ -340,6 +349,12 @@ export const checkoutRouter = router({
             currency: p.currency,
             trialDays: p.trialDays,
             isHighlighted: p.isHighlighted,
+            paymentMethod:
+              p.paymentMethod === 'pix'
+                ? ('pix' as const)
+                : p.paymentMethod === 'both'
+                  ? ('both' as const)
+                  : ('card' as const),
           })),
         },
         workspace: {

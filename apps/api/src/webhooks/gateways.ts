@@ -277,6 +277,22 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
             })}\n`,
           );
         }
+        // PIX-recurring activation: when the paid order is tied to a
+        // subscription (orders.subscriptionId set by subscribePix), flip
+        // the subscription to active + schedule the next charge. Card
+        // recurring keeps its existing path (MP preapproval webhook).
+        try {
+          await activateSubscriptionFromPaidOrder(services, tx.orderId, nowDate);
+        } catch (cause) {
+          process.stdout.write(
+            `${JSON.stringify({
+              level: 'warn',
+              event: 'subscription.activate.from.order.failed',
+              orderId: tx.orderId,
+              error: cause instanceof Error ? cause.message : String(cause),
+            })}\n`,
+          );
+        }
       } else if (charge.status === 'refunded') {
         await services.db.db
           .update(schema.orders)
@@ -1680,5 +1696,93 @@ async function handleOrderRefundedSideEffects(
         error: cause instanceof Error ? cause.message : String(cause),
       })}\n`,
     );
+  }
+}
+
+/**
+ * Promote a subscription from `pending` to `active` when its
+ * underlying order gets paid. Used by the PIX-recurring flow: the
+ * buyer pays the QR, the gateway fires `payment.updated`, the order
+ * row flips to `paid`, and we then need to mirror that into the
+ * subscription state machine + schedule the next charge.
+ *
+ * Idempotent: if the subscription is already `active`, we only refresh
+ * the `currentCycleStatus`/`nextChargeAt` fields. A second webhook for
+ * the same payment is therefore safe.
+ *
+ * Card-recurring is NOT served by this helper — MP's preapproval
+ * webhook hits the existing `handlePreapprovalEvent` path which
+ * already owns the card lifecycle.
+ */
+async function activateSubscriptionFromPaidOrder(
+  services: AppServices,
+  orderId: string,
+  paidAt: Date,
+): Promise<void> {
+  const { db } = services.db;
+  const [order] = await db
+    .select({
+      subscriptionId: schema.orders.subscriptionId,
+      cycleNumber: schema.orders.cycleNumber,
+    })
+    .from(schema.orders)
+    .where(eq(schema.orders.id, orderId))
+    .limit(1);
+  if (!order?.subscriptionId) return; // one-time order — nothing to do
+
+  const [sub] = await db
+    .select({
+      id: schema.subscriptions.id,
+      status: schema.subscriptions.status,
+      startedAt: schema.subscriptions.startedAt,
+      planBillingPeriod: schema.subscriptionPlans.billingPeriod,
+    })
+    .from(schema.subscriptions)
+    .innerJoin(
+      schema.subscriptionPlans,
+      eq(schema.subscriptionPlans.id, schema.subscriptions.planId),
+    )
+    .where(eq(schema.subscriptions.id, order.subscriptionId))
+    .limit(1);
+  if (!sub) return;
+
+  // Compute next charge: +1 month for monthly plans, +1 year for yearly.
+  const next = new Date(paidAt);
+  if (sub.planBillingPeriod === 'yearly') {
+    next.setFullYear(next.getFullYear() + 1);
+  } else {
+    next.setMonth(next.getMonth() + 1);
+  }
+
+  await db
+    .update(schema.subscriptions)
+    .set({
+      status: 'active',
+      startedAt: sub.startedAt ?? paidAt,
+      lastChargedAt: paidAt,
+      nextChargeAt: next,
+      currentCycleStatus: 'paid',
+      pixCurrentChargeId: null,
+      updatedAt: paidAt,
+    })
+    .where(eq(schema.subscriptions.id, sub.id));
+
+  // Fire activation fan-out (email + WhatsApp + Connect entitlement)
+  // only on the FIRST cycle — renewal payments shouldn't re-send the
+  // welcome message. `cycleNumber === 1` matches the row that
+  // subscribePix inserted at signup.
+  if (order.cycleNumber === 1 && sub.status !== 'active') {
+    try {
+      await dispatchSubscriptionActivatedFanOut(services, sub.id);
+    } catch (cause) {
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'warn',
+          event: 'subscription.activate.fanout.failed',
+          subscriptionId: sub.id,
+          error: cause instanceof Error ? cause.message : String(cause),
+        })}\n`,
+      );
+    }
   }
 }

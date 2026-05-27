@@ -737,6 +737,13 @@ function SubscriptionPlansSection({
   const [price, setPrice] = useState('');
   const [trial, setTrial] = useState(0);
   /**
+   * Methods this plan accepts. `card` = preapproval engine, `pix` = the
+   * PIX cycle worker generates a fresh charge per period, `both` = buyer
+   * picks at checkout. Default `card` so existing producers don't see
+   * behaviour change.
+   */
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'pix' | 'both'>('card');
+  /**
    * Univercart Connect — partner + role this plan provisions access to.
    * Both fields are nullable and travel together (validated server-side).
    * When the producer picks a partner, we fetch its role catalogue and
@@ -760,6 +767,7 @@ function SubscriptionPlansSection({
         billingPeriod: period,
         amountCents: cents,
         trialDays: trial,
+        paymentMethod,
         partnerAccountId,
         partnerRoleSlug,
       },
@@ -770,6 +778,7 @@ function SubscriptionPlansSection({
           setPrice('');
           setTrial(0);
           setPeriod('monthly');
+          setPaymentMethod('card');
           setPartnerAccountId(null);
           setPartnerRoleSlug(null);
         },
@@ -1033,6 +1042,36 @@ function SubscriptionPlansSection({
               </Field>
             </div>
 
+            {/* Métodos de pagamento aceitos. */}
+            <div className="flex flex-col gap-2">
+              <span className="font-medium text-[13px] text-[var(--color-fg-muted)]">
+                Métodos de pagamento aceitos
+              </span>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <PaymentMethodCard
+                  active={paymentMethod === 'card'}
+                  onClick={() => setPaymentMethod('card')}
+                  title="Cartão de crédito"
+                  subtitle="Cobrança recorrente automática"
+                  badge="Padrão"
+                />
+                <PaymentMethodCard
+                  active={paymentMethod === 'pix'}
+                  onClick={() => setPaymentMethod('pix')}
+                  title="PIX"
+                  subtitle="Nova cobrança gerada a cada ciclo"
+                  badge="0% tarifa"
+                />
+                <PaymentMethodCard
+                  active={paymentMethod === 'both'}
+                  onClick={() => setPaymentMethod('both')}
+                  title="Ambos"
+                  subtitle="Cliente escolhe no checkout"
+                  badge="Recomendado"
+                />
+              </div>
+            </div>
+
             {/* Univercart Connect: optional SaaS partner mapping. */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field
@@ -1188,6 +1227,78 @@ function PlanPriceEditor({
         <title>Editar preço</title>
         <path strokeLinecap="round" strokeLinejoin="round" d="M11.5 2.5l2 2L5 13l-3 .5.5-3 9-8z" />
       </svg>
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* PaymentMethodCard — selectable tile used in the "Métodos aceitos" picker.   */
+/*                                                                            */
+/* Renders as a button so keyboard activation (Enter/Space) toggles selection */
+/* without extra handlers; the surrounding <form> isn't submitted because     */
+/* `type="button"` is explicit. Active state uses the brand ring pattern used */
+/* across the dashboard so the picker matches the rest of the surface.        */
+/* -------------------------------------------------------------------------- */
+function PaymentMethodCard({
+  active,
+  onClick,
+  title,
+  subtitle,
+  badge,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle: string;
+  badge: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? 'relative flex cursor-pointer flex-col gap-1.5 rounded-xl border-2 border-[var(--color-brand-500)] bg-[var(--color-surface)] p-4 text-left ring-4 ring-[var(--color-brand-500)]/10 transition'
+          : 'relative flex cursor-pointer flex-col gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left transition hover:border-[var(--color-brand-500)]/60 hover:bg-[var(--color-surface-muted)]/30'
+      }
+    >
+      <div className="flex items-center gap-2">
+        {active ? (
+          <span
+            aria-hidden
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-500)] text-white shadow-sm"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              className="size-3"
+            >
+              <title>Selecionado</title>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 8.5L7 11.5 12 5.5" />
+            </svg>
+          </span>
+        ) : (
+          <span
+            aria-hidden
+            className="inline-flex size-5 shrink-0 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-muted)]"
+          />
+        )}
+        <span className="flex-1 font-semibold text-[14px] text-[var(--color-fg)]">{title}</span>
+        <span
+          className={
+            active
+              ? 'rounded-full bg-[var(--color-brand-500)] px-2 py-0.5 font-semibold text-[10px] text-white uppercase tracking-wider'
+              : 'rounded-full bg-[var(--color-surface-muted)] px-2 py-0.5 font-semibold text-[10px] text-[var(--color-fg-subtle)] uppercase tracking-wider'
+          }
+        >
+          {badge}
+        </span>
+      </div>
+      <span className="pl-7 text-[12px] text-[var(--color-fg-muted)] leading-[1.4]">
+        {subtitle}
+      </span>
     </button>
   );
 }

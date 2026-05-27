@@ -868,11 +868,29 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
   );
 
   const subscribe = trpc.subscriptions.subscribe.useMutation();
+  const subscribePix = trpc.subscriptions.subscribePix.useMutation();
 
   const selectedPlan = useMemo(
     () => product.plans.find((p) => p.id === selectedPlanId) ?? null,
     [selectedPlanId, product.plans],
   );
+
+  /**
+   * Active payment method for the selected plan. When the plan only
+   * supports one method we lock to it; when it supports both, the buyer
+   * picks via the Cartão | PIX tabs.
+   */
+  const planPaymentMethod = selectedPlan?.paymentMethod ?? 'card';
+  const [subMethod, setSubMethod] = useState<'card' | 'pix'>(
+    planPaymentMethod === 'pix' ? 'pix' : 'card',
+  );
+  // Sync sub-method when the buyer flips between plans with different
+  // payment-method capabilities — e.g. "Mensal (cartão)" vs "Anual (both)".
+  useEffect(() => {
+    if (planPaymentMethod === 'pix') setSubMethod('pix');
+    else if (planPaymentMethod === 'card') setSubMethod('card');
+    // 'both' keeps the buyer's previous pick.
+  }, [planPaymentMethod]);
 
   // For monthly plans, surface the implied annual equivalent next to
   // the price so buyers can mentally compare a R$ 49/mês plan to a
@@ -902,7 +920,10 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
     expiryDigits.length === 4 &&
     cardCvc.length >= 3 &&
     trimmedHolder.length >= 2;
-  const canSubmit = !!selectedPlan && identifyComplete && cardComplete && !subscribe.isPending;
+  const submitting = subscribe.isPending || subscribePix.isPending;
+  // PIX requires only identification (no card fields). Card requires both.
+  const methodComplete = subMethod === 'pix' ? true : cardComplete;
+  const canSubmit = !!selectedPlan && identifyComplete && methodComplete && !submitting;
 
   /**
    * Step machine for the express template when the plan is locked
@@ -923,6 +944,24 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedPlan) return;
+
+    // PIX path — short-circuits to a different mutation that bypasses
+    // the card-token flow and returns a QR + copy-paste payload.
+    if (subMethod === 'pix') {
+      subscribePix.mutate({
+        slug,
+        planId: selectedPlan.id,
+        buyer: {
+          name: name.trim(),
+          email: email.trim(),
+          document: doc,
+          phone,
+        },
+      });
+      return;
+    }
+
+    // Card path — existing recurring engine.
     // Browser-side card tokenization via MP SDK is the production path
     // — until that lands in this app we forward the raw card and let
     // the server-side tokenize hop in MP adapter compute the token.
@@ -949,6 +988,24 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
       cardHolderName: trimmedHolder,
     });
   };
+
+  if (subscribePix.data) {
+    return (
+      <CenteredCard wide>
+        <SubscriptionPixSuccess
+          subscriptionId={subscribePix.data.subscriptionId}
+          publicReference={subscribePix.data.publicReference}
+          pixQrCodeImage={subscribePix.data.pixQrCodeImage}
+          pixCopyPaste={subscribePix.data.pixCopyPaste}
+          pixExpiresAt={subscribePix.data.pixExpiresAt}
+          planName={selectedPlan?.name ?? '—'}
+          amountCents={selectedPlan?.amountCents ?? 0}
+          billingPeriod={selectedPlan?.billingPeriod ?? 'monthly'}
+          buyerEmail={email.trim()}
+        />
+      </CenteredCard>
+    );
+  }
 
   if (subscribe.data) {
     return (
@@ -1860,60 +1917,79 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
             </section>
 
             <section className="glass-card flex flex-col gap-5 p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="font-semibold text-[18px] text-[var(--ink-100)] tracking-tight">
-                  Cartão de crédito
-                </h2>
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
-                  <ShieldIcon size={11} /> Assinatura renovada automaticamente
-                </span>
-              </div>
-              <Field label="Nome impresso no cartão">
-                <input
-                  type="text"
-                  value={cardHolder}
-                  onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
-                  placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
-                  autoComplete="cc-name"
-                  maxLength={60}
-                />
-              </Field>
-              <Field label="Número do cartão">
-                <input
-                  type="text"
-                  value={cardNumber}
-                  onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
-                  placeholder="0000 0000 0000 0000"
-                  inputMode="numeric"
-                  autoComplete="cc-number"
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Validade (MM/AA)">
-                  <input
-                    type="text"
-                    value={cardExpiry}
-                    onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
-                    placeholder="12/30"
-                    inputMode="numeric"
-                    autoComplete="cc-exp"
-                  />
-                </Field>
-                <Field label="CVV">
-                  <input
-                    type="text"
-                    value={cardCvc}
-                    onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
-                    placeholder="000"
-                    inputMode="numeric"
-                    autoComplete="cc-csc"
-                  />
-                </Field>
-              </div>
+              {/* Tabs Cartão | PIX — only when the plan accepts both. When
+                  the plan is card-only or pix-only we lock the corresponding
+                  body without rendering the tabs. */}
+              <SubMethodTabs
+                planPaymentMethod={planPaymentMethod}
+                value={subMethod}
+                onChange={setSubMethod}
+              />
 
-              {subscribe.error ? (
+              {subMethod === 'card' ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-semibold text-[18px] text-[var(--ink-100)] tracking-tight">
+                      Cartão de crédito
+                    </h2>
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--ink-50)]">
+                      <ShieldIcon size={11} /> Assinatura renovada automaticamente
+                    </span>
+                  </div>
+                  <Field label="Nome impresso no cartão">
+                    <input
+                      type="text"
+                      value={cardHolder}
+                      onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                      placeholder={(name.trim() || 'COMO APARECE NO CARTÃO').toUpperCase()}
+                      autoComplete="cc-name"
+                      maxLength={60}
+                    />
+                  </Field>
+                  <Field label="Número do cartão">
+                    <input
+                      type="text"
+                      value={cardNumber}
+                      onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                      placeholder="0000 0000 0000 0000"
+                      inputMode="numeric"
+                      autoComplete="cc-number"
+                    />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Validade (MM/AA)">
+                      <input
+                        type="text"
+                        value={cardExpiry}
+                        onChange={(e) => setCardExpiry(maskCardExpiry(e.target.value))}
+                        placeholder="12/30"
+                        inputMode="numeric"
+                        autoComplete="cc-exp"
+                      />
+                    </Field>
+                    <Field label="CVV">
+                      <input
+                        type="text"
+                        value={cardCvc}
+                        onChange={(e) => setCardCvc(maskDigits(e.target.value, 4))}
+                        placeholder="000"
+                        inputMode="numeric"
+                        autoComplete="cc-csc"
+                      />
+                    </Field>
+                  </div>
+                </>
+              ) : (
+                <PixSubscriptionInfo
+                  amountCents={selectedPlan?.amountCents ?? 0}
+                  currency={selectedPlan?.currency ?? 'BRL'}
+                  billingPeriod={selectedPlan?.billingPeriod ?? 'monthly'}
+                />
+              )}
+
+              {subscribe.error || subscribePix.error ? (
                 <p className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-[13px] text-[var(--danger-text)] leading-[1.5]">
-                  {subscribe.error.message}
+                  {(subscribe.error ?? subscribePix.error)?.message}
                 </p>
               ) : null}
 
@@ -1922,14 +1998,20 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                 disabled={!canSubmit}
                 className="btn btn-primary inline-flex w-full items-center justify-center gap-3 py-4 text-[16px]"
               >
-                {subscribe.isPending
-                  ? 'Confirmando assinatura…'
+                {submitting
+                  ? subMethod === 'pix'
+                    ? 'Gerando PIX…'
+                    : 'Confirmando assinatura…'
                   : selectedPlan
-                    ? `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                    ? subMethod === 'pix'
+                      ? `Gerar PIX · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                      : `Assinar · ${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
                     : 'Escolha um plano acima'}
               </button>
               <p className="text-center text-[11px] text-[var(--ink-50)] leading-[1.5]">
-                Cobrança automática. Cancele quando quiser na sua conta ou pedindo pro produtor.
+                {subMethod === 'pix'
+                  ? 'Cada renovação gera um novo PIX. Avisamos por WhatsApp + email com 3 dias de antecedência.'
+                  : 'Cobrança automática. Cancele quando quiser na sua conta ou pedindo pro produtor.'}
               </p>
             </section>
           </div>
@@ -4843,4 +4925,295 @@ function deriveBrandPalette(hex: string): { light: string; mid: string; dark: st
     mid: normalized,
     dark: `#${toHex(darken(r))}${toHex(darken(g))}${toHex(darken(b))}`,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* SubMethodTabs — Cartão | PIX selector for subscription checkout.            */
+/*                                                                            */
+/* Renders the two-tab control when the plan accepts BOTH methods. When the   */
+/* plan locks to a single method we still render a quiet badge so the buyer   */
+/* knows what they're paying with — without a non-clickable tab strip.        */
+/* -------------------------------------------------------------------------- */
+function SubMethodTabs({
+  planPaymentMethod,
+  value,
+  onChange,
+}: {
+  planPaymentMethod: 'card' | 'pix' | 'both';
+  value: 'card' | 'pix';
+  onChange: (next: 'card' | 'pix') => void;
+}) {
+  if (planPaymentMethod !== 'both') {
+    return (
+      <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[var(--surface-2)] px-3 py-1.5 text-[11px] text-[var(--ink-50)]">
+        <span aria-hidden>{planPaymentMethod === 'pix' ? '⚡' : '💳'}</span>
+        <span className="font-semibold uppercase tracking-[0.14em]">
+          {planPaymentMethod === 'pix' ? 'Pagamento via PIX' : 'Pagamento no cartão'}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div
+      role="tablist"
+      aria-label="Método de pagamento"
+      className="inline-flex w-full rounded-2xl border border-[var(--hairline)] bg-[var(--surface-2)] p-1"
+    >
+      {(['card', 'pix'] as const).map((m) => {
+        const active = value === m;
+        return (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(m)}
+            className={
+              active
+                ? 'flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[var(--surface-1)] px-4 py-2.5 font-semibold text-[14px] text-[var(--ink-100)] shadow-[var(--sh-sm)] transition'
+                : 'flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-medium text-[14px] text-[var(--ink-70)] transition hover:text-[var(--ink-100)]'
+            }
+          >
+            <span aria-hidden>{m === 'pix' ? '⚡' : '💳'}</span>
+            {m === 'pix' ? 'PIX' : 'Cartão de crédito'}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* PixSubscriptionInfo — informational block shown when the buyer picked PIX. */
+/*                                                                            */
+/* Recurring PIX doesn't tokenize anything client-side — the buyer simply     */
+/* taps "Gerar PIX" and the server returns a QR + copy-paste in the success   */
+/* view. This block sets the right expectation BEFORE submit so they're not   */
+/* surprised by the QR screen.                                                */
+/* -------------------------------------------------------------------------- */
+function PixSubscriptionInfo({
+  amountCents,
+  currency,
+  billingPeriod,
+}: {
+  amountCents: number;
+  currency: 'BRL' | 'USD' | 'EUR';
+  billingPeriod: 'monthly' | 'yearly';
+}) {
+  const periodLabel = billingPeriod === 'yearly' ? 'ano' : 'mês';
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold text-[18px] text-[var(--ink-100)] tracking-tight">
+          Pagar com PIX
+        </h2>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--dop-soft)] px-2.5 py-1 text-[11px] text-[var(--dop-700)]">
+          0% tarifa
+        </span>
+      </div>
+      <ul className="flex flex-col gap-2.5 text-[13px] text-[var(--ink-70)] leading-[1.55]">
+        <li className="flex items-start gap-2">
+          <span aria-hidden className="mt-0.5 text-[var(--dop-600)]">
+            ⚡
+          </span>
+          <span>
+            QR Code gerado na próxima tela.{' '}
+            <span className="font-semibold text-[var(--ink-100)]">
+              {formatCents(amountCents, currency)}/{periodLabel}
+            </span>
+            .
+          </span>
+        </li>
+        <li className="flex items-start gap-2">
+          <span aria-hidden className="mt-0.5 text-[var(--dop-600)]">
+            ⏱
+          </span>
+          <span>Pagamento cai em segundos. Acesso liberado na hora.</span>
+        </li>
+        <li className="flex items-start gap-2">
+          <span aria-hidden className="mt-0.5 text-[var(--dop-600)]">
+            🔁
+          </span>
+          <span>
+            A cada {billingPeriod === 'yearly' ? 'ano' : 'mês'} geramos um novo PIX — você recebe
+            por WhatsApp + email com 3 dias de antecedência.
+          </span>
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* SubscriptionPixSuccess — post-submit QR display for PIX-recurring.         */
+/*                                                                            */
+/* Polls `subscriptions.status` so the moment the gateway webhook flips the   */
+/* row to `active` we collapse the QR and surface the success state. 3s       */
+/* cadence matches the one-time PIX flow.                                     */
+/* -------------------------------------------------------------------------- */
+function SubscriptionPixSuccess({
+  subscriptionId,
+  publicReference,
+  pixQrCodeImage,
+  pixCopyPaste,
+  pixExpiresAt,
+  planName,
+  amountCents,
+  billingPeriod,
+  buyerEmail,
+}: {
+  subscriptionId: string;
+  publicReference: string;
+  pixQrCodeImage: string | null;
+  pixCopyPaste: string | null;
+  pixExpiresAt: Date | string | null;
+  planName: string;
+  amountCents: number;
+  billingPeriod: 'monthly' | 'yearly';
+  buyerEmail: string;
+}) {
+  const live = trpc.subscriptions.status.useQuery(
+    { subscriptionId },
+    {
+      refetchInterval: (query) => {
+        const s = query.state.data?.status;
+        if (s === 'active' || s === 'cancelled' || s === 'expired') return false;
+        return 3_000;
+      },
+      refetchOnWindowFocus: true,
+    },
+  );
+  const status = live.data?.status ?? 'pending';
+  const isActive = status === 'active';
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    if (!pixCopyPaste) return;
+    try {
+      await navigator.clipboard.writeText(pixCopyPaste);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard API can fail in older browsers / insecure contexts;
+      // the textarea fallback would show in that case. Silent here.
+    }
+  };
+
+  const periodLabel = billingPeriod === 'yearly' ? 'ano' : 'mês';
+  const expiresLabel = (() => {
+    if (!pixExpiresAt) return null;
+    const d = new Date(pixExpiresAt);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  })();
+
+  if (isActive) {
+    return (
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div className="grid size-16 place-items-center rounded-full bg-[var(--dop-soft)] text-[var(--dop-600)]">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="size-8"
+          >
+            <title>Confirmado</title>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <p className="font-semibold text-[11px] text-[var(--dop-700)] uppercase tracking-[0.22em]">
+          Assinatura ativada
+        </p>
+        <h1 className="font-semibold text-[28px] text-[var(--ink-100)] leading-[1.15]">
+          Bem-vindo a bordo! 🎉
+        </h1>
+        <p className="max-w-md text-[14px] text-[var(--ink-70)] leading-[1.55]">
+          Confirmação enviada para <strong>{buyerEmail}</strong> e WhatsApp. Acesso liberado.
+        </p>
+        <div className="inline-flex items-baseline gap-2 rounded-full bg-[var(--surface-2)] px-4 py-2">
+          <span className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.14em]">
+            Referência
+          </span>
+          <span className="font-mono text-[14px] text-[var(--ink-100)]">{publicReference}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col items-center gap-2 text-center">
+        <span aria-hidden className="text-[32px]">
+          ⚡
+        </span>
+        <p className="font-semibold text-[11px] text-[var(--dop-700)] uppercase tracking-[0.22em]">
+          PIX gerado · aguardando pagamento
+        </p>
+        <h1 className="font-semibold text-[26px] text-[var(--ink-100)] leading-[1.15]">
+          Pague em segundos no seu banco
+        </h1>
+        <p className="max-w-md text-[13px] text-[var(--ink-70)] leading-[1.55]">
+          {planName} · {formatCents(amountCents, 'BRL')}/{periodLabel}
+        </p>
+      </header>
+
+      {pixQrCodeImage ? (
+        <div className="mx-auto flex w-full max-w-xs flex-col items-center gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-5 shadow-[var(--sh-sm)]">
+          <img
+            src={
+              pixQrCodeImage.startsWith('data:') || pixQrCodeImage.startsWith('http')
+                ? pixQrCodeImage
+                : `data:image/png;base64,${pixQrCodeImage}`
+            }
+            alt="QR Code PIX"
+            className="size-56 rounded-md"
+          />
+          <p className="text-center text-[11px] text-[var(--ink-50)] leading-[1.4]">
+            Abra o app do seu banco, escolha PIX → Ler QR Code e aponte para a imagem.
+          </p>
+        </div>
+      ) : null}
+
+      {pixCopyPaste ? (
+        <div className="flex flex-col gap-2">
+          <span className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.14em]">
+            Ou cole o código PIX
+          </span>
+          <div className="flex items-stretch gap-2">
+            <input
+              readOnly
+              value={pixCopyPaste}
+              className="flex-1 rounded-xl border border-[var(--hairline)] bg-[var(--surface-2)] px-3 py-2.5 font-mono text-[12px] text-[var(--ink-100)]"
+            />
+            <button
+              type="button"
+              onClick={copy}
+              className="btn btn-secondary inline-flex items-center gap-2 px-4 py-2.5 text-[13px]"
+            >
+              {copied ? '✓ Copiado' : 'Copiar'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex items-center justify-between rounded-xl border border-[var(--hairline)] bg-[var(--surface-2)] px-4 py-3 text-[12px] text-[var(--ink-70)]">
+        <div className="flex items-center gap-2">
+          <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--dop-500)]" />
+          <span>Aguardando o PIX cair…</span>
+        </div>
+        {expiresLabel ? (
+          <span className="font-mono text-[11px] text-[var(--ink-50)]">expira {expiresLabel}</span>
+        ) : null}
+      </div>
+
+      <p className="text-center text-[11px] text-[var(--ink-50)]">
+        Assim que o pagamento cair, liberamos o acesso por email e WhatsApp.
+      </p>
+    </div>
+  );
 }

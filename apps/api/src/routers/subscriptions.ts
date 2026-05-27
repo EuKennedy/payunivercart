@@ -37,6 +37,13 @@ import {
 
 const BillingPeriod = z.enum(['monthly', 'yearly']);
 const SubscriptionStatus = z.enum(['pending', 'active', 'paused', 'cancelled', 'expired']);
+/**
+ * Methods the producer accepts for this plan.
+ *   - `card` — credit card only (legacy default, MP preapproval engine)
+ *   - `pix`  — PIX-only recurring (cycle worker generates a new charge per period)
+ *   - `both` — buyer picks at checkout
+ */
+const PlanPaymentMethod = z.enum(['card', 'pix', 'both']);
 
 const PlanRow = z.object({
   id: z.string().uuid(),
@@ -48,6 +55,7 @@ const PlanRow = z.object({
   trialDays: z.number().int().nonnegative(),
   isActive: z.boolean(),
   isHighlighted: z.boolean(),
+  paymentMethod: PlanPaymentMethod,
   sortOrder: z.number().int(),
   /** Univercart Connect — partner SaaS this plan provisions. */
   partnerAccountId: z.string().uuid().nullable(),
@@ -95,6 +103,7 @@ export const subscriptionsRouter = router({
           trialDays: schema.subscriptionPlans.trialDays,
           isActive: schema.subscriptionPlans.isActive,
           isHighlighted: schema.subscriptionPlans.isHighlighted,
+          paymentMethod: schema.subscriptionPlans.paymentMethod,
           sortOrder: schema.subscriptionPlans.sortOrder,
           partnerAccountId: schema.subscriptionPlans.partnerAccountId,
           partnerRoleSlug: schema.subscriptionPlans.partnerRoleSlug,
@@ -115,6 +124,7 @@ export const subscriptionsRouter = router({
         amountCents: Number(r.amountCents),
         billingPeriod: r.billingPeriod === 'yearly' ? ('yearly' as const) : ('monthly' as const),
         currency: r.currency,
+        paymentMethod: narrowPlanPaymentMethod(r.paymentMethod),
       }));
     }),
 
@@ -127,6 +137,8 @@ export const subscriptionsRouter = router({
         amountCents: z.number().int().min(100).max(10_000_000),
         trialDays: z.number().int().min(0).max(365).default(0),
         isHighlighted: z.boolean().default(false),
+        /** Default 'card' keeps every existing producer flow intact. */
+        paymentMethod: PlanPaymentMethod.default('card'),
         sortOrder: z.number().int().min(0).max(999).default(0),
         /** Univercart Connect: partner this plan provisions to. */
         partnerAccountId: z.string().uuid().nullable().default(null),
@@ -169,6 +181,7 @@ export const subscriptionsRouter = router({
           currency: 'BRL',
           trialDays: input.trialDays,
           isHighlighted: input.isHighlighted,
+          paymentMethod: input.paymentMethod,
           sortOrder: input.sortOrder,
           partnerAccountId: input.partnerAccountId,
           partnerRoleSlug: input.partnerRoleSlug,
@@ -192,6 +205,7 @@ export const subscriptionsRouter = router({
         trialDays: z.number().int().min(0).max(365).optional(),
         isActive: z.boolean().optional(),
         isHighlighted: z.boolean().optional(),
+        paymentMethod: PlanPaymentMethod.optional(),
         sortOrder: z.number().int().min(0).max(999).optional(),
         partnerAccountId: z.string().uuid().nullable().optional(),
         partnerRoleSlug: z.string().trim().min(1).max(40).nullable().optional(),
@@ -205,6 +219,7 @@ export const subscriptionsRouter = router({
       if (input.trialDays !== undefined) patch.trialDays = input.trialDays;
       if (input.isActive !== undefined) patch.isActive = input.isActive;
       if (input.isHighlighted !== undefined) patch.isHighlighted = input.isHighlighted;
+      if (input.paymentMethod !== undefined) patch.paymentMethod = input.paymentMethod;
       if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
       if (input.partnerAccountId !== undefined) patch.partnerAccountId = input.partnerAccountId;
       if (input.partnerRoleSlug !== undefined) patch.partnerRoleSlug = input.partnerRoleSlug;
@@ -816,6 +831,307 @@ export const subscriptionsRouter = router({
       };
     }),
 
+  /**
+   * Buyer-facing PIX-recurring subscribe. Used when the producer set
+   * `plan.paymentMethod IN ('pix','both')` and the buyer picked PIX at
+   * checkout.
+   *
+   * Flow (single transaction-style sequence — explicit ordering, no
+   * nested tx because we want partial-failure observability per step):
+   *
+   *   1. Validate buyer + slug + plan.
+   *   2. Resolve workspace default gateway (only MP today).
+   *   3. Insert `subscriptions` row in `pending` status, currentCycleStatus
+   *      `pending_pix`, paymentMethod `pix`, no nextChargeAt yet.
+   *   4. Materialise the cycle-1 `orders` row in `pending` status (gives
+   *      the producer's Pedidos UI a record from minute zero).
+   *   5. Call `adapter.createPix` with orderId.
+   *   6. Insert `transactions` row with QR + expiresAt.
+   *   7. Link `subscriptions.pixCurrentChargeId = transactions.id`.
+   *   8. Return QR payload to the buyer.
+   *
+   * The buyer polls `subscriptions.status` (or the same `payment.status`
+   * endpoint the one-time PIX flow uses) until MP fires the `pix.paid`
+   * webhook, which then flips order→paid + sub→active +
+   * currentCycleStatus→paid + nextChargeAt → today + 1 period via the
+   * existing gateways webhook handler (orders.subscriptionId is already
+   * threaded through).
+   */
+  subscribePix: publicProcedure
+    .input(
+      z.object({
+        slug: z.string().min(3).max(80),
+        planId: z.string().uuid(),
+        buyer: z.object({
+          name: z.string().trim().min(2).max(120),
+          email: z.string().email().max(160),
+          document: z.string().trim().min(11).max(20),
+          phone: z.string().trim().min(8).max(20),
+        }),
+        affiliateRef: z.string().trim().min(1).max(80).optional(),
+        clientFingerprint: z.string().trim().max(128).optional(),
+      }),
+    )
+    .output(
+      z.object({
+        subscriptionId: z.string().uuid(),
+        publicReference: z.string(),
+        orderId: z.string().uuid(),
+        transactionId: z.string().uuid(),
+        pixQrCodeImage: z.string().nullable(),
+        pixCopyPaste: z.string().nullable(),
+        pixExpiresAt: z.date().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const docDigits = validateCpf(input.buyer.document) ?? validateCnpj(input.buyer.document);
+      if (!docDigits) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'CPF ou CNPJ inválido.' });
+      }
+      let phone: NormalizedPhone;
+      try {
+        phone = normalizePhone(input.buyer.phone);
+      } catch (cause) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Telefone inválido.', cause });
+      }
+      if (!phone.valid) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Telefone inválido.' });
+      }
+
+      const [row] = await ctx.services.db.db
+        .select({
+          productId: schema.products.id,
+          productName: schema.products.name,
+          productSlug: schema.products.slug,
+          productIsSubscription: schema.products.isSubscription,
+          productIsActive: schema.products.isActive,
+          productDeletedAt: schema.products.deletedAt,
+          productDescription: schema.products.description,
+          workspaceId: schema.workspaces.id,
+          planId: schema.subscriptionPlans.id,
+          planProductId: schema.subscriptionPlans.productId,
+          planName: schema.subscriptionPlans.name,
+          planBillingPeriod: schema.subscriptionPlans.billingPeriod,
+          planAmount: schema.subscriptionPlans.amountCents,
+          planCurrency: schema.subscriptionPlans.currency,
+          planIsActive: schema.subscriptionPlans.isActive,
+          planPaymentMethod: schema.subscriptionPlans.paymentMethod,
+        })
+        .from(schema.products)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.products.workspaceId))
+        .innerJoin(schema.subscriptionPlans, eq(schema.subscriptionPlans.id, input.planId))
+        .where(and(eq(schema.products.slug, input.slug), isNull(schema.products.deletedAt)))
+        .limit(1);
+      if (!row || !row.productIsActive || row.productDeletedAt) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto indisponível.' });
+      }
+      if (!row.productIsSubscription) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Este produto não está configurado como assinatura.',
+        });
+      }
+      if (row.planProductId !== row.productId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Plano não pertence ao produto.' });
+      }
+      if (!row.planIsActive) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Plano desativado pelo produtor.' });
+      }
+      if (row.planPaymentMethod !== 'pix' && row.planPaymentMethod !== 'both') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Este plano não aceita PIX. Use cartão.',
+        });
+      }
+
+      const [credRow] = await ctx.services.db.db
+        .select({
+          id: schema.gatewayCredentials.id,
+          gatewayId: schema.gatewayCredentials.gatewayId,
+          credentialsEncrypted: schema.gatewayCredentials.credentialsEncrypted,
+        })
+        .from(schema.gatewayCredentials)
+        .where(
+          and(
+            eq(schema.gatewayCredentials.workspaceId, row.workspaceId),
+            eq(schema.gatewayCredentials.isDefault, true),
+          ),
+        )
+        .limit(1);
+      if (!credRow) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Produtor ainda não conectou um gateway de pagamento.',
+        });
+      }
+      const adapter = getAdapter(credRow.gatewayId as GatewayId);
+      if (!adapter.createPix) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Gateway ${credRow.gatewayId} não suporta PIX.`,
+        });
+      }
+      const credentials = adapter.parseCredentials(
+        ctx.services.crypto.unsealJson<Record<string, unknown>>(credRow.credentialsEncrypted),
+      );
+
+      const publicReference = mintSubscriptionReference();
+      const subscriptionId = globalThis.crypto.randomUUID();
+      const now = new Date();
+      const pixExpiresInSeconds = 30 * 60; // 30 minutes, MP default
+
+      // 1. Insert subscription stub in pending state.
+      await ctx.services.db.db.insert(schema.subscriptions).values({
+        id: subscriptionId,
+        workspaceId: row.workspaceId,
+        productId: row.productId,
+        planId: row.planId,
+        publicReference,
+        customerName: input.buyer.name,
+        customerEmail: input.buyer.email.toLowerCase(),
+        customerDocument: docDigits,
+        customerPhoneRaw: phone.raw,
+        customerPhoneE164: phone.e164,
+        customerWahaChatId: phone.guessedWahaChatId,
+        gatewayId: credRow.gatewayId,
+        gatewaySubscriptionId: subscriptionId, // PIX recurring has no MP-side preapproval id
+        status: 'pending',
+        paymentMethod: 'pix',
+        currentCycleStatus: 'pending_pix',
+        nextChargeAt: null,
+        startedAt: null,
+        gatewayCredentialId: credRow.id,
+      });
+
+      // 2. Insert cycle-1 order in pending state.
+      const [orderRow] = await ctx.services.db.db
+        .insert(schema.orders)
+        .values({
+          workspaceId: row.workspaceId,
+          subscriptionId,
+          cycleNumber: 1,
+          publicReference,
+          status: 'pending_payment',
+          customerName: input.buyer.name,
+          customerEmail: input.buyer.email.toLowerCase(),
+          customerDocument: docDigits,
+          customerPhoneRaw: phone.raw,
+          customerPhoneE164: phone.e164,
+          customerWahaChatId: phone.guessedWahaChatId,
+          subtotalCents: BigInt(row.planAmount),
+          totalCents: BigInt(row.planAmount),
+          currency: row.planCurrency,
+          metadata: { cycle: 1, paymentMethod: 'pix' },
+        })
+        .returning({ id: schema.orders.id });
+      if (!orderRow) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Não conseguimos registrar a cobrança da assinatura.',
+        });
+      }
+      const orderId = orderRow.id;
+      await ctx.services.db.db.insert(schema.orderItems).values({
+        orderId,
+        productId: row.productId,
+        name: row.productName,
+        quantity: 1,
+        unitAmountCents: BigInt(row.planAmount),
+        totalCents: BigInt(row.planAmount),
+      });
+
+      // 3. Call MP createPix.
+      const webhookUrl = ctx.services.env.API_PUBLIC_URL
+        ? `${ctx.services.env.API_PUBLIC_URL.replace(/\/$/, '')}/webhooks/gateway/${credRow.gatewayId}`
+        : undefined;
+      let charge: import('@payunivercart/payments').PaymentResult;
+      try {
+        charge = await adapter.createPix(credentials as never, {
+          workspaceId: row.workspaceId,
+          orderId,
+          amount: { amount: Number(row.planAmount), currency: row.planCurrency },
+          customer: {
+            name: input.buyer.name,
+            email: input.buyer.email.toLowerCase(),
+            document: docDigits,
+            phoneE164: phone.e164,
+          },
+          description: `${row.productName} — ${row.planName}`,
+          expiresInSeconds: pixExpiresInSeconds,
+          idempotencyKey: `sub:${subscriptionId}:c1`,
+          metadata: {
+            public_reference: publicReference,
+            product_slug: row.productSlug,
+            subscription_id: subscriptionId,
+            cycle: 1,
+          },
+          webhookUrl,
+        });
+      } catch (cause) {
+        // Roll back the pending records so the producer's UI doesn't
+        // collect ghost subscriptions when the gateway is down. Best-
+        // effort; the gateways webhook + reconcile sweep will clean any
+        // surviving rows on the next tick anyway.
+        await ctx.services.db.db
+          .delete(schema.orderItems)
+          .where(eq(schema.orderItems.orderId, orderId));
+        await ctx.services.db.db.delete(schema.orders).where(eq(schema.orders.id, orderId));
+        await ctx.services.db.db
+          .delete(schema.subscriptions)
+          .where(eq(schema.subscriptions.id, subscriptionId));
+        throw new TRPCError({
+          code: 'BAD_GATEWAY',
+          message: `Falha ao gerar PIX no gateway: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        });
+      }
+
+      // 4. Insert transactions row tying the QR back to the order.
+      const expiresAt = charge.pixExpiresAt ?? new Date(now.getTime() + pixExpiresInSeconds * 1000);
+      const [txRow] = await ctx.services.db.db
+        .insert(schema.transactions)
+        .values({
+          workspaceId: row.workspaceId,
+          orderId,
+          gatewayId: credRow.gatewayId,
+          gatewayChargeId: charge.gatewayChargeId,
+          method: 'pix',
+          status: charge.status === 'paid' ? 'paid' : 'pending',
+          amountCents: BigInt(row.planAmount),
+          currency: row.planCurrency,
+          idempotencyKey: `sub:${subscriptionId}:c1:pix`,
+          pixQrCodeImage: charge.pixQrCodeImage ?? null,
+          pixCopyPaste: charge.pixCopyPaste ?? null,
+          expiresAt,
+          rawResponse: { gatewayChargeId: charge.gatewayChargeId, cycle: 1 },
+        })
+        .returning({ id: schema.transactions.id });
+      if (!txRow) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Não conseguimos registrar a transação PIX.',
+        });
+      }
+      const transactionId = txRow.id;
+
+      // 5. Link the active PIX charge back onto the subscription so the
+      //    reminder worker + the dashboard can surface the open invoice.
+      await ctx.services.db.db
+        .update(schema.subscriptions)
+        .set({ pixCurrentChargeId: transactionId, updatedAt: now })
+        .where(eq(schema.subscriptions.id, subscriptionId));
+
+      return {
+        subscriptionId,
+        publicReference,
+        orderId,
+        transactionId,
+        pixQrCodeImage: charge.pixQrCodeImage ?? null,
+        pixCopyPaste: charge.pixCopyPaste ?? null,
+        pixExpiresAt: expiresAt,
+      };
+    }),
+
   /* ===================== Buyer-facing: poll status ===================== */
 
   status: publicProcedure
@@ -878,5 +1194,16 @@ function narrowSubscriptionStatus(
       return 'expired';
     default:
       return 'pending';
+  }
+}
+
+function narrowPlanPaymentMethod(raw: string): 'card' | 'pix' | 'both' {
+  switch (raw) {
+    case 'pix':
+      return 'pix';
+    case 'both':
+      return 'both';
+    default:
+      return 'card';
   }
 }
