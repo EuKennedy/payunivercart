@@ -2,7 +2,7 @@ import type { EntitlementEventType } from '@payunivercart/connect';
 import { schema } from '@payunivercart/db';
 import { type WebhookEvent, getAdapter } from '@payunivercart/payments';
 import { type GatewayId, PayunivercartError } from '@payunivercart/shared';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { materializeCommission } from '../affiliates/tracker';
 import { ConnectDispatcher } from '../connect/dispatcher';
@@ -282,6 +282,12 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
           .update(schema.orders)
           .set({ status: 'refunded' })
           .where(eq(schema.orders.id, tx.orderId));
+        // Reverse any affiliate commission accrued from this order +
+        // revoke partner-side entitlement when the order had granted
+        // one. Fire-and-log so a downstream failure (Connect partner
+        // 500) doesn't block the webhook ack — gateway must NOT think
+        // refund processing failed.
+        await handleOrderRefundedSideEffects(services, tx.orderId);
       } else if (charge.status === 'failed' || charge.status === 'cancelled') {
         await services.db.db
           .update(schema.orders)
@@ -1589,4 +1595,90 @@ export async function nextSubscriptionCycle(
     .orderBy(desc(schema.orders.cycleNumber))
     .limit(1);
   return (row?.cycle ?? 0) + 1;
+}
+
+/**
+ * Refund side-effects: reverse any affiliate commission that accrued
+ * from this order AND revoke the partner-side entitlement when the
+ * order had granted one. Best-effort — failures are logged and
+ * swallowed so the gateway webhook ack still goes out (the order's
+ * `status='refunded'` is the source of truth either way).
+ *
+ * Commission reversal flips every `affiliate_commissions` row tied
+ * to the order to `status='reversed'` with a reason. Worker that
+ * runs payouts already filters out reversed rows.
+ *
+ * Entitlement revoke fires the Connect dispatcher with
+ * `entitlement.revoked` — the partner SaaS receives the webhook and
+ * yanks access on their side.
+ */
+async function handleOrderRefundedSideEffects(
+  services: AppServices,
+  orderId: string,
+): Promise<void> {
+  try {
+    const reversed = await services.db.db
+      .update(schema.affiliateCommissions)
+      .set({
+        status: 'reversed',
+        reversalReason: 'order_refunded',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(schema.affiliateCommissions.orderId, orderId),
+          // Reversal only makes sense from pending/available. Paid
+          // commissions can't be clawed back via flip — that's a
+          // payout-reversal flow (manual / separate worker).
+          inArray(schema.affiliateCommissions.status, ['pending', 'available']),
+        ),
+      )
+      .returning({ id: schema.affiliateCommissions.id });
+    if (reversed.length > 0) {
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'info',
+          event: 'refund.commissions.reversed',
+          orderId,
+          count: reversed.length,
+        })}\n`,
+      );
+    }
+  } catch (cause) {
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'refund.commissions.reverse.failed',
+        orderId,
+        error: cause instanceof Error ? cause.message : String(cause),
+      })}\n`,
+    );
+  }
+
+  // Find subscription tied to this order (if any) and dispatch
+  // entitlement.revoked via Connect. One-time orders without a sub
+  // skip this branch.
+  try {
+    const [orderRow] = await services.db.db
+      .select({ subscriptionId: schema.orders.subscriptionId })
+      .from(schema.orders)
+      .where(eq(schema.orders.id, orderId))
+      .limit(1);
+    if (orderRow?.subscriptionId) {
+      const dispatcher = new ConnectDispatcher(services);
+      await dispatcher.dispatch({
+        type: 'entitlement.revoked',
+        subscriptionId: orderRow.subscriptionId,
+      });
+    }
+  } catch (cause) {
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'refund.entitlement.revoke.failed',
+        orderId,
+        error: cause instanceof Error ? cause.message : String(cause),
+      })}\n`,
+    );
+  }
 }
