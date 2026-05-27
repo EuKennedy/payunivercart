@@ -7,6 +7,7 @@ import type { WorkersEnv } from './env';
 import { runAffiliateProgramBackfill } from './handlers/affiliate-program-backfill';
 import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
 import { runMarketplaceRollup } from './handlers/marketplace-rollup';
+import { runPixSubscriptionReminderSweep } from './handlers/pix-subscription-reminders';
 import { runRecoverySweep } from './handlers/recovery';
 import { runSubscriptionReconcileSweep } from './handlers/subscription-reconcile';
 import { runTrackingDispatchSweep } from './handlers/tracking-dispatch';
@@ -193,6 +194,27 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // Pilar 5 — PIX subscription lifecycle reminders. Hourly:
+  //   - T-3 reminders before next renewal
+  //   - Daily overdue pings during grace period
+  //   - Grace expiry → flip to cancelled + entitlement revoke
+  //
+  // notify hook intentionally left null for now — wiring it through
+  // dispatchEmailNotification / dispatchWhatsappNotification requires
+  // resolving the workspace's WAHA session per dispatch, which is the
+  // same path order/sub-activation already use. Next iteration ports
+  // that helper into the worker package; this commit ships the state
+  // machine + observability.
+  const pixSubscriptionReminders = new Worker(
+    QUEUE_NAMES.pixSubscriptionReminders,
+    async (job) => {
+      const result = await runPixSubscriptionReminderSweep({ db: dbWrapper.db });
+      logEvent('pix.subscription.reminders.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   for (const w of [
     webhookInbound,
     webhookOutbox,
@@ -205,6 +227,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     subscriptionReconcile,
     whatsappSessionHealth,
     affiliateProgramBackfill,
+    pixSubscriptionReminders,
   ]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
@@ -222,6 +245,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     subscriptionReconcile,
     whatsappSessionHealth,
     affiliateProgramBackfill,
+    pixSubscriptionReminders,
     webhookInbound,
     webhookOutbox,
     recovery,

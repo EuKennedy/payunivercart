@@ -44,6 +44,10 @@ export const QUEUE_NAMES = {
    *  auto-provisioner missed (legacy listings, admin bulk inserts,
    *  migration-time races). */
   affiliateProgramBackfill: 'affiliate.program.backfill',
+  /** Pilar 5 — PIX subscription lifecycle sweeper. Hourly tick fires
+   *  T-3 reminders, overdue pings during grace, and grace expiry
+   *  cancellations. */
+  pixSubscriptionReminders: 'pix.subscription.reminders',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -61,6 +65,7 @@ export interface QueueBundle {
   subscriptionReconcile: Queue;
   whatsappSessionHealth: Queue;
   affiliateProgramBackfill: Queue;
+  pixSubscriptionReminders: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -95,5 +100,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     subscriptionReconcile: new Queue(QUEUE_NAMES.subscriptionReconcile, opts),
     whatsappSessionHealth: new Queue(QUEUE_NAMES.whatsappSessionHealth, opts),
     affiliateProgramBackfill: new Queue(QUEUE_NAMES.affiliateProgramBackfill, opts),
+    pixSubscriptionReminders: new Queue(QUEUE_NAMES.pixSubscriptionReminders, opts),
   };
 }

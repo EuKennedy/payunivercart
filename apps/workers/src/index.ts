@@ -163,6 +163,17 @@ async function main() {
     { jobId: `boot:${Date.now()}` },
   );
 
+  // PIX subscription lifecycle — hourly tick. Fires T-3 reminders,
+  // overdue pings during grace, grace-expiry cancellations.
+  await queues.pixSubscriptionReminders.upsertJobScheduler(
+    'reminders',
+    { every: 60 * 60 * 1000 },
+    {
+      name: 'pix.subscription.reminders.sweep',
+      data: {},
+    },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,
