@@ -44,9 +44,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      # `--reporter=verbose` makes log spelunking easier when a flake
-      # surfaces; the cost on a green run is a few extra log lines.
-      - run: pnpm test -- --reporter=verbose
+      # Turbo doesn't forward extra args to each package's vitest, so we
+      # rely on each package's vitest.config.ts reporter setting (the
+      # default + GHA actions/upload-artifact below already give us
+      # enough log + the coverage tarball for flake triage).
+      - run: pnpm test
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -257,7 +259,10 @@ jobs:
       # Dockerfile installs (postgresql-client, etc) by walking the
       # repo lockfiles + manifests. Cheap when the cache is warm.
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        # Pin to the major tag — patch versions ship weekly + the
+        # specific `0.28.0` tag we tried first didn't exist. The major
+        # tag is the maintained moving pointer for the v0 series.
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: .
