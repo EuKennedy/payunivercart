@@ -904,6 +904,22 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
     trimmedHolder.length >= 2;
   const canSubmit = !!selectedPlan && identifyComplete && cardComplete && !subscribe.isPending;
 
+  /**
+   * Step machine for the express template when the plan is locked
+   * (single plan OR deep-link `?plan=`). With no plan picker, col 1
+   * becomes Identificação; the buyer fills it then taps "Continuar"
+   * to unlock col 2 (Cartão). Until that, col 2 renders `pending` /
+   * dimmed so focus stays on col 1.
+   *
+   * When the plan picker IS visible (multi-plan, no deep link), this
+   * state is ignored — both cols are simultaneously available, as
+   * before.
+   */
+  const [expressStep, setExpressStep] = useState<'identify' | 'pay'>('identify');
+  // If the buyer edits identity later we keep them in 'pay' state
+  // when fields stay complete (deliberate jump-back via "Alterar"
+  // collapses to 'identify' explicitly).
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedPlan) return;
@@ -990,49 +1006,94 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr_0.9fr]">
             {/* ===== Col 1 — Plano (picker) OR Identificação (locked) ===== */}
             {singlePlanLocked ? (
-              <ExpressCard stepNum={1} label="Identificação" state="active">
-                <div className="flex flex-col gap-4">
-                  <Field label="Nome completo">
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Como aparece no documento"
-                      autoComplete="name"
-                    />
-                  </Field>
-                  <Field label="Email">
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="voce@empresa.com"
-                      autoComplete="email"
-                      inputMode="email"
-                    />
-                  </Field>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field label="CPF / CNPJ">
+              <ExpressCard
+                stepNum={1}
+                label="Identificação"
+                state={expressStep === 'identify' ? 'active' : 'done'}
+                onEdit={expressStep === 'pay' ? () => setExpressStep('identify') : undefined}
+              >
+                {expressStep === 'identify' ? (
+                  <div className="flex flex-col gap-4">
+                    <Field label="Nome completo">
                       <input
                         type="text"
-                        value={doc}
-                        onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
-                        placeholder="000.000.000-00"
-                        inputMode="numeric"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="Como aparece no documento"
+                        autoComplete="name"
                       />
                     </Field>
-                    <Field label="Telefone">
+                    <Field label="Email">
                       <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(maskBrPhone(e.target.value))}
-                        placeholder="(11) 91234-5678"
-                        inputMode="tel"
-                        autoComplete="tel"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="voce@empresa.com"
+                        autoComplete="email"
+                        inputMode="email"
                       />
                     </Field>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="CPF / CNPJ">
+                        <input
+                          type="text"
+                          value={doc}
+                          onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
+                          placeholder="000.000.000-00"
+                          inputMode="numeric"
+                        />
+                      </Field>
+                      <Field label="Telefone">
+                        <input
+                          type="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(maskBrPhone(e.target.value))}
+                          placeholder="(11) 91234-5678"
+                          inputMode="tel"
+                          autoComplete="tel"
+                        />
+                      </Field>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => identifyComplete && setExpressStep('pay')}
+                      disabled={!identifyComplete}
+                      className="btn btn-primary mt-2 inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
+                    >
+                      Continuar →
+                    </button>
                   </div>
-                </div>
+                ) : (
+                  // Readonly summary once identity is captured. Producer
+                  // gets a clean visual of what they typed and an
+                  // "Alterar" button on the header to jump back.
+                  <dl className="flex flex-col gap-3 text-[13px]">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <dt className="font-medium text-[var(--ink-70)]">Nome</dt>
+                      <dd className="truncate text-right font-semibold text-[var(--ink-100)]">
+                        {name.trim()}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <dt className="font-medium text-[var(--ink-70)]">Email</dt>
+                      <dd className="truncate text-right font-semibold text-[var(--ink-100)]">
+                        {email.trim()}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <dt className="font-medium text-[var(--ink-70)]">CPF / CNPJ</dt>
+                      <dd className="text-right font-semibold text-[var(--ink-100)] tabular-nums">
+                        {doc}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <dt className="font-medium text-[var(--ink-70)]">Telefone</dt>
+                      <dd className="text-right font-semibold text-[var(--ink-100)] tabular-nums">
+                        {phone}
+                      </dd>
+                    </div>
+                  </dl>
+                )}
               </ExpressCard>
             ) : (
               <ExpressCard stepNum={1} label="Plano" state={planState}>
@@ -1064,9 +1125,15 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
             <ExpressCard
               stepNum={2}
               label={singlePlanLocked ? 'Cartão de crédito' : 'Pagamento'}
-              state={singlePlanLocked ? 'active' : payState}
+              state={singlePlanLocked ? (expressStep === 'pay' ? 'active' : 'pending') : payState}
             >
-              {!planChosen ? (
+              {/* Locked + still on identify step → show a hint instead
+                  of the card form so the buyer's eye stays on col 1. */}
+              {singlePlanLocked && expressStep === 'identify' ? (
+                <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
+                  Preencha seus dados ao lado para liberar o pagamento.
+                </p>
+              ) : !planChosen ? (
                 <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
                   Escolha um plano ao lado para continuar.
                 </p>
