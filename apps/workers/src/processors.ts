@@ -4,6 +4,7 @@ import { WahaClient } from '@payunivercart/waha';
 import { Worker, type WorkerOptions } from 'bullmq';
 import type IORedis from 'ioredis';
 import type { WorkersEnv } from './env';
+import { runAffiliateFraudAutoSuspendSweep } from './handlers/affiliate-fraud-auto-suspend';
 import { runAffiliateProgramBackfill } from './handlers/affiliate-program-backfill';
 import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
 import { runMarketplaceRollup } from './handlers/marketplace-rollup';
@@ -215,6 +216,21 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // Pilar 1 — affiliate fraud auto-suspend. Hourly enforcement of the
+  // fraud-signal ledger: critical signals OR ≥3 warns in 7d flip
+  // affiliate memberships to suspended in the affected workspace.
+  // Producer sees the action in the Afiliados dashboard and can
+  // reactivate manually after review.
+  const affiliateFraudAutoSuspend = new Worker(
+    QUEUE_NAMES.affiliateFraudAutoSuspend,
+    async (job) => {
+      const result = await runAffiliateFraudAutoSuspendSweep({ db: dbWrapper.db });
+      logEvent('affiliate.fraud.auto_suspend.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   for (const w of [
     webhookInbound,
     webhookOutbox,
@@ -228,6 +244,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     whatsappSessionHealth,
     affiliateProgramBackfill,
     pixSubscriptionReminders,
+    affiliateFraudAutoSuspend,
   ]) {
     w.on('failed', (job, err) => {
       logEvent('worker.failed', {
@@ -246,6 +263,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     whatsappSessionHealth,
     affiliateProgramBackfill,
     pixSubscriptionReminders,
+    affiliateFraudAutoSuspend,
     webhookInbound,
     webhookOutbox,
     recovery,

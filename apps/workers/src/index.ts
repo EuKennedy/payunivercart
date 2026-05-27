@@ -174,6 +174,17 @@ async function main() {
     },
   );
 
+  // Affiliate fraud auto-suspend — hourly enforcement of the
+  // affiliate_fraud_signals ledger.
+  await queues.affiliateFraudAutoSuspend.upsertJobScheduler(
+    'auto-suspend',
+    { every: 60 * 60 * 1000 },
+    {
+      name: 'affiliate.fraud.auto_suspend.sweep',
+      data: {},
+    },
+  );
+
   const shutdown = async (signal: string) => {
     process.stdout.write(
       `${JSON.stringify({ level: 'info', event: 'workers.shutdown', signal })}\n`,

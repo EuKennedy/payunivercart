@@ -48,6 +48,10 @@ export const QUEUE_NAMES = {
    *  T-3 reminders, overdue pings during grace, and grace expiry
    *  cancellations. */
   pixSubscriptionReminders: 'pix.subscription.reminders',
+  /** Pilar 1 — affiliate fraud auto-suspend. Hourly sweep that
+   *  enforces the fraud-signal ledger by suspending affiliates with
+   *  critical signals or repeated warns. */
+  affiliateFraudAutoSuspend: 'affiliate.fraud.auto_suspend',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -66,6 +70,7 @@ export interface QueueBundle {
   whatsappSessionHealth: Queue;
   affiliateProgramBackfill: Queue;
   pixSubscriptionReminders: Queue;
+  affiliateFraudAutoSuspend: Queue;
 }
 
 export function createQueues(env: WorkersEnv): QueueBundle {
@@ -101,5 +106,6 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     whatsappSessionHealth: new Queue(QUEUE_NAMES.whatsappSessionHealth, opts),
     affiliateProgramBackfill: new Queue(QUEUE_NAMES.affiliateProgramBackfill, opts),
     pixSubscriptionReminders: new Queue(QUEUE_NAMES.pixSubscriptionReminders, opts),
+    affiliateFraudAutoSuspend: new Queue(QUEUE_NAMES.affiliateFraudAutoSuspend, opts),
   };
 }
