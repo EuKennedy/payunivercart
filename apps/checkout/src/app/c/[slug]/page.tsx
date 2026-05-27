@@ -961,20 +961,39 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
       return;
     }
 
-    // Card path — existing recurring engine.
-    // Browser-side card tokenization via MP SDK is the production path
-    // — until that lands in this app we forward the raw card and let
-    // the server-side tokenize hop in MP adapter compute the token.
-    // The server route accepts `cardToken` only; we fake one here by
-    // POSTing to `/v1/card_tokens` from the client. For first cut we
-    // post raw fields and the api error-surfaces if MP refuses.
+    // Card path — production preference is browser-side tokenization
+    // via MP.js v2 (the raw PAN never touches our server, PCI scope
+    // drops to SAQ-A). When the workspace doesn't have a Mercado Pago
+    // publishable key available (other gateways, legacy producers) we
+    // fall back to the RAW:<pan>:<mm>:<yy>:<cvv> envelope and the
+    // server-side tokenizer in the MP adapter handles it.
     const [mm, yyRaw] = cardExpiry.split('/');
     if (!mm || !yyRaw) return;
     const yy = yyRaw.length === 2 ? `20${yyRaw}` : yyRaw;
-    // Use MP public-key endpoint via the producer's publishable key if
-    // wired; placeholder: we forward to api which will refuse without
-    // a token. TODO: integrate MercadoPago.js v2 here.
-    const cardTokenPlaceholder = `RAW:${cardDigits}:${mm}:${yy}:${cardCvc}`;
+    let cardToken: string;
+    const mpPublicKey = data.gateway?.mpPublicKey ?? null;
+    if (mpPublicKey) {
+      try {
+        const { tokenizeCard } = await import('../../../lib/mp-tokenize');
+        cardToken = await tokenizeCard({
+          publishableKey: mpPublicKey,
+          cardNumber: cardDigits,
+          cardHolderName: trimmedHolder,
+          expirationMonth: mm,
+          expirationYear: yy,
+          securityCode: cardCvc,
+          documentNumber: doc,
+        });
+      } catch (cause) {
+        // Fall through to RAW; the server-side tokenizer still works
+        // and we surface a structured error to Sentry via the toast.
+        // eslint-disable-next-line no-console
+        console.warn('mp-tokenize.failed; falling back to RAW', cause);
+        cardToken = `RAW:${cardDigits}:${mm}:${yy}:${cardCvc}`;
+      }
+    } else {
+      cardToken = `RAW:${cardDigits}:${mm}:${yy}:${cardCvc}`;
+    }
     subscribe.mutate({
       slug,
       planId: selectedPlan.id,
@@ -984,7 +1003,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
         document: doc,
         phone,
       },
-      cardToken: cardTokenPlaceholder,
+      cardToken,
       cardHolderName: trimmedHolder,
     });
   };

@@ -222,6 +222,16 @@ export const checkoutRouter = router({
             publicPixelId: z.string(),
           }),
         ),
+        /**
+         * Public gateway hints used by the checkout to mount the right
+         * client-side SDK. Today only Mercado Pago's publishable key is
+         * surfaced — the browser uses it to tokenize cards via MP.js v2
+         * so the raw PAN never touches our server (PCI scope: SAQ-A).
+         */
+        gateway: z.object({
+          id: z.enum(['mercadopago', 'pagarme', 'pagseguro', 'stripe']).nullable(),
+          mpPublicKey: z.string().nullable(),
+        }),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -375,6 +385,7 @@ export const checkoutRouter = router({
           provider: p.provider as 'meta' | 'ga4' | 'tiktok' | 'google_ads' | 'pinterest' | 'kwai',
           publicPixelId: p.publicPixelId,
         })),
+        gateway: await resolveGatewayPublic(ctx, row.workspaceId),
       };
     }),
 
@@ -1179,4 +1190,66 @@ async function failTransactionAndOrder(
     .update(schema.orders)
     .set({ status: 'cancelled', cancelledAt: new Date() })
     .where(eq(schema.orders.id, orderId));
+}
+
+/**
+ * Surface the workspace's default gateway + a SAFE piece of its
+ * credentials (only the MP publishable key — PUBLIC by design, used by
+ * the browser SDK to tokenize cards). Anything else stays sealed.
+ *
+ * Returns `{ id: null, mpPublicKey: null }` when the workspace has no
+ * default gateway yet (producer hasn't connected) so the checkout
+ * gracefully falls back to the legacy server-side tokenization path.
+ *
+ * Wrapped in try/catch so a malformed credentials blob NEVER takes the
+ * checkout down — worst case the browser falls back to RAW POST and
+ * the server-side tokenizer still works.
+ */
+async function resolveGatewayPublic(
+  ctx: {
+    services: {
+      db: {
+        // biome-ignore lint/suspicious/noExplicitAny: drizzle DatabaseClient generic awkward to thread; only `.select().from().where().limit()` chain is used here.
+        db: any;
+      };
+      crypto: { unsealJson: <T>(blob: Uint8Array) => T };
+    };
+  },
+  workspaceId: string,
+): Promise<{
+  id: 'mercadopago' | 'pagarme' | 'pagseguro' | 'stripe' | null;
+  mpPublicKey: string | null;
+}> {
+  try {
+    const [row] = await ctx.services.db.db
+      .select({
+        gatewayId: schema.gatewayCredentials.gatewayId,
+        credentialsEncrypted: schema.gatewayCredentials.credentialsEncrypted,
+      })
+      .from(schema.gatewayCredentials)
+      .where(
+        and(
+          eq(schema.gatewayCredentials.workspaceId, workspaceId),
+          eq(schema.gatewayCredentials.isDefault, true),
+        ),
+      )
+      .limit(1);
+    if (!row) return { id: null, mpPublicKey: null };
+
+    if (row.gatewayId === 'mercadopago') {
+      const creds = ctx.services.crypto.unsealJson<{ publicKey?: string }>(
+        row.credentialsEncrypted,
+      );
+      return {
+        id: 'mercadopago',
+        mpPublicKey: typeof creds.publicKey === 'string' ? creds.publicKey : null,
+      };
+    }
+    return {
+      id: row.gatewayId as 'mercadopago' | 'pagarme' | 'pagseguro' | 'stripe',
+      mpPublicKey: null,
+    };
+  } catch {
+    return { id: null, mpPublicKey: null };
+  }
 }
