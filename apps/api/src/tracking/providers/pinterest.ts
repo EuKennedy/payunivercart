@@ -61,6 +61,10 @@ export const pinterestAdapter: TrackingAdapter<PinterestCredentials> = {
   },
 
   async test(credentials, pixel) {
+    // Pinterest CAPI v5 demands ≥1 user_data identifier (em/ph/external_id/
+    // click_id/ip/ua). Probe carries a deterministic external_id +
+    // forces testMode so test_event_code (when set) keeps the probe
+    // out of the producer's production attribution stream.
     const probe: TrackingEvent = {
       eventId: `payuniv-test-${Date.now()}`,
       eventType: 'page_view',
@@ -68,9 +72,9 @@ export const pinterestAdapter: TrackingAdapter<PinterestCredentials> = {
       currency: 'BRL',
       value: 0,
       sourceUrl: 'https://payunivercart.test/__validate',
-      user: {},
+      user: { document: '00000000000' },
     };
-    return dispatch(credentials, pixel, probe);
+    return dispatch(credentials, { ...pixel, testMode: true }, probe);
   },
 };
 

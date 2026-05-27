@@ -57,6 +57,10 @@ export const kwaiAdapter: TrackingAdapter<KwaiCredentials> = {
   },
 
   async test(credentials, pixel) {
+    // Kwai Pixel API mirrors TikTok's user-data contract — empty
+    // identifiers get rejected. Probe carries a deterministic
+    // external_id + forces testMode so test_event_code (when set)
+    // keeps the probe out of production attribution.
     const probe: TrackingEvent = {
       eventId: `payuniv-test-${Date.now()}`,
       eventType: 'page_view',
@@ -64,9 +68,9 @@ export const kwaiAdapter: TrackingAdapter<KwaiCredentials> = {
       currency: 'BRL',
       value: 0,
       sourceUrl: 'https://payunivercart.test/__validate',
-      user: {},
+      user: { document: '00000000000' },
     };
-    return dispatch(credentials, pixel, probe);
+    return dispatch(credentials, { ...pixel, testMode: true }, probe);
   },
 };
 

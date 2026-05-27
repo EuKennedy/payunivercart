@@ -61,6 +61,11 @@ export const tiktokAdapter: TrackingAdapter<TikTokCredentials> = {
   },
 
   async test(credentials, pixel) {
+    // TikTok Events API rejects events without a user identifier
+    // ("Invalid user info"). Probe carries a deterministic external_id
+    // (hashed via buildUserData) so the validation call meets the bar.
+    // testMode forced ON so the probe lands in the Test Events panel
+    // (when producer set a testEventCode) and never pollutes prod.
     const probe: TrackingEvent = {
       eventId: `payuniv-test-${Date.now()}`,
       eventType: 'page_view',
@@ -68,9 +73,9 @@ export const tiktokAdapter: TrackingAdapter<TikTokCredentials> = {
       currency: 'BRL',
       value: 0,
       sourceUrl: 'https://payunivercart.test/__validate',
-      user: {},
+      user: { document: '00000000000' },
     };
-    return dispatch(credentials, pixel, probe);
+    return dispatch(credentials, { ...pixel, testMode: true }, probe);
   },
 };
 

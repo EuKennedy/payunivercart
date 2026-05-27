@@ -62,6 +62,11 @@ export const ga4Adapter: TrackingAdapter<Ga4Credentials> = {
   },
 
   async test(credentials, pixel) {
+    // GA4 /debug/mp/collect tolerates events without user_data, but
+    // future SDK upgrades may tighten that. Probe carries a
+    // deterministic document so deriveClientId + buildUserData both
+    // resolve to stable hashed values. testMode forced ON so the
+    // debug_mode flag is set on the probe.
     const probe: TrackingEvent = {
       eventId: `payuniv-test-${Date.now()}`,
       eventType: 'page_view',
@@ -69,9 +74,9 @@ export const ga4Adapter: TrackingAdapter<Ga4Credentials> = {
       currency: 'BRL',
       value: 0,
       sourceUrl: 'https://payunivercart.test/__validate',
-      user: {},
+      user: { document: '00000000000' },
     };
-    return dispatch(credentials, pixel, probe, true);
+    return dispatch(credentials, { ...pixel, testMode: true }, probe, true);
   },
 };
 
