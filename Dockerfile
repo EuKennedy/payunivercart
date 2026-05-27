@@ -160,17 +160,27 @@ FROM src AS dashboard-builder
 ARG NEXT_PUBLIC_API_URL=https://api.univercart.com
 ARG NEXT_PUBLIC_CHECKOUT_URL=https://pay.univercart.com
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
-    NEXT_PUBLIC_CHECKOUT_URL=$NEXT_PUBLIC_CHECKOUT_URL
+    NEXT_PUBLIC_CHECKOUT_URL=$NEXT_PUBLIC_CHECKOUT_URL \
+    # Cap the Node heap so a single `next build` can't grow into
+    # whatever RAM the BuildKit container has left (the Coolify
+    # helper VPS hits ~2 GB ceiling per step). Without this the
+    # admin builder peaked at OOM and Buildx killed the process
+    # with the opaque "exit code 255" we kept seeing in deploys.
+    # 2 GB is comfortable for our largest Next route graph; bump if
+    # `JavaScript heap out of memory` returns.
+    NODE_OPTIONS="--max-old-space-size=2048"
 RUN NODE_ENV=production pnpm --filter @payunivercart/dashboard exec next build
 
 FROM dashboard-builder AS checkout-builder
 ARG NEXT_PUBLIC_API_URL=https://api.univercart.com
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NODE_OPTIONS="--max-old-space-size=2048"
 RUN NODE_ENV=production pnpm --filter @payunivercart/checkout exec next build
 
 FROM checkout-builder AS admin-builder
 ARG NEXT_PUBLIC_API_URL=https://api.univercart.com
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NODE_OPTIONS="--max-old-space-size=2048"
 RUN NODE_ENV=production pnpm --filter @payunivercart/admin exec next build
 
 # -----------------------------------------------------------------------------
