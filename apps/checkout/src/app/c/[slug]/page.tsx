@@ -961,89 +961,143 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
           onSubmit={onSubmit}
           className="container-x mx-auto w-full max-w-[1400px] py-6 sm:py-10"
         >
+          {/* Always 3 cols. When the plan is locked, col 1 swaps from
+              "Plano picker" to "Identificação" so the buyer's eyes go
+              straight to the data they need to fill in. Col 2 then
+              holds the card form alone instead of (id + card) stacked. */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr_0.9fr]">
-            {/* ===== Col 1 — Plano ===== */}
-            <ExpressCard stepNum={1} label="Plano" state={planState}>
-              {product.plans.length === 0 ? (
-                <p className="rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
-                  Nenhum plano ativo. Avise o produtor.
-                </p>
-              ) : singlePlanLocked && selectedPlan ? (
-                <LockedPlanSummary
-                  plan={selectedPlan}
-                  annualSavings={
-                    selectedPlan.billingPeriod === 'yearly' && annualSavingsPct > 0
-                      ? annualSavingsPct
-                      : 0
-                  }
-                />
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {product.plans.map((p) => (
-                    <PlanPickCard
-                      key={p.id}
-                      plan={p}
-                      selected={p.id === selectedPlanId}
-                      onPick={() => setSelectedPlanId(p.id)}
-                      annualSavings={
-                        p.billingPeriod === 'yearly' && annualSavingsPct > 0 ? annualSavingsPct : 0
-                      }
+            {/* ===== Col 1 — Plano (picker) OR Identificação (locked) ===== */}
+            {singlePlanLocked ? (
+              <ExpressCard stepNum={1} label="Identificação" state="active">
+                <div className="flex flex-col gap-4">
+                  <Field label="Nome completo">
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Como aparece no documento"
+                      autoComplete="name"
                     />
-                  ))}
+                  </Field>
+                  <Field label="Email">
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="voce@empresa.com"
+                      autoComplete="email"
+                      inputMode="email"
+                    />
+                  </Field>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Field label="CPF / CNPJ">
+                      <input
+                        type="text"
+                        value={doc}
+                        onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
+                        placeholder="000.000.000-00"
+                        inputMode="numeric"
+                      />
+                    </Field>
+                    <Field label="Telefone">
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(maskBrPhone(e.target.value))}
+                        placeholder="(11) 91234-5678"
+                        inputMode="tel"
+                        autoComplete="tel"
+                      />
+                    </Field>
+                  </div>
                 </div>
-              )}
-            </ExpressCard>
+              </ExpressCard>
+            ) : (
+              <ExpressCard stepNum={1} label="Plano" state={planState}>
+                {product.plans.length === 0 ? (
+                  <p className="rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
+                    Nenhum plano ativo. Avise o produtor.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {product.plans.map((p) => (
+                      <PlanPickCard
+                        key={p.id}
+                        plan={p}
+                        selected={p.id === selectedPlanId}
+                        onPick={() => setSelectedPlanId(p.id)}
+                        annualSavings={
+                          p.billingPeriod === 'yearly' && annualSavingsPct > 0
+                            ? annualSavingsPct
+                            : 0
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </ExpressCard>
+            )}
 
             {/* ===== Col 2 — Identificação + Cartão ===== */}
-            <ExpressCard stepNum={2} label="Pagamento" state={payState}>
+            <ExpressCard
+              stepNum={2}
+              label={singlePlanLocked ? 'Cartão de crédito' : 'Pagamento'}
+              state={singlePlanLocked ? 'active' : payState}
+            >
               {!planChosen ? (
                 <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
                   Escolha um plano ao lado para continuar.
                 </p>
               ) : (
                 <div className="flex flex-col gap-5">
-                  <div className="flex flex-col gap-4">
-                    <Field label="Nome completo">
-                      <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="Como aparece no documento"
-                        autoComplete="name"
-                      />
-                    </Field>
-                    <Field label="Email">
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="voce@empresa.com"
-                        autoComplete="email"
-                        inputMode="email"
-                      />
-                    </Field>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <Field label="CPF / CNPJ">
+                  {/* Identificação fields only render in col 2 when the
+                      plan picker is showing in col 1. When locked, col
+                      1 already owns the identification form — rendering
+                      it here too would duplicate every input. */}
+                  {!singlePlanLocked ? (
+                    <div className="flex flex-col gap-4">
+                      <Field label="Nome completo">
                         <input
                           type="text"
-                          value={doc}
-                          onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
-                          placeholder="000.000.000-00"
-                          inputMode="numeric"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          placeholder="Como aparece no documento"
+                          autoComplete="name"
                         />
                       </Field>
-                      <Field label="Telefone">
+                      <Field label="Email">
                         <input
-                          type="tel"
-                          value={phone}
-                          onChange={(e) => setPhone(maskBrPhone(e.target.value))}
-                          placeholder="(11) 91234-5678"
-                          inputMode="tel"
-                          autoComplete="tel"
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="voce@empresa.com"
+                          autoComplete="email"
+                          inputMode="email"
                         />
                       </Field>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Field label="CPF / CNPJ">
+                          <input
+                            type="text"
+                            value={doc}
+                            onChange={(e) => setDoc(maskCpfCnpj(e.target.value))}
+                            placeholder="000.000.000-00"
+                            inputMode="numeric"
+                          />
+                        </Field>
+                        <Field label="Telefone">
+                          <input
+                            type="tel"
+                            value={phone}
+                            onChange={(e) => setPhone(maskBrPhone(e.target.value))}
+                            placeholder="(11) 91234-5678"
+                            inputMode="tel"
+                            autoComplete="tel"
+                          />
+                        </Field>
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   <div className="flex flex-col gap-3 rounded-2xl bg-[var(--surface-1)] p-4">
                     <div className="flex items-center justify-between">
@@ -1152,9 +1206,13 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                     <p className="font-semibold text-[13px] text-[var(--ink-100)] leading-tight">
                       {product.name}
                     </p>
-                    <p className="mt-1 text-[12px] text-[var(--ink-50)]">
-                      {selectedPlan?.name ?? 'Selecione um plano'}
-                    </p>
+                    {selectedPlan ? (
+                      <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--dop-soft)] px-2 py-0.5 font-semibold text-[10px] text-[var(--dop-600)] uppercase tracking-[0.12em]">
+                        {selectedPlan.name}
+                      </span>
+                    ) : (
+                      <p className="mt-1 text-[12px] text-[var(--ink-50)]">Selecione um plano</p>
+                    )}
                   </div>
                 </div>
 
@@ -1257,81 +1315,75 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
         >
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
             <div className="flex flex-col gap-5">
-              <StitchStepCard
-                n={1}
-                label="Escolha seu plano"
-                state={planState}
-                onEdit={
-                  stepperStep !== 'plan' && !singlePlanLocked
-                    ? () => setStepperStep('plan')
-                    : undefined
-                }
-              >
-                {stepperStep === 'plan' ? (
-                  <div className="flex flex-col gap-5">
-                    {product.plans.length === 0 ? (
-                      <p className="rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
-                        Nenhum plano ativo. Avise o produtor.
-                      </p>
-                    ) : singlePlanLocked && selectedPlan ? (
-                      <LockedPlanSummary
-                        plan={selectedPlan}
-                        annualSavings={
-                          selectedPlan.billingPeriod === 'yearly' && annualSavingsPct > 0
-                            ? annualSavingsPct
-                            : 0
-                        }
-                      />
-                    ) : (
-                      <div
-                        className={clsx(
-                          'grid gap-4',
-                          product.plans.length === 1 && 'grid-cols-1',
-                          product.plans.length === 2 && 'grid-cols-1 sm:grid-cols-2',
-                          product.plans.length >= 3 && 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-                        )}
+              {/* Plano step is hidden completely when the buyer has no
+                  choice (single plan OR producer deep-linked). Right
+                  sidebar still shows the plan; rendering a redundant
+                  step would just slow the buyer down. */}
+              {!singlePlanLocked ? (
+                <StitchStepCard
+                  n={1}
+                  label="Escolha seu plano"
+                  state={planState}
+                  onEdit={stepperStep !== 'plan' ? () => setStepperStep('plan') : undefined}
+                >
+                  {stepperStep === 'plan' ? (
+                    <div className="flex flex-col gap-5">
+                      {product.plans.length === 0 ? (
+                        <p className="rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
+                          Nenhum plano ativo. Avise o produtor.
+                        </p>
+                      ) : (
+                        <div
+                          className={clsx(
+                            'grid gap-4',
+                            product.plans.length === 1 && 'grid-cols-1',
+                            product.plans.length === 2 && 'grid-cols-1 sm:grid-cols-2',
+                            product.plans.length >= 3 &&
+                              'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                          )}
+                        >
+                          {product.plans.map((p) => (
+                            <PlanPickCard
+                              key={p.id}
+                              plan={p}
+                              selected={p.id === selectedPlanId}
+                              onPick={() => setSelectedPlanId(p.id)}
+                              annualSavings={
+                                p.billingPeriod === 'yearly' && annualSavingsPct > 0
+                                  ? annualSavingsPct
+                                  : 0
+                              }
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => selectedPlan && setStepperStep('identify')}
+                        disabled={!selectedPlan}
+                        className="btn btn-primary mt-1 inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
                       >
-                        {product.plans.map((p) => (
-                          <PlanPickCard
-                            key={p.id}
-                            plan={p}
-                            selected={p.id === selectedPlanId}
-                            onPick={() => setSelectedPlanId(p.id)}
-                            annualSavings={
-                              p.billingPeriod === 'yearly' && annualSavingsPct > 0
-                                ? annualSavingsPct
-                                : 0
-                            }
-                          />
-                        ))}
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => selectedPlan && setStepperStep('identify')}
-                      disabled={!selectedPlan}
-                      className="btn btn-primary mt-1 inline-flex w-full items-center justify-center gap-2 py-3 text-[15px]"
-                    >
-                      Continuar →
-                    </button>
-                  </div>
-                ) : (
-                  <StitchSummaryGrid
-                    items={[
-                      { label: 'PLANO', value: selectedPlan?.name ?? '—' },
-                      {
-                        label: 'PREÇO',
-                        value: selectedPlan
-                          ? `${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
-                          : '—',
-                      },
-                    ]}
-                  />
-                )}
-              </StitchStepCard>
+                        Continuar →
+                      </button>
+                    </div>
+                  ) : (
+                    <StitchSummaryGrid
+                      items={[
+                        { label: 'PLANO', value: selectedPlan?.name ?? '—' },
+                        {
+                          label: 'PREÇO',
+                          value: selectedPlan
+                            ? `${formatCents(selectedPlan.amountCents, selectedPlan.currency)}/${selectedPlan.billingPeriod === 'yearly' ? 'ano' : 'mês'}`
+                            : '—',
+                        },
+                      ]}
+                    />
+                  )}
+                </StitchStepCard>
+              ) : null}
 
               <StitchStepCard
-                n={2}
+                n={singlePlanLocked ? 1 : 2}
                 label="Identificação"
                 state={identifyState}
                 onEdit={
@@ -1410,7 +1462,11 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                 )}
               </StitchStepCard>
 
-              <StitchStepCard n={3} label="Cartão de crédito" state={payState}>
+              <StitchStepCard
+                n={singlePlanLocked ? 2 : 3}
+                label="Cartão de crédito"
+                state={payState}
+              >
                 {stepperStep !== 'pay' ? (
                   <p className="text-[13px] text-[var(--ink-50)] leading-[1.55]">
                     Complete os passos acima para informar o cartão.
@@ -1521,9 +1577,13 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                     <p className="font-semibold text-[14px] text-[var(--ink-100)] leading-tight">
                       {product.name}
                     </p>
-                    <p className="mt-1 text-[12px] text-[var(--ink-50)]">
-                      {selectedPlan?.name ?? 'Selecione um plano'}
-                    </p>
+                    {selectedPlan ? (
+                      <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--dop-soft)] px-2 py-0.5 font-semibold text-[10px] text-[var(--dop-600)] uppercase tracking-[0.12em]">
+                        {selectedPlan.name}
+                      </span>
+                    ) : (
+                      <p className="mt-1 text-[12px] text-[var(--ink-50)]">Selecione um plano</p>
+                    )}
                   </div>
                 </div>
 
@@ -1616,57 +1676,53 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.4fr_1fr]">
           {/* ===== Plans + identification + card ===== */}
           <div className="flex flex-col gap-6">
-            <section className="glass-card p-6">
-              <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
-                Assinatura recorrente
-              </p>
-              <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)] tracking-tight">
-                {singlePlanLocked ? 'Seu plano.' : 'Escolha seu plano.'}
-              </h1>
-              {product.description ? (
-                <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
-                  {product.description}
+            {/* Plan section is hidden entirely when the buyer has no
+                real choice. Right sidebar already shows the locked
+                plan, so the section would be pure noise. */}
+            {!singlePlanLocked ? (
+              <section className="glass-card p-6">
+                <p className="font-semibold text-[11px] text-[var(--dop-600)] uppercase tracking-[0.18em]">
+                  Assinatura recorrente
                 </p>
-              ) : null}
+                <h1 className="mt-3 font-semibold text-[26px] text-[var(--ink-100)] tracking-tight">
+                  Escolha seu plano.
+                </h1>
+                {product.description ? (
+                  <p className="mt-3 text-[14px] text-[var(--ink-70)] leading-[1.55]">
+                    {product.description}
+                  </p>
+                ) : null}
 
-              {product.plans.length === 0 ? (
-                <p className="mt-5 rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
-                  Nenhum plano ativo. Avise o produtor.
-                </p>
-              ) : singlePlanLocked && selectedPlan ? (
-                <div className="mt-6">
-                  <LockedPlanSummary
-                    plan={selectedPlan}
-                    annualSavings={
-                      selectedPlan.billingPeriod === 'yearly' && annualSavingsPct > 0
-                        ? annualSavingsPct
-                        : 0
-                    }
-                  />
-                </div>
-              ) : (
-                <div
-                  className={clsx(
-                    'mt-6 grid gap-4',
-                    product.plans.length === 1 && 'grid-cols-1',
-                    product.plans.length === 2 && 'grid-cols-1 sm:grid-cols-2',
-                    product.plans.length >= 3 && 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-                  )}
-                >
-                  {product.plans.map((p) => (
-                    <PlanPickCard
-                      key={p.id}
-                      plan={p}
-                      selected={p.id === selectedPlanId}
-                      onPick={() => setSelectedPlanId(p.id)}
-                      annualSavings={
-                        p.billingPeriod === 'yearly' && annualSavingsPct > 0 ? annualSavingsPct : 0
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+                {product.plans.length === 0 ? (
+                  <p className="mt-5 rounded-xl border border-[var(--hairline)] border-dashed p-4 text-[13px] text-[var(--ink-50)]">
+                    Nenhum plano ativo. Avise o produtor.
+                  </p>
+                ) : (
+                  <div
+                    className={clsx(
+                      'mt-6 grid gap-4',
+                      product.plans.length === 1 && 'grid-cols-1',
+                      product.plans.length === 2 && 'grid-cols-1 sm:grid-cols-2',
+                      product.plans.length >= 3 && 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                    )}
+                  >
+                    {product.plans.map((p) => (
+                      <PlanPickCard
+                        key={p.id}
+                        plan={p}
+                        selected={p.id === selectedPlanId}
+                        onPick={() => setSelectedPlanId(p.id)}
+                        annualSavings={
+                          p.billingPeriod === 'yearly' && annualSavingsPct > 0
+                            ? annualSavingsPct
+                            : 0
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
 
             <section className="glass-card flex flex-col gap-5 p-6">
               <h2 className="font-semibold text-[18px] text-[var(--ink-100)] tracking-tight">
@@ -1818,9 +1874,13 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
                   <p className="font-semibold text-[14px] text-[var(--ink-100)] leading-tight">
                     {product.name}
                   </p>
-                  <p className="mt-1 text-[12px] text-[var(--ink-50)]">
-                    {selectedPlan?.name ?? 'Selecione um plano'}
-                  </p>
+                  {selectedPlan ? (
+                    <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--dop-soft)] px-2 py-0.5 font-semibold text-[10px] text-[var(--dop-600)] uppercase tracking-[0.12em]">
+                      {selectedPlan.name}
+                    </span>
+                  ) : (
+                    <p className="mt-1 text-[12px] text-[var(--ink-50)]">Selecione um plano</p>
+                  )}
                 </div>
               </div>
 
@@ -1900,80 +1960,9 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
  * floating badges, no translate-y — the card stays inside its grid
  * cell at every breakpoint.
  */
-/**
- * Read-only counterpart of `PlanPickCard`. Used when the buyer has no
- * real choice (single plan OR producer deep-linked a specific plan).
- * Renders the same visual frame as a selected pick card, minus the
- * toggle circle + button affordance, so the layout stays balanced
- * without confusing the buyer with a fake control.
- */
-function LockedPlanSummary({
-  plan,
-  annualSavings,
-}: {
-  plan: CheckoutData['product']['plans'][number];
-  annualSavings: number;
-}) {
-  const perWord = plan.billingPeriod === 'yearly' ? 'ano' : 'mês';
-  const monthlyEquivalent =
-    plan.billingPeriod === 'yearly' ? Math.round(plan.amountCents / 12) : null;
-  return (
-    <div
-      className={clsx(
-        'relative flex flex-col items-stretch overflow-hidden rounded-2xl border bg-[var(--dop-soft)] p-4 text-left sm:p-5',
-        'border-[var(--dop-500)] shadow-[0_8px_24px_-12px_var(--dop-glow)]',
-      )}
-    >
-      <header className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span
-            className={clsx(
-              'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 font-semibold text-[10px] uppercase tracking-[0.12em]',
-              plan.billingPeriod === 'yearly'
-                ? 'bg-[var(--dop-soft)] text-[var(--dop-600)]'
-                : 'bg-[var(--surface-2)] text-[var(--ink-70)]',
-            )}
-          >
-            {plan.billingPeriod === 'yearly' ? 'Anual' : 'Mensal'}
-          </span>
-          {plan.isHighlighted ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--dop-500)] px-2 py-0.5 font-semibold text-[10px] text-white uppercase tracking-[0.12em]">
-              ★ Top
-            </span>
-          ) : null}
-        </div>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--dop-500)] px-2 py-0.5 font-semibold text-[10px] text-white uppercase tracking-[0.12em]">
-          Selecionado
-        </span>
-      </header>
-
-      <p className="mt-4 truncate font-semibold text-[13px] text-[var(--ink-100)] capitalize leading-tight tracking-[-0.005em]">
-        {plan.name}
-      </p>
-      <div className="mt-2 flex items-baseline gap-1">
-        <span className="font-semibold text-[24px] text-[var(--ink-100)] tabular-nums leading-none tracking-[-0.01em]">
-          {formatCents(plan.amountCents, plan.currency)}
-        </span>
-        <span className="font-medium text-[12px] text-[var(--ink-70)]">/{perWord}</span>
-      </div>
-      {monthlyEquivalent != null ? (
-        <p className="mt-2 text-[11px] text-[var(--ink-50)]">
-          equivale a {formatCents(monthlyEquivalent, plan.currency)}/mês
-        </p>
-      ) : null}
-      {annualSavings > 0 ? (
-        <p className="mt-1 font-semibold text-[11px] text-[var(--dop-600)]">
-          economiza {annualSavings}% vs mensal
-        </p>
-      ) : null}
-      {plan.trialDays > 0 ? (
-        <p className="mt-2 text-[11px] text-[var(--ink-50)]">
-          {plan.trialDays} dias de trial grátis
-        </p>
-      ) : null}
-    </div>
-  );
-}
+// LockedPlanSummary removed — the locked-plan UX now lives in the
+// right sidebar badge below the product name. Express col 1 holds
+// the Identificação form instead of a redundant plan card.
 
 function PlanPickCard({
   plan,
