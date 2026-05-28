@@ -649,7 +649,7 @@ function PayoutsSection({
                     <span className="font-medium text-[var(--color-fg)]">{p.workspaceName}</span>
                   </Td>
                   <Td>
-                    <span className="font-semibold tabular-nums text-[var(--color-fg)]">
+                    <span className="font-semibold text-[var(--color-fg)] tabular-nums">
                       {formatCents(p.totalAmountCents, p.currency)}
                     </span>
                   </Td>

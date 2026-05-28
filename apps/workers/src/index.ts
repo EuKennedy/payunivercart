@@ -187,6 +187,19 @@ async function main() {
     },
   );
 
+  // Payout notify — hourly tick that moves payouts stuck approved
+  // > 30min into `processing` + dispatches a reminder to the
+  // producer. Full automated PIX transfer is gated on BACEN compliance
+  // work (Tier 4 backlog).
+  await queues.payoutNotify.upsertJobScheduler(
+    'notify',
+    { every: 60 * 60 * 1000 },
+    {
+      name: 'payout.notify.sweep',
+      data: {},
+    },
+  );
+
   // Affiliate fraud auto-suspend — hourly enforcement of the
   // affiliate_fraud_signals ledger.
   await queues.affiliateFraudAutoSuspend.upsertJobScheduler(

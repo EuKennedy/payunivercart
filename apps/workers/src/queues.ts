@@ -53,6 +53,11 @@ export const QUEUE_NAMES = {
    *  `nextChargeAt` window has opened and that doesn't already have a
    *  live charge attached. Companion to `pixSubscriptionReminders`. */
   pixSubscriptionCycle: 'pix.subscription.cycle',
+  /** Pilar 1 — payout notify sweeper. Hourly tick that nudges payouts
+   *  stuck in `approved` > 30min into `processing` + dispatches a
+   *  reminder to the producer to send the PIX. Full MP transfer-out
+   *  automation is gated on KYC compliance work — out of scope v1. */
+  payoutNotify: 'payout.notify',
   /** Pilar 1 — affiliate fraud auto-suspend. Hourly sweep that
    *  enforces the fraud-signal ledger by suspending affiliates with
    *  critical signals or repeated warns. */
@@ -76,6 +81,7 @@ export interface QueueBundle {
   affiliateProgramBackfill: Queue;
   pixSubscriptionReminders: Queue;
   pixSubscriptionCycle: Queue;
+  payoutNotify: Queue;
   affiliateFraudAutoSuspend: Queue;
 }
 
@@ -113,6 +119,7 @@ export function createQueues(env: WorkersEnv): QueueBundle {
     affiliateProgramBackfill: new Queue(QUEUE_NAMES.affiliateProgramBackfill, opts),
     pixSubscriptionReminders: new Queue(QUEUE_NAMES.pixSubscriptionReminders, opts),
     pixSubscriptionCycle: new Queue(QUEUE_NAMES.pixSubscriptionCycle, opts),
+    payoutNotify: new Queue(QUEUE_NAMES.payoutNotify, opts),
     affiliateFraudAutoSuspend: new Queue(QUEUE_NAMES.affiliateFraudAutoSuspend, opts),
   };
 }

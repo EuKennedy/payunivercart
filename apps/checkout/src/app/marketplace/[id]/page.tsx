@@ -33,6 +33,7 @@ export default function MarketplaceListingPage({
   const listing = trpc.marketplace.bySlug.useQuery({ listingId: id });
   const recordClick = trpc.marketplace.recordClick.useMutation();
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recordClick.mutate intentionally omitted from deps to avoid a re-fire loop on every render.
   useEffect(() => {
     if (listing.data) {
       recordClick.mutate({
@@ -40,7 +41,6 @@ export default function MarketplaceListingPage({
         referrer: typeof document !== 'undefined' ? document.referrer : undefined,
       });
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: recordClick.mutate intentionally omitted to avoid re-fire loop.
   }, [listing.data, id]);
 
   if (listing.isPending) {

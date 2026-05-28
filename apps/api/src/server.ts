@@ -339,6 +339,19 @@ async function boot() {
       );
       process.exit(1);
     }
+  } else if (env.NODE_ENV === 'production') {
+    // Loud warning when the operator opted out in production. This is
+    // almost always a mistake — the compose `migrate` one-shot has
+    // skipped between deploys at least once already, and the boot-
+    // migrate path is the safety net.
+    process.stderr.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'api.boot.migrations.disabled.in.production',
+        message:
+          'RUN_MIGRATIONS_ON_BOOT=false in production. Schema drift will not auto-heal — make sure a dedicated migration job ran for the latest deploy.',
+      })}\n`,
+    );
   }
   serve({ fetch: app.fetch, port: env.PORT });
 }

@@ -21,29 +21,40 @@
 -- =========================================================================
 
 -- 1. Create roles if they don't exist.
+--
+--    Passwords are injected by the compose `migrate` step via psql -v:
+--      psql -v app_pw=$ROLE_PASSWORD_APP -v worker_pw=$ROLE_PASSWORD_WORKER \
+--        -f packages/db/sql/04_roles.sql
+--
+--    Without the -v flags, psql substitutes the literal token (e.g.
+--    `:'app_pw'`) — the CREATE ROLE statement will then fail loudly
+--    instead of silently shipping a default password.
+--
+--    The owner role is provisioned OUT-OF-BAND by the DBA / Coolify
+--    Postgres bootstrap (POSTGRES_USER env on the Postgres service).
+--    This file fails loud when it's missing so the operator follows
+--    Phase 0 of the rollout instead of charging into Phase 1.
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'payunivercart_owner') THEN
-    CREATE ROLE payunivercart_owner LOGIN PASSWORD 'CHANGE_ME_owner';
-    COMMENT ON ROLE payunivercart_owner IS
-      'Owns the public schema. Runs migrations. Subject to RLS via FORCE.';
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'payunivercart_app') THEN
-    CREATE ROLE payunivercart_app LOGIN PASSWORD 'CHANGE_ME_app';
-    COMMENT ON ROLE payunivercart_app IS
-      'apps/api runtime. NO BYPASSRLS — must use withWorkspace(...) for '
-      'every tenant query.';
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'payunivercart_worker') THEN
-    CREATE ROLE payunivercart_worker LOGIN PASSWORD 'CHANGE_ME_worker' BYPASSRLS;
-    COMMENT ON ROLE payunivercart_worker IS
-      'apps/workers runtime. HAS BYPASSRLS because sweep jobs (recovery, '
-      'webhook outbox, tracking dispatch, marketplace rollup) are '
-      'intentionally cross-tenant. MUST NOT serve user requests.';
+    RAISE EXCEPTION 'payunivercart_owner role missing — create it manually before running 04_roles.sql';
   END IF;
 END$$;
+
+-- App role.
+SELECT 'CREATE ROLE payunivercart_app LOGIN PASSWORD ' || quote_literal(:'app_pw')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'payunivercart_app')
+\gexec
+COMMENT ON ROLE payunivercart_app IS
+  'apps/api runtime. NO BYPASSRLS — must use withWorkspace(...) for every tenant query.';
+
+-- Worker role.
+SELECT 'CREATE ROLE payunivercart_worker LOGIN PASSWORD ' || quote_literal(:'worker_pw') || ' BYPASSRLS'
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'payunivercart_worker')
+\gexec
+COMMENT ON ROLE payunivercart_worker IS
+  'apps/workers runtime. HAS BYPASSRLS because sweep jobs (recovery, webhook outbox, tracking dispatch, marketplace rollup, PIX subscription cycle) are intentionally cross-tenant. MUST NOT serve user requests.';
 
 -- 2. Grant schema access to non-owner roles.
 GRANT USAGE ON SCHEMA public TO payunivercart_app, payunivercart_worker;

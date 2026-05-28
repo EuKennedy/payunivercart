@@ -83,6 +83,67 @@ export interface CardTokenizeInput {
 }
 
 /**
+ * Build the `card` payload sent to `checkout.createOrder` /
+ * `subscriptions.subscribe` mutations:
+ *
+ *   - Prefers MP browser tokenization (PCI scope SAQ-A) when a
+ *     publishable key is present.
+ *   - Falls back to the legacy RAW number/expiry/cvc envelope when:
+ *       * the workspace's default gateway isn't MP (no publishable
+ *         key) — the server-side tokenizer handles those;
+ *       * the MP SDK fails to load or createCardToken rejects.
+ *
+ * Throws only on a malformed expiry input — anything else is recovered
+ * via the RAW fallback so the buyer's submit never blocks on a
+ * client-side hiccup.
+ */
+export interface PreparedCardPayload {
+  number?: string;
+  expiry?: string;
+  cvc?: string;
+  holderName: string;
+  token?: string;
+}
+
+export async function prepareCardPayload(input: {
+  mpPublicKey: string | null;
+  cardNumber: string;
+  cardExpiry: string;
+  cardCvc: string;
+  cardHolderName: string;
+  documentNumber: string;
+}): Promise<PreparedCardPayload> {
+  const fallback: PreparedCardPayload = {
+    number: input.cardNumber,
+    expiry: input.cardExpiry,
+    cvc: input.cardCvc,
+    holderName: input.cardHolderName,
+  };
+
+  if (!input.mpPublicKey) return fallback;
+
+  const [mm, yy] = input.cardExpiry.split('/');
+  if (!mm || !yy) return fallback;
+
+  try {
+    const token = await tokenizeCard({
+      publishableKey: input.mpPublicKey,
+      cardNumber: input.cardNumber,
+      cardHolderName: input.cardHolderName,
+      expirationMonth: mm,
+      expirationYear: yy,
+      securityCode: input.cardCvc,
+      documentNumber: input.documentNumber,
+    });
+    return { holderName: input.cardHolderName, token };
+  } catch (cause) {
+    // eslint-disable-next-line no-console
+    console.warn('mp-tokenize.failed; falling back to RAW envelope', cause);
+    return fallback;
+  }
+}
+
+/**
  * Returns a single-use card token id from MP. Throws on validation or
  * gateway error so the caller can surface a clean toast.
  */

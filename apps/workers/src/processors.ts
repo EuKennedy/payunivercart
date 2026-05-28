@@ -8,6 +8,7 @@ import { runAffiliateFraudAutoSuspendSweep } from './handlers/affiliate-fraud-au
 import { runAffiliateProgramBackfill } from './handlers/affiliate-program-backfill';
 import { runConnectDeliveriesSweep } from './handlers/connect-deliveries';
 import { runMarketplaceRollup } from './handlers/marketplace-rollup';
+import { runPayoutNotifySweep } from './handlers/payout-notify';
 import { runPixSubscriptionCycleSweep } from './handlers/pix-subscription-cycle';
 import { runPixSubscriptionReminderSweep } from './handlers/pix-subscription-reminders';
 import { runRecoverySweep } from './handlers/recovery';
@@ -235,6 +236,20 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     opts,
   );
 
+  // Pilar 1 — payout notify sweeper. Hourly tick that surfaces
+  // approved-but-untouched payouts so the producer is reminded to
+  // send the PIX. Full MP transfer-out automation is gated on KYC
+  // compliance work (BACEN); this is the stepping stone.
+  const payoutNotify = new Worker(
+    QUEUE_NAMES.payoutNotify,
+    async (job) => {
+      const result = await runPayoutNotifySweep({ db: dbWrapper.db });
+      logEvent('payout.notify.sweep', { jobId: job.id, ...result });
+      return result;
+    },
+    opts,
+  );
+
   // Pilar 1 — affiliate fraud auto-suspend. Hourly enforcement of the
   // fraud-signal ledger: critical signals OR ≥3 warns in 7d flip
   // affiliate memberships to suspended in the affected workspace.
@@ -264,6 +279,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     affiliateProgramBackfill,
     pixSubscriptionReminders,
     pixSubscriptionCycle,
+    payoutNotify,
     affiliateFraudAutoSuspend,
   ]) {
     w.on('failed', (job, err) => {
@@ -284,6 +300,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     affiliateProgramBackfill,
     pixSubscriptionReminders,
     pixSubscriptionCycle,
+    payoutNotify,
     affiliateFraudAutoSuspend,
     webhookInbound,
     webhookOutbox,

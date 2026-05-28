@@ -194,14 +194,59 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
       return c.json({ error: 'verification_failed' }, 400);
     }
 
-    // 5. Idempotent dedupe + record. Uses ON CONFLICT instead of
-    //    catch-the-23505: the duplicate path is hot (every gateway
-    //    retry hits it), so making it a regular path beats throwing
-    //    + catching an exception every time. RETURNING tells us
-    //    whether a row was actually inserted; empty result = duplicate.
-    const inserted = await services.db.db
-      .insert(schema.webhooksInbound)
-      .values({
+    // 5. Idempotent dedupe + crash-recovery aware. Three cases:
+    //
+    //   a) Brand-new event       INSERT new row, proceed.
+    //   b) Already processed     processedAt set, ack as duplicate.
+    //   c) Half-processed before processedAt NULL (handler crashed
+    //                            between INSERT and UPDATE on a previous
+    //                            attempt). Clear the error, re-run the
+    //                            full processing. Side-effects in the
+    //                            handler are individually idempotent
+    //                            (Connect uses jti dedupe, tracking has
+    //                            ON CONFLICT DO NOTHING, order UPDATE
+    //                            is idempotent against the same status).
+    //
+    // Without (c) the gateway's first retry after a crash would be
+    // dedup'd and the side-effects (email, Connect entitlement,
+    // tracking dispatch) would be lost forever.
+    const [existing] = await services.db.db
+      .select({
+        id: schema.webhooksInbound.id,
+        processedAt: schema.webhooksInbound.processedAt,
+      })
+      .from(schema.webhooksInbound)
+      .where(
+        and(
+          eq(schema.webhooksInbound.source, gatewayId),
+          eq(schema.webhooksInbound.eventId, event.eventId),
+        ),
+      )
+      .limit(1);
+
+    if (existing?.processedAt) {
+      // Case b — already done, ack so gateway stops retrying.
+      return c.json({ ok: true, deduplicated: true });
+    }
+
+    if (existing) {
+      // Case c — replay. Clear the previous error so the log stays
+      // honest about the latest attempt.
+      await services.db.db
+        .update(schema.webhooksInbound)
+        .set({ error: null })
+        .where(eq(schema.webhooksInbound.id, existing.id));
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'info',
+          event: 'webhook.replay.after.partial',
+          source: gatewayId,
+          eventId: event.eventId,
+        })}\n`,
+      );
+    } else {
+      // Case a — first arrival.
+      await services.db.db.insert(schema.webhooksInbound).values({
         workspaceId: tx.workspaceId,
         source: gatewayId,
         eventId: event.eventId,
@@ -209,15 +254,7 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
         rawHeaders: headers,
         rawBody: raw,
         signatureValid: 'valid',
-      })
-      .onConflictDoNothing({
-        target: [schema.webhooksInbound.source, schema.webhooksInbound.eventId],
-      })
-      .returning({ id: schema.webhooksInbound.id });
-    if (inserted.length === 0) {
-      // Duplicate — same (source, event_id) already processed. Ack
-      // success so the gateway stops retrying; no further work.
-      return c.json({ ok: true, deduplicated: true });
+      });
     }
 
     // 6. Fetch authoritative state from the gateway. We don't trust the

@@ -303,12 +303,33 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
     }
   };
 
-  const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!identifyComplete) {
       setStep('identify');
       return;
     }
+
+    // PCI scope: when the workspace's default gateway is MP and a
+    // publishable key is available, tokenize the card in the browser
+    // via MP.js v2 so the raw PAN never reaches our server. Falls back
+    // to the legacy RAW envelope when MP isn't available or the SDK
+    // hiccups.
+    const cardPayload =
+      method === 'credit_card'
+        ? await (async () => {
+            const { prepareCardPayload } = await import('../../../lib/mp-tokenize');
+            return prepareCardPayload({
+              mpPublicKey: data.gateway?.mpPublicKey ?? null,
+              cardNumber,
+              cardExpiry,
+              cardCvc,
+              cardHolderName: trimmedHolder,
+              documentNumber: doc,
+            });
+          })()
+        : undefined;
+
     createOrder.mutate({
       slug,
       method,
@@ -319,15 +340,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
         document: doc,
         phone,
       },
-      card:
-        method === 'credit_card'
-          ? {
-              number: cardNumber,
-              expiry: cardExpiry,
-              cvc: cardCvc,
-              holderName: trimmedHolder,
-            }
-          : undefined,
+      card: cardPayload,
       address:
         method === 'boleto'
           ? {
@@ -2556,12 +2569,33 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
     }
   };
 
-  const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!identifyComplete) {
       setStep('identify');
       return;
     }
+
+    // PCI scope: when the workspace's default gateway is MP and a
+    // publishable key is available, tokenize the card in the browser
+    // via MP.js v2 so the raw PAN never reaches our server. Falls back
+    // to the legacy RAW envelope when MP isn't available or the SDK
+    // hiccups.
+    const cardPayload =
+      method === 'credit_card'
+        ? await (async () => {
+            const { prepareCardPayload } = await import('../../../lib/mp-tokenize');
+            return prepareCardPayload({
+              mpPublicKey: data.gateway?.mpPublicKey ?? null,
+              cardNumber,
+              cardExpiry,
+              cardCvc,
+              cardHolderName: trimmedHolder,
+              documentNumber: doc,
+            });
+          })()
+        : undefined;
+
     createOrder.mutate({
       slug,
       method,
@@ -2572,15 +2606,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
         document: doc,
         phone,
       },
-      card:
-        method === 'credit_card'
-          ? {
-              number: cardNumber,
-              expiry: cardExpiry,
-              cvc: cardCvc,
-              holderName: trimmedHolder,
-            }
-          : undefined,
+      card: cardPayload,
       address:
         method === 'boleto'
           ? {
@@ -3507,12 +3533,33 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
     }
   };
 
-  const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!identifyComplete) {
       setStep('identify');
       return;
     }
+
+    // PCI scope: when the workspace's default gateway is MP and a
+    // publishable key is available, tokenize the card in the browser
+    // via MP.js v2 so the raw PAN never reaches our server. Falls back
+    // to the legacy RAW envelope when MP isn't available or the SDK
+    // hiccups.
+    const cardPayload =
+      method === 'credit_card'
+        ? await (async () => {
+            const { prepareCardPayload } = await import('../../../lib/mp-tokenize');
+            return prepareCardPayload({
+              mpPublicKey: data.gateway?.mpPublicKey ?? null,
+              cardNumber,
+              cardExpiry,
+              cardCvc,
+              cardHolderName: trimmedHolder,
+              documentNumber: doc,
+            });
+          })()
+        : undefined;
+
     createOrder.mutate({
       slug,
       method,
@@ -3523,15 +3570,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
         document: doc,
         phone,
       },
-      card:
-        method === 'credit_card'
-          ? {
-              number: cardNumber,
-              expiry: cardExpiry,
-              cvc: cardCvc,
-              holderName: trimmedHolder,
-            }
-          : undefined,
+      card: cardPayload,
       address:
         method === 'boleto'
           ? {
