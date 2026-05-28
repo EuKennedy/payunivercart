@@ -1,5 +1,6 @@
 import { schema } from '@payunivercart/db';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { emitWebhookFromWorker } from '../webhooks/emit';
 
 /**
  * Affiliate commission rollover sweep.
@@ -56,6 +57,56 @@ export async function rolloverPendingCommissions(
     FROM totals
     WHERE a.id = totals.affiliate_id
   `);
+
+  // Outbound webhook: `affiliate.commission.available` per flipped row.
+  // Best-effort — failure here must not roll the rollover back.
+  try {
+    const flippedIds = flipped.map((r: { id: string }) => r.id);
+    const rows = await db
+      .select({
+        id: schema.affiliateCommissions.id,
+        workspaceId: schema.affiliateCommissions.workspaceId,
+        affiliateId: schema.affiliateCommissions.affiliateId,
+        orderId: schema.affiliateCommissions.orderId,
+        status: schema.affiliateCommissions.status,
+        commissionAmountCents: schema.affiliateCommissions.commissionAmountCents,
+        currency: schema.affiliateCommissions.currency,
+        cycleNumber: schema.affiliateCommissions.cycleNumber,
+        availableAt: schema.affiliateCommissions.availableAt,
+        paidAt: schema.affiliateCommissions.paidAt,
+        createdAt: schema.affiliateCommissions.createdAt,
+      })
+      .from(schema.affiliateCommissions)
+      .where(inArray(schema.affiliateCommissions.id, flippedIds));
+
+    for (const r of rows) {
+      await emitWebhookFromWorker(db, {
+        workspaceId: r.workspaceId,
+        eventType: 'affiliate.commission.available',
+        object: {
+          id: r.id,
+          workspace_id: r.workspaceId,
+          affiliate_id: r.affiliateId,
+          order_id: r.orderId ?? '',
+          status: r.status,
+          commission_amount_cents: Number(r.commissionAmountCents),
+          currency: r.currency,
+          cycle_number: r.cycleNumber,
+          available_at: r.availableAt instanceof Date ? r.availableAt.toISOString() : r.availableAt,
+          paid_at: r.paidAt instanceof Date ? r.paidAt.toISOString() : r.paidAt,
+          created_at: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+        },
+      });
+    }
+  } catch (cause) {
+    process.stdout.write(
+      `${JSON.stringify({
+        level: 'warn',
+        event: 'affiliate.rollover.webhook.emit.failed',
+        error: cause instanceof Error ? cause.message : String(cause),
+      })}\n`,
+    );
+  }
 
   return { flipped: flipped.length, totalsRefreshed: true };
 }

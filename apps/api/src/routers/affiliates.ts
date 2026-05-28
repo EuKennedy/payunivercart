@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { authedProcedure, router, workspaceProcedure } from '../trpc';
+import { emitAffiliatePayoutEvent } from '../webhooks/emit-helpers';
 
 /**
  * Producer-facing affiliate management.
@@ -1148,6 +1149,11 @@ export const affiliatesRouter = router({
               eligible.map((c) => c.id),
             ),
           );
+        // Outbound webhook: payout.requested. Fire AFTER the transaction
+        // commits — emit-helpers itself swallows + logs failures so the
+        // producer's payout request still succeeds even if the receiver
+        // is down.
+        await emitAffiliatePayoutEvent(ctx.services, payout.id, 'affiliate.payout.requested');
         return { payoutId: payout.id, totalCents };
       });
     }),
@@ -1216,6 +1222,12 @@ export const affiliatesRouter = router({
             .update(schema.affiliateCommissions)
             .set({ payoutId: null })
             .where(inArray(schema.affiliateCommissions.id, includedIds));
+        }
+        // Outbound webhook on the terminal `paid` state. Producers
+        // poll/reconcile payouts off this event to confirm money landed
+        // with the affiliate.
+        if (input.status === 'paid') {
+          await emitAffiliatePayoutEvent(ctx.services, input.payoutId, 'affiliate.payout.paid');
         }
         return { ok: true as const };
       });

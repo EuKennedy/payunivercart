@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { publicProcedure, router, workspaceProcedure } from '../trpc';
+import { emitMarketplaceListingEvent } from '../webhooks/emit-helpers';
 
 /**
  * Pilar 4 — Marketplace.
@@ -1054,6 +1055,10 @@ export const marketplaceRouter = router({
       // affiliate_programs would otherwise hide it). Idempotent — if the
       // producer already has a workspace-wide program we leave it alone.
       await ensureDefaultAffiliateProgram(ctx.services.db.db, ctx.workspaceId);
+      // Outbound webhook: producer integrations subscribed to
+      // `marketplace.listing.published` get a hook to sync the public
+      // catalog with their own external systems.
+      await emitMarketplaceListingEvent(ctx.services, input.id, 'marketplace.listing.published');
       return { ok: true as const };
     }),
 

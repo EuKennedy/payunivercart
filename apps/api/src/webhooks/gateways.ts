@@ -8,6 +8,12 @@ import { materializeCommission } from '../affiliates/tracker';
 import { ConnectDispatcher } from '../connect/dispatcher';
 import { dispatchEmailNotification, dispatchWhatsappNotification } from '../notifications/dispatch';
 import type { AppServices } from '../services';
+import {
+  emitAffiliateCommissionEvent,
+  emitOrderEvent,
+  emitSubscriptionEvent,
+  emitTransactionEvent,
+} from './emit-helpers';
 
 /**
  * Inbound gateway webhooks. Mounted at `/webhooks/gateway/:gatewayId`
@@ -293,6 +299,12 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
           .update(schema.orders)
           .set({ status: 'paid', paidAt: nowDate })
           .where(eq(schema.orders.id, tx.orderId));
+        // Outbound webhooks — fan-out to producer-registered endpoints
+        // BEFORE the heavy email/WhatsApp legs so a slow Resend tick
+        // can't delay the producer's automation pipeline. emitOrderEvent
+        // is best-effort + non-throwing internally.
+        await emitTransactionEvent(services, tx.id, 'transaction.captured');
+        await emitOrderEvent(services, tx.orderId, 'order.paid');
         // Post-payment fan-out: receipt email + buyer WhatsApp w/
         // delivery + producer WhatsApp alert. Each leg is wrapped
         // independently — a Resend hiccup must not stop the WAHA
@@ -341,11 +353,20 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
         // 500) doesn't block the webhook ack — gateway must NOT think
         // refund processing failed.
         await handleOrderRefundedSideEffects(services, tx.orderId);
+        await emitTransactionEvent(services, tx.id, 'transaction.refunded');
+        await emitOrderEvent(services, tx.orderId, 'order.refunded');
       } else if (charge.status === 'failed' || charge.status === 'cancelled') {
         await services.db.db
           .update(schema.orders)
           .set({ status: 'cancelled', cancelledAt: nowDate })
           .where(eq(schema.orders.id, tx.orderId));
+        await emitTransactionEvent(services, tx.id, 'transaction.failed');
+        await emitOrderEvent(services, tx.orderId, 'order.cancelled');
+      } else if (charge.status === 'chargedback') {
+        await emitTransactionEvent(services, tx.id, 'transaction.chargeback');
+        await emitOrderEvent(services, tx.orderId, 'order.chargedback');
+      } else if (charge.status === 'authorized') {
+        await emitTransactionEvent(services, tx.id, 'transaction.authorized');
       }
 
       await services.db.db
@@ -738,6 +759,18 @@ async function handleMpSubscriptionEvent(
           })}\n`,
         );
       }
+      await emitSubscriptionEvent(services, sub.id, 'subscription.activated');
+    }
+
+    // Outbound webhook emits for non-activation transitions — keeps
+    // producer integrations in sync with the gateway-driven state
+    // machine without forcing them to poll. Cancellation is a hard
+    // terminal so emit first; reactivation fires on paused → active
+    // edges (pending → active already covered by `activated` above).
+    if (fresh.status === 'cancelled' && previousStatus !== 'cancelled') {
+      await emitSubscriptionEvent(services, sub.id, 'subscription.cancelled');
+    } else if (fresh.status === 'active' && previousStatus === 'paused') {
+      await emitSubscriptionEvent(services, sub.id, 'subscription.reactivated');
     }
 
     // Dispatch Univercart Connect entitlement event when the status
@@ -1696,6 +1729,10 @@ async function handleOrderRefundedSideEffects(
           count: reversed.length,
         })}\n`,
       );
+      // Outbound webhook per reversed commission.
+      for (const row of reversed) {
+        await emitAffiliateCommissionEvent(services, row.id, 'affiliate.commission.reversed');
+      }
     }
   } catch (cause) {
     process.stdout.write(
@@ -1821,5 +1858,8 @@ async function activateSubscriptionFromPaidOrder(
         })}\n`,
       );
     }
+    await emitSubscriptionEvent(services, sub.id, 'subscription.activated');
+  } else if (order.cycleNumber && order.cycleNumber > 1) {
+    await emitSubscriptionEvent(services, sub.id, 'subscription.renewed');
   }
 }

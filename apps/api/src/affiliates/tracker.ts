@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import { schema } from '@payunivercart/db';
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import type { AppServices } from '../services';
+import { emitAffiliateCommissionEvent } from '../webhooks/emit-helpers';
 
 /** Hash the IP so the click table doesn't store PII. Salt is the
  *  audit chain HMAC key — re-using saves us a dedicated env var.
@@ -461,6 +462,9 @@ export async function materializeCommission(
         availableAt,
       })
       .returning({ id: schema.affiliateCommissions.id });
+    if (inserted?.id) {
+      await emitAffiliateCommissionEvent(services, inserted.id, 'affiliate.commission.created');
+    }
     return inserted?.id ?? null;
   } catch (cause) {
     // (attribution, cycle) unique — duplicate cycle (webhook retry).

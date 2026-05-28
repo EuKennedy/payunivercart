@@ -14,6 +14,7 @@ import { runPixSubscriptionReminderSweep } from './handlers/pix-subscription-rem
 import { runRecoverySweep } from './handlers/recovery';
 import { runSubscriptionReconcileSweep } from './handlers/subscription-reconcile';
 import { runTrackingDispatchSweep } from './handlers/tracking-dispatch';
+import { runWebhookOutboxSweep } from './handlers/webhook-outbox-dispatcher';
 import { runWhatsappSessionHealthSweep } from './handlers/whatsapp-session-health';
 import { QUEUE_NAMES } from './queues';
 
@@ -62,8 +63,9 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
   const webhookOutbox = new Worker(
     QUEUE_NAMES.webhookOutbox,
     async (job) => {
-      logEvent('webhook.outbox.dispatch', { jobId: job.id });
-      return { delivered: false, reason: 'handler-pending' };
+      const result = await runWebhookOutboxSweep({ db: dbWrapper.db });
+      logEvent('webhook.outbox.sweep', { jobId: job.id, ...result });
+      return result;
     },
     opts,
   );

@@ -80,6 +80,19 @@ async function main() {
     },
   );
 
+  // Webhook outbox dispatcher — 5s sweep that drains the
+  // `webhooks_outbox` table, POSTs each pending delivery with HMAC +
+  // idempotency, and retries on a Stripe-style schedule. Dead-letters
+  // after 10 failed attempts.
+  await queues.webhookOutbox.upsertJobScheduler(
+    'sweeper',
+    { every: 5_000 },
+    {
+      name: 'webhook.outbox.sweep',
+      data: {},
+    },
+  );
+
   // Affiliate commissions rollover — hourly sweep that flips pending
   // → available when the refund window passes. Idempotent + cheap on
   // empty result sets so a 60-min cadence is comfortable.

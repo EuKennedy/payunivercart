@@ -13,7 +13,9 @@
     "./constants": "./src/constants/index.ts",
     "./result": "./src/result/index.ts",
     "./idempotency": "./src/idempotency/index.ts",
-    "./br-document": "./src/br-document/index.ts"
+    "./br-document": "./src/br-document/index.ts",
+    "./webhooks/events": "./src/webhooks/events.ts",
+    "./webhooks/signature": "./src/webhooks/signature.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
