@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { type ImageUpload, ImageUploadField } from '../../../../components/ImageUploadField';
+import { CardIcon, PixIcon } from '../../../../components/PaymentMethodIcons';
 import { Button, Heading, Kicker } from '../../../../components/ui';
 import { API_URL, CHECKOUT_URL } from '../../../../lib/env';
 import { formatCents, parseCentsBRL } from '../../../../lib/money';
@@ -1315,18 +1316,29 @@ function PlanPriceEditor({
 /* Connect / "Sem Connect" badge that already lives on the same row.          */
 /* -------------------------------------------------------------------------- */
 function PlanMethodsBadge({ paymentMethod }: { paymentMethod: 'card' | 'pix' | 'both' }) {
-  const label =
-    paymentMethod === 'pix'
-      ? '⚡ PIX'
-      : paymentMethod === 'both'
-        ? '💳 + ⚡ Cartão & PIX'
-        : '💳 Cartão';
   return (
     <span
       title="Métodos de pagamento aceitos por este plano"
-      className="inline-flex items-center rounded-md bg-[var(--color-surface-muted)] px-1.5 py-0.5 font-medium text-[10px] text-[var(--color-fg-muted)] uppercase tracking-wider"
+      className="inline-flex items-center gap-1 rounded-md bg-[var(--color-surface-muted)] px-1.5 py-0.5 font-medium text-[10px] text-[var(--color-fg-muted)] uppercase tracking-wider"
     >
-      {label}
+      {paymentMethod === 'pix' ? (
+        <>
+          <PixIcon size={12} tone="brand" />
+          PIX
+        </>
+      ) : paymentMethod === 'both' ? (
+        <>
+          <CardIcon size={12} />
+          <span aria-hidden>+</span>
+          <PixIcon size={12} tone="brand" />
+          Cartão & PIX
+        </>
+      ) : (
+        <>
+          <CardIcon size={12} />
+          Cartão
+        </>
+      )}
     </span>
   );
 }

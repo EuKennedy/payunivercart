@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { use, useEffect, useMemo, useRef, useState } from 'react';
+import { CardIcon, PixIcon } from '../../../components/PaymentMethodIcons';
 import { ThemeToggle } from '../../../components/ThemeToggle';
 import { TrackingScripts, useFireEvent } from '../../../components/TrackingScripts';
 import {
@@ -5077,7 +5078,7 @@ function SubMethodTabs({
   if (planPaymentMethod !== 'both') {
     return (
       <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[var(--surface-2)] px-3 py-1.5 text-[11px] text-[var(--ink-50)]">
-        <span aria-hidden>{planPaymentMethod === 'pix' ? '⚡' : '💳'}</span>
+        {planPaymentMethod === 'pix' ? <PixIcon size={14} tone="brand" /> : <CardIcon size={14} />}
         <span className="font-semibold uppercase tracking-[0.14em]">
           {planPaymentMethod === 'pix' ? 'Pagamento via PIX' : 'Pagamento no cartão'}
         </span>
@@ -5105,7 +5106,7 @@ function SubMethodTabs({
                 : 'flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-medium text-[14px] text-[var(--ink-70)] transition hover:text-[var(--ink-100)]'
             }
           >
-            <span aria-hidden>{m === 'pix' ? '⚡' : '💳'}</span>
+            {m === 'pix' ? <PixIcon size={14} tone="brand" /> : <CardIcon size={14} />}
             {m === 'pix' ? 'PIX' : 'Cartão de crédito'}
           </button>
         );
@@ -5144,8 +5145,8 @@ function PixSubscriptionInfo({
       </div>
       <ul className="flex flex-col gap-2.5 text-[13px] text-[var(--ink-70)] leading-[1.55]">
         <li className="flex items-start gap-2">
-          <span aria-hidden className="mt-0.5 text-[var(--dop-600)]">
-            ⚡
+          <span aria-hidden className="mt-0.5 shrink-0 text-[var(--dop-600)]">
+            <PixIcon size={14} tone="brand" />
           </span>
           <span>
             QR Code gerado na próxima tela.{' '}
@@ -5298,8 +5299,8 @@ function SubscriptionPixSuccess({
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col items-center gap-2 text-center">
-        <span aria-hidden className="text-[32px]">
-          ⚡
+        <span aria-hidden className="inline-flex">
+          <PixIcon size={40} tone="brand" />
         </span>
         <p className="font-semibold text-[11px] text-[var(--dop-700)] uppercase tracking-[0.22em]">
           PIX gerado · aguardando pagamento
