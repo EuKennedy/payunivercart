@@ -14,6 +14,7 @@ import { mountConnectApi } from './connect/router';
 import { loadEnv } from './env';
 import { authRateLimit, checkoutRateLimit, webhookRateLimit } from './rate-limit';
 import { appRouter } from './routers/index';
+import { sentryBeforeSend } from './sentry-scrub';
 import { buildServices } from './services';
 import type { TrpcContext } from './trpc';
 import { mountGatewayWebhooks } from './webhooks/gateways';
@@ -45,6 +46,8 @@ if (env.SENTRY_DSN) {
     // first; performance + replay can light up when we wire pino +
     // workspace-level metrics in the same block.
     tracesSampleRate: 0,
+    // LGPD: never send `user.email` / `user.ip_address` etc.
+    sendDefaultPii: false,
     // Drop tRPC's input from breadcrumbs — buyer PII (CPF, phone) on
     // checkout endpoints must not leak into the Sentry UI.
     beforeBreadcrumb: (breadcrumb) => {
@@ -55,6 +58,10 @@ if (env.SENTRY_DSN) {
       }
       return breadcrumb;
     },
+    // Recursive PII scrub on top — `sentry-scrub.ts` walks request
+    // body, breadcrumbs, extra, contexts, exception messages and
+    // redacts emails / phones / CPF / CNPJ / token-like keys.
+    beforeSend: sentryBeforeSend,
   });
 }
 

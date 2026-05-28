@@ -1,10 +1,11 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import { CookieConsent } from '../components/CookieConsent';
 import { Providers } from '../components/Providers';
 import { themeBootstrapScript } from '../components/ThemeProvider';
 
 export const metadata: Metadata = {
-  title: 'payunivercart',
+  title: 'Univercart',
   description:
     'Plataforma de pagamento para criadores e operadores digitais. Catálogo, checkout customizável, recuperação automática.',
 };
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen bg-[var(--color-bg)] text-[var(--color-fg)] antialiased">
         <Providers>{children}</Providers>
+        <CookieConsent />
       </body>
     </html>
   );

@@ -2335,6 +2335,7 @@ function SubscriptionSuccess({
   // publicReference is stable across both legs so it serves as the
   // dedup key without a shared UUID generator.
   const fireEvent = useFireEvent();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring on isActive transition is the intent.
   useEffect(() => {
     if (!isActive) return;
     fireEvent(
@@ -2347,7 +2348,6 @@ function SubscriptionSuccess({
       },
       publicReference,
     );
-    // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring on isActive transition is the intent.
   }, [isActive, amountCents, planName, publicReference]);
 
   return (
@@ -4507,10 +4507,10 @@ function SuccessView({
   // Value omitted because orderStatus doesn't return totalCents (and
   // the server CAPI fire already carries the canonical amount).
   const fireEvent = useFireEvent();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring intentional on paid transition.
   useEffect(() => {
     if (!isPaid) return;
     fireEvent('Purchase', { currency: 'BRL', content_type: 'product' }, reference);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring intentional on paid transition.
   }, [isPaid, reference]);
 
   return (
@@ -5220,6 +5220,7 @@ function SubscriptionPixSuccess({
   // Browser-side Purchase fire — pairs with server-side CAPI via
   // publicReference as dedup key.
   const fireEvent = useFireEvent();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring intentional on active transition.
   useEffect(() => {
     if (!isActive) return;
     fireEvent(
@@ -5232,7 +5233,6 @@ function SubscriptionPixSuccess({
       },
       publicReference,
     );
-    // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring intentional on active transition.
   }, [isActive, amountCents, planName, publicReference]);
 
   const [copied, setCopied] = useState(false);

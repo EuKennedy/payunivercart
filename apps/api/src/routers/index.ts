@@ -1,4 +1,5 @@
 import { router } from '../trpc';
+import { accountRouter } from './account';
 import { adminRouter } from './admin';
 import { affiliatesRouter } from './affiliates';
 import { checkoutRouter } from './checkout';
@@ -43,6 +44,7 @@ export const appRouter = router({
   notifications: notificationsRouter,
   notificationTemplates: notificationTemplatesRouter,
   webhooks: webhooksRouter,
+  account: accountRouter,
   admin: adminRouter,
 });
 
