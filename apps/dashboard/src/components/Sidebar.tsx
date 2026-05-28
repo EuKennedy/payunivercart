@@ -81,6 +81,7 @@ const NAV: NavGroup[] = [
       { href: '/integrations/whatsapp', label: 'WhatsApp', icon: <IconChat /> },
       { href: '/integrations/email', label: 'Email', icon: <IconMail /> },
       { href: '/integrations/pixels', label: 'Configurar Pixel', icon: <IconBolt />, badge: 'new' },
+      { href: '/integrations/webhooks', label: 'Webhooks', icon: <IconWebhook /> },
     ],
   },
 ];
@@ -690,6 +691,24 @@ function IconBolt() {
       className="size-5"
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M11 2l-7 10h5l-1 6 7-10h-5l1-6z" />
+    </svg>
+  );
+}
+function IconWebhook() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="size-5"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13a3 3 0 1 0 3 3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 1 1-3 3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6a3 3 0 1 1 2.5 4.5L10 16" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16h7" />
     </svg>
   );
 }

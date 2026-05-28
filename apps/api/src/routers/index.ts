@@ -15,6 +15,7 @@ import { productsRouter } from './products';
 import { recoveryRouter } from './recovery';
 import { subscriptionsRouter } from './subscriptions';
 import { trackingRouter } from './tracking';
+import { webhooksRouter } from './webhooks';
 import { whatsappRouter } from './whatsapp';
 import { workspaceRouter } from './workspace';
 
@@ -41,6 +42,7 @@ export const appRouter = router({
   marketplace: marketplaceRouter,
   notifications: notificationsRouter,
   notificationTemplates: notificationTemplatesRouter,
+  webhooks: webhooksRouter,
   admin: adminRouter,
 });
 
