@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { ThemeToggle } from '../../../components/ThemeToggle';
-import { TrackingScripts } from '../../../components/TrackingScripts';
+import { TrackingScripts, useFireEvent } from '../../../components/TrackingScripts';
 import {
   maskBrPhone,
   maskCardExpiry,
@@ -2330,6 +2330,26 @@ function SubscriptionSuccess({
   const periodLabel = billingPeriod === 'yearly' ? 'ano' : 'mês';
   const formattedAmount = formatCents(amountCents, 'BRL');
 
+  // Browser-side Purchase fire — pairs with the server-side CAPI
+  // dispatch from the gateway webhook. Meta dedupes by event_id; the
+  // publicReference is stable across both legs so it serves as the
+  // dedup key without a shared UUID generator.
+  const fireEvent = useFireEvent();
+  useEffect(() => {
+    if (!isActive) return;
+    fireEvent(
+      'Purchase',
+      {
+        value: amountCents / 100,
+        currency: 'BRL',
+        content_type: 'subscription',
+        content_name: planName,
+      },
+      publicReference,
+    );
+    // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring on isActive transition is the intent.
+  }, [isActive, amountCents, planName, publicReference]);
+
   return (
     <div className="-mx-2 sm:-mx-4">
       {/* Hero dopamine — mesmo padrão do SuccessView one-time, adaptado
@@ -4481,6 +4501,18 @@ function SuccessView({
   const hasPix = !!(pixQrCodeImage || pixCopyPaste);
   const hasBoleto = !!(boletoUrl || boletoBarcode);
 
+  // Browser-side Purchase fire — pairs with the server-side CAPI
+  // dispatch from the gateway webhook. Meta dedupes by event_id;
+  // `reference` is the public order reference, stable across both legs.
+  // Value omitted because orderStatus doesn't return totalCents (and
+  // the server CAPI fire already carries the canonical amount).
+  const fireEvent = useFireEvent();
+  useEffect(() => {
+    if (!isPaid) return;
+    fireEvent('Purchase', { currency: 'BRL', content_type: 'product' }, reference);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring intentional on paid transition.
+  }, [isPaid, reference]);
+
   return (
     <div className="-mx-2 sm:-mx-4">
       {/* Hero — gradient dopamine, ícone pulsante, headline editorial.
@@ -5184,6 +5216,25 @@ function SubscriptionPixSuccess({
   );
   const status = live.data?.status ?? 'pending';
   const isActive = status === 'active';
+
+  // Browser-side Purchase fire — pairs with server-side CAPI via
+  // publicReference as dedup key.
+  const fireEvent = useFireEvent();
+  useEffect(() => {
+    if (!isActive) return;
+    fireEvent(
+      'Purchase',
+      {
+        value: amountCents / 100,
+        currency: 'BRL',
+        content_type: 'subscription',
+        content_name: planName,
+      },
+      publicReference,
+    );
+    // biome-ignore lint/correctness/useExhaustiveDependencies: fireEvent identity is stable per mount; refiring intentional on active transition.
+  }, [isActive, amountCents, planName, publicReference]);
+
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     if (!pixCopyPaste) return;
