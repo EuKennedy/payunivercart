@@ -289,6 +289,12 @@ function PartnerStatusActions({ partner }: { partner: AdminPartner }) {
   const update = trpc.partners.adminUpdate.useMutation({
     onSuccess: () => utils.partners.adminList.invalidate(),
   });
+  const remove = trpc.partners.adminDeletePartner.useMutation({
+    onSuccess: () => utils.partners.adminList.invalidate(),
+  });
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState('');
+
   return (
     <div className="flex items-center gap-2">
       <label className="flex items-center gap-1.5 text-[11px] text-[var(--color-fg-muted)]">
@@ -313,6 +319,87 @@ function PartnerStatusActions({ partner }: { partner: AdminPartner }) {
         <option value="active">active</option>
         <option value="suspended">suspended</option>
       </select>
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="rounded-lg border border-[var(--color-danger)]/30 px-2 py-1 font-medium text-[11px] text-[var(--color-danger)] transition hover:bg-[var(--color-danger-bg)]"
+      >
+        Deletar
+      </button>
+
+      {confirming ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/55 px-4 backdrop-blur-md"
+          onClick={() => {
+            setConfirming(false);
+            setTyped('');
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setConfirming(false);
+              setTyped('');
+            }
+          }}
+          // biome-ignore lint/a11y/useSemanticElements: lightweight overlay.
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-[var(--color-danger)]/30 bg-[var(--color-surface)] p-6 shadow-[0_40px_90px_-30px_rgba(0,0,0,0.55)]"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-semibold text-[16px] text-[var(--color-fg)]">Deletar partner</h3>
+            <p className="text-[13px] text-[var(--color-fg-muted)] leading-[1.55]">
+              Remove partner <b>{partner.name}</b> + todas as API keys, webhook endpoints, roles e
+              logs de delivery. Planos de assinatura que apontavam pra esse partner ficam vivos mas
+              perdem o link (producer precisa re-anexar). Ação <b>irreversível</b>.
+            </p>
+            <p className="text-[12px] text-[var(--color-fg-subtle)]">
+              Pra confirmar, digite o slug do partner:{' '}
+              <code className="font-mono text-[var(--color-fg)]">{partner.slug}</code>
+            </p>
+            <input
+              // biome-ignore lint/a11y/noAutofocus: destructive confirm — keyboard immediate.
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={partner.slug}
+              className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 font-mono text-[13px] text-[var(--color-fg)] outline-none focus:border-[var(--color-danger)] focus:ring-4 focus:ring-[var(--color-danger)]/15"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirming(false);
+                  setTyped('');
+                }}
+                className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 font-medium text-[12px] text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={typed !== partner.slug || remove.isPending}
+                onClick={() => {
+                  remove.mutate(
+                    { id: partner.id },
+                    {
+                      onSettled: () => {
+                        setConfirming(false);
+                        setTyped('');
+                      },
+                    },
+                  );
+                }}
+                className="rounded-lg bg-[var(--color-danger)] px-3 py-1.5 font-semibold text-[12px] text-white disabled:opacity-50"
+              >
+                {remove.isPending ? 'Deletando…' : 'Deletar partner'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -379,6 +379,35 @@ export const partnersRouter = router({
     }),
 
   /**
+   * Hard delete a partner + every child row.
+   *
+   * Cascade behaviour:
+   *   - `partner_api_keys`, `partner_webhook_endpoints`, `partner_roles`,
+   *     `connect_events`, `connect_webhook_deliveries` → `ON DELETE CASCADE`
+   *     via FK on `partnerId`. Removed automatically.
+   *   - `subscription_plans.partnerAccountId` → `ON DELETE SET NULL`.
+   *     Existing producer plans that referenced the partner stay alive,
+   *     they just lose the entitlement provisioning link (the producer
+   *     can re-attach to a different partner via the plan editor).
+   *
+   * Operator must type the partner slug as confirmation client-side —
+   * server cannot enforce the typed-confirmation, so this remains a
+   * superuser-only surface gated by `superuserProcedure`.
+   */
+  adminDeletePartner: superuserProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.services.db.db
+        .delete(schema.partnerAccounts)
+        .where(eq(schema.partnerAccounts.id, input.id))
+        .returning({ id: schema.partnerAccounts.id, slug: schema.partnerAccounts.slug });
+      if (!row) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Partner não encontrado.' });
+      }
+      return { ok: true as const, id: row.id, slug: row.slug };
+    }),
+
+  /**
    * Recent delivery log for a partner — used by the admin dashboard
    * to debug webhook integrations. Returns the latest 50 deliveries
    * across all endpoints of the partner, joined with the parent event
