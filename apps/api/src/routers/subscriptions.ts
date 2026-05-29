@@ -12,6 +12,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { resolveAttribution } from '../affiliates/tracker';
 import { ConnectDispatcher } from '../connect/dispatcher';
+import { reconcileOrderPayment } from '../payments/reconcile-order';
 import { publicProcedure, router, workspaceProcedure } from '../trpc';
 import {
   dispatchSubscriptionActivatedFanOut,
@@ -1146,6 +1147,43 @@ export const subscriptionsRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
+      // Webhook-independent self-heal: when the subscription is still
+      // pending, round-trip the gateway for the cycle-1 PIX order. If
+      // the buyer already paid the QR but the gateway webhook never
+      // landed (missing signing secret / lost IPN), this confirms the
+      // payment out-of-band, marks the order paid, AND activates the
+      // subscription (+ fires Connect entitlement.granted → magic link).
+      // Idempotent + cheap once active. Best-effort — swallow + log.
+      try {
+        const [pending] = await ctx.services.db.db
+          .select({
+            subStatus: schema.subscriptions.status,
+            orderId: schema.orders.id,
+          })
+          .from(schema.subscriptions)
+          .leftJoin(
+            schema.orders,
+            and(
+              eq(schema.orders.subscriptionId, schema.subscriptions.id),
+              eq(schema.orders.cycleNumber, 1),
+            ),
+          )
+          .where(eq(schema.subscriptions.id, input.subscriptionId))
+          .limit(1);
+        if (pending && pending.subStatus === 'pending' && pending.orderId) {
+          await reconcileOrderPayment(ctx.services, pending.orderId);
+        }
+      } catch (cause) {
+        process.stdout.write(
+          `${JSON.stringify({
+            level: 'warn',
+            event: 'subscriptionStatus.reconcile.failed',
+            subscriptionId: input.subscriptionId,
+            error: cause instanceof Error ? cause.message : String(cause),
+          })}\n`,
+        );
+      }
+
       const [row] = await ctx.services.db.db
         .select({
           status: schema.subscriptions.status,

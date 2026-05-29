@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { authedProcedure, router, superuserProcedure } from '../trpc';
+import { activateSubscriptionFromPaidOrder } from '../webhooks/gateways';
 
 /**
  * Univercart Connect partner management.
@@ -405,6 +406,55 @@ export const partnersRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Partner não encontrado.' });
       }
       return { ok: true as const, id: row.id, slug: row.slug };
+    }),
+
+  /**
+   * Reprocess a subscription's activation — recovery tool.
+   *
+   * Use when a subscription's cycle-1 order is `paid` but the
+   * subscription never flipped to `active` (e.g. the order was marked
+   * paid out-of-band, or the gateway webhook was rejected for a missing
+   * signing secret and the activation pipeline never ran). Re-runs
+   * `activateSubscriptionFromPaidOrder`, which flips the subscription
+   * active, schedules the next charge, fires the welcome fan-out, AND
+   * dispatches the Connect `entitlement.granted` event (mints the magic
+   * link + emails the buyer + queues the partner webhook).
+   *
+   * Idempotent: if the subscription is already `active`, the inner
+   * activation guard skips the fan-out/Connect dispatch, so a double
+   * click won't re-email the buyer or double-provision the partner.
+   *
+   * Refuses when the cycle-1 order isn't paid — we never want to
+   * provision access for an unpaid subscription.
+   */
+  adminReprocessSubscription: superuserProcedure
+    .input(z.object({ subscriptionId: z.string().uuid() }))
+    .output(z.object({ ok: z.literal(true), orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [order] = await ctx.services.db.db
+        .select({ id: schema.orders.id, status: schema.orders.status })
+        .from(schema.orders)
+        .where(
+          and(
+            eq(schema.orders.subscriptionId, input.subscriptionId),
+            eq(schema.orders.cycleNumber, 1),
+          ),
+        )
+        .limit(1);
+      if (!order) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Pedido do ciclo 1 não encontrado para essa assinatura.',
+        });
+      }
+      if (order.status !== 'paid') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Pedido do ciclo 1 está "${order.status}", não "paid". Reprocesso só roda em pedido pago.`,
+        });
+      }
+      await activateSubscriptionFromPaidOrder(ctx.services, order.id, new Date());
+      return { ok: true as const, orderId: order.id };
     }),
 
   /**

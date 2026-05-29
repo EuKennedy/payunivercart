@@ -469,7 +469,7 @@ export default function GatewaysPage() {
             </FormField>
             <FormField
               label="Webhook Secret"
-              hint="Opcional agora; obrigatório para validar webhooks de produção."
+              hint="Chave de assinatura do painel MP (Webhooks → Configurar notificações → Chave secreta)."
               className="sm:col-span-2"
             >
               <input
@@ -480,6 +480,31 @@ export default function GatewaysPage() {
                 className={inputClass}
                 autoComplete="off"
               />
+              {webhookSecret.trim().length === 0 ? (
+                <div className="mt-2 flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning-bg)] px-3 py-2.5 text-[12px] text-[var(--color-warning)] leading-[1.5]">
+                  <svg
+                    className="mt-0.5 size-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    role="img"
+                    aria-label="Atenção"
+                  >
+                    <title>Atenção</title>
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <path d="M12 9v4M12 17h.01" />
+                  </svg>
+                  <span>
+                    <b>Sem o webhook secret, pagamentos não confirmam sozinhos.</b> O Mercado Pago
+                    assina cada notificação com esta chave; sem ela, toda confirmação de PIX/cartão
+                    é rejeitada e o pedido fica preso em "aguardando pagamento". Configure antes de
+                    vender.
+                  </span>
+                </div>
+              ) : null}
             </FormField>
             <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[14px] text-[var(--color-fg-muted)] sm:col-span-2">
               <input

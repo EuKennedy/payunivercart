@@ -19,6 +19,7 @@ import { TRPCError } from '@trpc/server';
 import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { resolveAttribution } from '../affiliates/tracker';
+import { reconcileOrderPayment } from '../payments/reconcile-order';
 import { publicProcedure, router } from '../trpc';
 
 /**
@@ -175,6 +176,34 @@ export const checkoutRouter = router({
       if (input.viewToken !== expectedToken) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Pedido não encontrado.' });
       }
+
+      // Webhook-independent self-heal: before reading the local status,
+      // if the order is still pending, round-trip the gateway to confirm
+      // payment. This closes the gap where the gateway webhook was
+      // rejected (missing signing secret), lost, or arrived early. The
+      // call is idempotent + cheap on already-paid orders (returns
+      // before touching the gateway). Best-effort — a gateway hiccup
+      // here must not break the status read, so swallow + log.
+      try {
+        const [pre] = await ctx.services.db.db
+          .select({ status: schema.orders.status })
+          .from(schema.orders)
+          .where(eq(schema.orders.id, input.orderId))
+          .limit(1);
+        if (pre && pre.status === 'pending_payment') {
+          await reconcileOrderPayment(ctx.services, input.orderId);
+        }
+      } catch (cause) {
+        process.stdout.write(
+          `${JSON.stringify({
+            level: 'warn',
+            event: 'orderStatus.reconcile.failed',
+            orderId: input.orderId,
+            error: cause instanceof Error ? cause.message : String(cause),
+          })}\n`,
+        );
+      }
+
       const [row] = await ctx.services.db.db
         .select({
           status: schema.orders.status,

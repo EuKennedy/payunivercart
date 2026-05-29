@@ -411,7 +411,7 @@ export function mountGatewayWebhooks(app: Hono, services: AppServices): void {
  * across providers (Meta CAPI, GA4, TikTok). Per-pixel rows insert
  * with ON CONFLICT DO NOTHING so webhook replays are no-ops.
  */
-async function dispatchPurchaseTrackingEvent(
+export async function dispatchPurchaseTrackingEvent(
   services: AppServices,
   workspaceId: string,
   orderId: string,
@@ -1788,7 +1788,7 @@ async function handleOrderRefundedSideEffects(
  * webhook hits the existing `handlePreapprovalEvent` path which
  * already owns the card lifecycle.
  */
-async function activateSubscriptionFromPaidOrder(
+export async function activateSubscriptionFromPaidOrder(
   services: AppServices,
   orderId: string,
   paidAt: Date,
@@ -1853,6 +1853,39 @@ async function activateSubscriptionFromPaidOrder(
         `${JSON.stringify({
           level: 'warn',
           event: 'subscription.activate.fanout.failed',
+          subscriptionId: sub.id,
+          error: cause instanceof Error ? cause.message : String(cause),
+        })}\n`,
+      );
+    }
+    // Univercart Connect — dispatch `entitlement.granted` so the partner
+    // SaaS (UniverReviews/ZapGrup/etc) provisions the buyer + the magic
+    // link is minted and emailed. The CARD recurring path fires this via
+    // mapStatusTransition on the preapproval webhook; the PIX path had no
+    // equivalent — this was the gap that left paid PIX subscriptions with
+    // an active sub but no entitlement + no magic link. Best-effort: a
+    // partner outage must not roll back the activation.
+    try {
+      const dispatcher = new ConnectDispatcher(services);
+      const result = await dispatcher.dispatch({
+        type: 'entitlement.granted',
+        subscriptionId: sub.id,
+      });
+      if ('skipped' in result && !result.reason.startsWith('plan_has_no_partner')) {
+        process.stdout.write(
+          `${JSON.stringify({
+            level: 'info',
+            event: 'pix.subscription.connect.dispatch.skipped',
+            subscriptionId: sub.id,
+            reason: result.reason,
+          })}\n`,
+        );
+      }
+    } catch (cause) {
+      process.stdout.write(
+        `${JSON.stringify({
+          level: 'warn',
+          event: 'pix.subscription.connect.dispatch.failed',
           subscriptionId: sub.id,
           error: cause instanceof Error ? cause.message : String(cause),
         })}\n`,
