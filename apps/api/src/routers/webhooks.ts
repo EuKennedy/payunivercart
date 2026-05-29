@@ -186,10 +186,18 @@ export const webhooksRouter = router({
       if (!row) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Webhook não encontrado.' });
       }
+      // Defense-in-depth: even though the SELECT above already filters
+      // by workspaceId, repeat the predicate on the UPDATE to close the
+      // TOCTOU window between the two statements.
       await ctx.services.db.db
         .update(schema.webhooksInbound)
         .set({ processedAt: null, error: null })
-        .where(eq(schema.webhooksInbound.id, input.id));
+        .where(
+          and(
+            eq(schema.webhooksInbound.id, input.id),
+            eq(schema.webhooksInbound.workspaceId, ctx.workspaceId),
+          ),
+        );
       return { ok: true as const };
     }),
 

@@ -1,5 +1,6 @@
 import { type DatabaseClient, schema } from '@payunivercart/db';
 import { and, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { truncateUtf8 } from './utils/truncate';
 
 /**
  * Webhook outbox dispatcher — Stripe-style.
@@ -290,8 +291,7 @@ function backoffForAttempt(attemptJustCompleted: number): number {
 }
 
 function truncate(input: string, maxBytes: number): string {
-  if (input.length <= maxBytes) return input;
-  return input.slice(0, maxBytes);
+  return truncateUtf8(input, maxBytes);
 }
 
 function log(data: Record<string, unknown>): void {
