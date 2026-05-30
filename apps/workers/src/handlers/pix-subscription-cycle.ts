@@ -3,6 +3,8 @@ import { type DatabaseClient, schema } from '@payunivercart/db';
 import { type CreatePixInput, type PaymentResult, getAdapter } from '@payunivercart/payments';
 import type { GatewayId } from '@payunivercart/shared';
 import { and, desc, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { formatBRL } from './pix-subscription-reminders';
+import type { SubscriptionNotifier } from './subscription-notify';
 
 /**
  * PIX-recurring subscription CYCLE worker.
@@ -54,6 +56,11 @@ interface SweepCtx {
    *  upstream IPN lands on the right host. NULL = adapter falls back
    *  to whatever URL the producer configured globally in MP. */
   apiPublicUrl?: string | null;
+  /** Customer-facing dispatcher. When set, a freshly minted charge
+   *  fires `subscription_renewal_due` so the buyer actually receives
+   *  the new PIX copy-paste. Omitted in tests that only assert the
+   *  charge/DB side effects. */
+  notify?: SubscriptionNotifier;
 }
 
 export interface PixCycleSweepResult {
@@ -298,6 +305,32 @@ async function generateCycleForSubscription(
     transactionId: txRow.id,
     gatewayChargeId: charge.gatewayChargeId,
   });
+
+  // Deliver the fresh PIX to the buyer. Without this the charge exists
+  // in the DB but nobody is told to pay it. Best-effort: a notify
+  // failure must not roll back a successfully minted charge (the
+  // reminder/overdue sweep re-sends from the persisted copy-paste).
+  if (ctx.notify) {
+    try {
+      await ctx.notify({
+        workspaceId: sub.workspaceId,
+        subscriptionId: sub.id,
+        eventKey: 'subscription_renewal_due',
+        vars: {
+          nome: sub.customerName,
+          produto: sub.productName,
+          valor: formatBRL(sub.planAmount),
+          codigo: sub.publicReference,
+          link: charge.pixCopyPaste ?? '',
+        },
+      });
+    } catch (cause) {
+      log('warn', 'pix.cycle.notify.failed', {
+        subscriptionId: sub.id,
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  }
 }
 
 async function resolveGatewayCredential(

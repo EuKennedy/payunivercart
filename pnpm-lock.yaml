@@ -339,6 +339,9 @@ importers:
       '@payunivercart/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@payunivercart/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@payunivercart/payments':
         specifier: workspace:*
         version: link:../../packages/payments

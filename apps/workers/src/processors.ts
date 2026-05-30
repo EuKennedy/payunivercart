@@ -12,6 +12,7 @@ import { runPayoutNotifySweep } from './handlers/payout-notify';
 import { runPixSubscriptionCycleSweep } from './handlers/pix-subscription-cycle';
 import { runPixSubscriptionReminderSweep } from './handlers/pix-subscription-reminders';
 import { runRecoverySweep } from './handlers/recovery';
+import { createSubscriptionNotifier } from './handlers/subscription-notify';
 import { runSubscriptionReconcileSweep } from './handlers/subscription-reconcile';
 import { runTrackingDispatchSweep } from './handlers/tracking-dispatch';
 import { runWebhookOutboxSweep } from './handlers/webhook-outbox-dispatcher';
@@ -50,6 +51,11 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
     envVarName: 'ENCRYPTION_KEYS',
   });
   const crypto = new CryptoService(cryptoRegistry);
+
+  // Customer-facing WhatsApp dispatcher for the PIX recurring lifecycle.
+  // Shared by the cycle worker (delivers the fresh QR) and the reminder
+  // worker (T-3 / overdue / grace dunning).
+  const subscriptionNotifier = createSubscriptionNotifier({ db: dbWrapper.db, waha });
 
   const webhookInbound = new Worker(
     QUEUE_NAMES.webhookInbound,
@@ -213,7 +219,10 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
   const pixSubscriptionReminders = new Worker(
     QUEUE_NAMES.pixSubscriptionReminders,
     async (job) => {
-      const result = await runPixSubscriptionReminderSweep({ db: dbWrapper.db });
+      const result = await runPixSubscriptionReminderSweep({
+        db: dbWrapper.db,
+        notify: subscriptionNotifier,
+      });
       logEvent('pix.subscription.reminders.sweep', { jobId: job.id, ...result });
       return result;
     },
@@ -231,6 +240,7 @@ export function startWorkers(ctx: WorkerCtx): Worker[] {
         db: dbWrapper.db,
         crypto,
         apiPublicUrl: ctx.env.API_PUBLIC_URL ?? null,
+        notify: subscriptionNotifier,
       });
       logEvent('pix.subscription.cycle.sweep', { jobId: job.id, ...result });
       return result;

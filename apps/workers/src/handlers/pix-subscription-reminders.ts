@@ -279,7 +279,7 @@ function firstName(full: string): string {
   return (full.split(/\s+/)[0] ?? full).trim();
 }
 
-function formatBRL(cents: bigint | number): string {
+export function formatBRL(cents: bigint | number): string {
   const n = typeof cents === 'bigint' ? Number(cents) : cents;
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
