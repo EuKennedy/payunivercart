@@ -13,11 +13,14 @@ const config: NextConfig = {
   // Runtime image copies .next/standalone + .next/static + public —
   // ~150 MB instead of the full 1 GB /repo tree.
   output: 'standalone',
+  // Trace files from the monorepo root so workspace packages are included.
+  // Top-level since Next 15 — under `experimental` it is silently ignored,
+  // which lets `next build` trace from the default root and walk the whole
+  // monorepo, OOM-killing the Coolify VPS (the "exit code 255" deploys).
+  outputFileTracingRoot: path.resolve(__dirname, '../../'),
   experimental: {
     // Enable server actions for the auth flow forms.
     serverActions: { bodySizeLimit: '1mb' },
-    // Trace files from the monorepo root so workspace packages are included.
-    outputFileTracingRoot: path.resolve(__dirname, '../../'),
   },
   // Transpile workspace packages so Next.js can consume their `src/*.ts`
   // entry points without each one needing its own build step.

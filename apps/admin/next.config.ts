@@ -10,9 +10,10 @@ const config: NextConfig = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   output: 'standalone',
-  experimental: {
-    outputFileTracingRoot: path.resolve(__dirname, '../../'),
-  },
+  // Top-level since Next 15 — under `experimental` it is silently ignored,
+  // which lets `next build` trace from the default root and walk the whole
+  // monorepo, OOM-killing the Coolify VPS (the "exit code 255" deploys).
+  outputFileTracingRoot: path.resolve(__dirname, '../../'),
   transpilePackages: [
     '@payunivercart/api',
     '@payunivercart/audit',
