@@ -62,7 +62,8 @@ async function main() {
     .where(eq(schema.partnerAccounts.slug, slug))
     .limit(1);
   if (!partner) throw new Error(`partner slug=${slug} not found — bootstrap it first`);
-  if (partner.status !== 'active') throw new Error(`partner ${slug} is ${partner.status}, not active`);
+  if (partner.status !== 'active')
+    throw new Error(`partner ${slug} is ${partner.status}, not active`);
   if (!partner.setupBaseUrl) throw new Error(`partner ${slug} has no setupBaseUrl`);
 
   // 2. Resolve a plan mapped to this partner. The mapping
