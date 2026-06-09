@@ -1,17 +1,18 @@
 /**
  * One-shot bootstrap — registra o belezaki como partner + produto vendável no
- * Univercart, com 2 planos. Idempotente: rode quantas vezes quiser, não duplica.
+ * Univercart, com 3 planos. Idempotente: rode quantas vezes quiser, não duplica.
  *
  * Cria/garante:
  *   1. partnerAccount  slug=belezaki  (active)
- *   2. partnerRoles    entry, premium
+ *   2. partnerRoles    entry, medium, ultra (tiers reconhecidos pelo belezaki)
  *   3. partnerApiKey   live (só minta se ainda não existe nenhuma)
  *   4. webhook endpoint (só insere se URL ainda não cadastrada) — opcional
  *   5. product         "Belezaki" (type=subscription) no workspace de venda
- *   6. 2 planos (cartão, trial 7 dias):
+ *   6. 3 planos (cartão, trial 7 dias):
  *        Entry    R$ 49,90/mês  → partnerRoleSlug=entry
- *        Premium  R$ 99,00/mês  → partnerRoleSlug=premium
- *      ambos partnerAccountId=belezaki, paymentMethod=card, trialDays=7
+ *        Premium  R$ 99,00/mês  → partnerRoleSlug=medium
+ *        Ultra    R$199,00/mês  → partnerRoleSlug=ultra  (módulo Sist. Atendimento)
+ *      todos partnerAccountId=belezaki, paymentMethod=card, trialDays=7
  *
  * Os secrets do partner (API key / webhook / jwt) são impressos UMA vez quando
  * minтados — copie pro .env do belezaki.
@@ -43,17 +44,23 @@ const PRODUCT_SLUG = 'belezaki';
 const PRODUCT_NAME = 'Belezaki';
 const PRODUCT_DESCRIPTION =
   'Sistema de gestão para salões e clínicas de estética. ' +
-  'Entry: de R$ 99,90 por R$ 49,90/mês. Premium: de R$ 199,00 por R$ 99,00/mês.';
+  'Entry R$ 49,90/mês · Premium R$ 99,00/mês · Ultra R$ 199,00/mês (com Sistema de Atendimento). ' +
+  '7 dias grátis em todos os planos.';
 
+// Tiers reconhecidos pelo belezaki: entry | medium | ultra. O role do plano
+// TEM que ser um destes (o belezaki compara role.toLowerCase()). `ultra` é o
+// gatilho do módulo premium (Sistema de Atendimento).
 const ROLES = [
   { slug: 'entry', displayName: 'Entry' },
-  { slug: 'premium', displayName: 'Premium' },
+  { slug: 'medium', displayName: 'Medium' },
+  { slug: 'ultra', displayName: 'Ultra' },
 ];
 
 const TRIAL_DAYS = 7;
 const PLANS = [
   { name: 'Entry', amountCents: 4990n, roleSlug: 'entry', sortOrder: 0, highlighted: false },
-  { name: 'Premium', amountCents: 9900n, roleSlug: 'premium', sortOrder: 1, highlighted: true },
+  { name: 'Premium', amountCents: 9900n, roleSlug: 'medium', sortOrder: 1, highlighted: true },
+  { name: 'Ultra', amountCents: 19900n, roleSlug: 'ultra', sortOrder: 2, highlighted: false },
 ];
 
 function arg(name: string, required = true): string | undefined {
@@ -327,7 +334,7 @@ async function main() {
   console.info(`partner     = ${PARTNER_SLUG} (${partnerId})`);
   console.info(`product     = ${PRODUCT_NAME} (${productId})`);
   console.info(
-    `planos      = Entry R$49,90 · Premium R$99,00 (mensal, cartão, ${TRIAL_DAYS}d trial)`,
+    `planos      = Entry R$49,90 (entry) · Premium R$99,00 (medium) · Ultra R$199,00 (ultra) — mensal, cartão, ${TRIAL_DAYS}d trial`,
   );
   console.info(`roles       = entry, premium`);
   if (printSecrets.length > 0) {
