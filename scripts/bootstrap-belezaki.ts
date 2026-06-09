@@ -76,26 +76,42 @@ function mimeFromExt(path: string): string {
 async function main() {
   const workspaceSlug = arg('workspace-slug', false);
   const workspaceIdArg = arg('workspace-id', false);
+  const workspaceNameArg = arg('workspace-name', false);
   const setupUrl = arg('setup-url');
   const webhookUrl = arg('webhook-url', false);
   const logoPath = arg('logo', false);
-  if (!workspaceSlug && !workspaceIdArg)
-    throw new Error('Missing --workspace-slug or --workspace-id');
+  if (!workspaceSlug && !workspaceIdArg && !workspaceNameArg)
+    throw new Error('Missing --workspace-slug, --workspace-id or --workspace-name');
 
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL required');
   const { db } = createDatabaseClient({ connectionString: process.env.DATABASE_URL, ssl: false });
 
-  // 0. Workspace de venda (onde o produto vive).
-  const [ws] = await db
-    .select({ id: schema.workspaces.id, name: schema.workspaces.name })
+  // 0. Workspace de venda (onde o produto vive). Resolve por id, slug ou nome.
+  const workspaceWhere = workspaceIdArg
+    ? eq(schema.workspaces.id, workspaceIdArg)
+    : workspaceSlug
+      ? eq(schema.workspaces.slug, workspaceSlug)
+      : eq(schema.workspaces.name, workspaceNameArg as string);
+  const matches = await db
+    .select({
+      id: schema.workspaces.id,
+      name: schema.workspaces.name,
+      slug: schema.workspaces.slug,
+    })
     .from(schema.workspaces)
-    .where(
-      workspaceIdArg
-        ? eq(schema.workspaces.id, workspaceIdArg)
-        : eq(schema.workspaces.slug, workspaceSlug as string),
-    )
-    .limit(1);
-  if (!ws) throw new Error(`workspace not found (${workspaceIdArg ?? workspaceSlug})`);
+    .where(workspaceWhere)
+    .limit(5);
+  if (matches.length === 0) {
+    throw new Error(`workspace not found (${workspaceIdArg ?? workspaceSlug ?? workspaceNameArg})`);
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `ambiguous workspace name — ${matches.length} matches: ${matches
+        .map((m) => `${m.name} [slug=${m.slug} id=${m.id}]`)
+        .join('; ')}. Re-run with --workspace-id <uuid>.`,
+    );
+  }
+  const ws = matches[0];
   const workspaceId = ws.id;
 
   const printSecrets: string[] = [];
