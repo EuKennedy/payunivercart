@@ -8,10 +8,10 @@
  *   3. partnerApiKey   live (só minta se ainda não existe nenhuma)
  *   4. webhook endpoint (só insere se URL ainda não cadastrada) — opcional
  *   5. product         "Belezaki" (type=subscription) no workspace de venda
- *   6. 2 planos:
+ *   6. 2 planos (cartão, trial 7 dias):
  *        Entry    R$ 49,90/mês  → partnerRoleSlug=entry
  *        Premium  R$ 99,00/mês  → partnerRoleSlug=premium
- *      ambos partnerAccountId=belezaki, paymentMethod=both
+ *      ambos partnerAccountId=belezaki, paymentMethod=card, trialDays=7
  *
  * Os secrets do partner (API key / webhook / jwt) são impressos UMA vez quando
  * minтados — copie pro .env do belezaki.
@@ -50,6 +50,7 @@ const ROLES = [
   { slug: 'premium', displayName: 'Premium' },
 ];
 
+const TRIAL_DAYS = 7;
 const PLANS = [
   { name: 'Entry', amountCents: 4990n, roleSlug: 'entry', sortOrder: 0, highlighted: false },
   { name: 'Premium', amountCents: 9900n, roleSlug: 'premium', sortOrder: 1, highlighted: true },
@@ -292,10 +293,12 @@ async function main() {
       billingPeriod: 'monthly',
       amountCents: plan.amountCents,
       currency: 'BRL' as const,
-      trialDays: 0,
+      // Trial de 7 dias: exige cartão (validado na criação do preapproval MP;
+      // free_trial só adia a 1ª cobrança). PIX recorrente não valida cartão.
+      trialDays: TRIAL_DAYS,
       isActive: true,
       sortOrder: plan.sortOrder,
-      paymentMethod: 'both' as const,
+      paymentMethod: 'card' as const,
       isHighlighted: plan.highlighted,
       partnerAccountId: partnerId,
       partnerRoleSlug: plan.roleSlug,
@@ -323,7 +326,9 @@ async function main() {
   console.info(`workspace   = ${ws.name} (${workspaceId})`);
   console.info(`partner     = ${PARTNER_SLUG} (${partnerId})`);
   console.info(`product     = ${PRODUCT_NAME} (${productId})`);
-  console.info(`planos      = Entry R$49,90 · Premium R$99,00 (mensal, both)`);
+  console.info(
+    `planos      = Entry R$49,90 · Premium R$99,00 (mensal, cartão, ${TRIAL_DAYS}d trial)`,
+  );
   console.info(`roles       = entry, premium`);
   if (printSecrets.length > 0) {
     console.info('\n--- SECRETS (copie pro .env do belezaki AGORA — não reaparecem) ---');

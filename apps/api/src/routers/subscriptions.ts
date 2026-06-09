@@ -131,20 +131,34 @@ export const subscriptionsRouter = router({
 
   createPlan: workspaceProcedure
     .input(
-      z.object({
-        productId: z.string().uuid(),
-        name: z.string().trim().min(1).max(80),
-        billingPeriod: BillingPeriod,
-        amountCents: z.number().int().min(100).max(10_000_000),
-        trialDays: z.number().int().min(0).max(365).default(0),
-        isHighlighted: z.boolean().default(false),
-        /** Default 'card' keeps every existing producer flow intact. */
-        paymentMethod: PlanPaymentMethod.default('card'),
-        sortOrder: z.number().int().min(0).max(999).default(0),
-        /** Univercart Connect: partner this plan provisions to. */
-        partnerAccountId: z.string().uuid().nullable().default(null),
-        partnerRoleSlug: z.string().trim().min(1).max(40).nullable().default(null),
-      }),
+      z
+        .object({
+          productId: z.string().uuid(),
+          name: z.string().trim().min(1).max(80),
+          billingPeriod: BillingPeriod,
+          amountCents: z.number().int().min(100).max(10_000_000),
+          trialDays: z.number().int().min(0).max(365).default(0),
+          isHighlighted: z.boolean().default(false),
+          /** Default 'card' keeps every existing producer flow intact. */
+          paymentMethod: PlanPaymentMethod.default('card'),
+          sortOrder: z.number().int().min(0).max(999).default(0),
+          /** Univercart Connect: partner this plan provisions to. */
+          partnerAccountId: z.string().uuid().nullable().default(null),
+          partnerRoleSlug: z.string().trim().min(1).max(40).nullable().default(null),
+        })
+        .superRefine((v, ctx) => {
+          // Trial requer cartão: a validação/autorização do cartão acontece na
+          // criação do preapproval MP (free_trial só adia a 1ª cobrança). PIX
+          // recorrente gera cobrança por ciclo e não valida cartão — incompatível.
+          if (v.trialDays > 0 && v.paymentMethod !== 'card') {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['trialDays'],
+              message:
+                'Período de teste exige pagamento por cartão — o cartão é validado e a primeira cobrança ocorre só após o trial.',
+            });
+          }
+        }),
     )
     .output(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -248,6 +262,27 @@ export const subscriptionsRouter = router({
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: 'Para integrar com um SaaS parceiro, escolha o parceiro E o papel.',
+          });
+        }
+      }
+      // Trial requer cartão (mesma regra do createPlan). Valida o estado
+      // pós-patch quando trial ou método de pagamento é alterado.
+      if (input.trialDays !== undefined || input.paymentMethod !== undefined) {
+        const [cur] = await ctx.services.db.db
+          .select({
+            trialDays: schema.subscriptionPlans.trialDays,
+            paymentMethod: schema.subscriptionPlans.paymentMethod,
+          })
+          .from(schema.subscriptionPlans)
+          .where(eq(schema.subscriptionPlans.id, input.id))
+          .limit(1);
+        const nextTrial = input.trialDays ?? cur?.trialDays ?? 0;
+        const nextMethod = input.paymentMethod ?? cur?.paymentMethod ?? 'card';
+        if (nextTrial > 0 && nextMethod !== 'card') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              'Período de teste exige pagamento por cartão — o cartão é validado e a primeira cobrança ocorre só após o trial.',
           });
         }
       }
