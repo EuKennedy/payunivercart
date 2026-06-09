@@ -716,7 +716,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           </div>
 
           {/* ---------- Right column: summary ---------- */}
-          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+          <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
             <div className="glass-card p-5">
               <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Resumo do pedido
@@ -1376,7 +1376,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
             </ExpressCard>
 
             {/* ===== Col 3 — Resumo + trust ===== */}
-            <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
               <div className="glass-card p-5">
                 <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                   Sua assinatura
@@ -1769,7 +1769,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
               </StitchStepCard>
             </div>
 
-            <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
               <div className="glass-card p-6">
                 <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                   Sua assinatura
@@ -2091,7 +2091,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
           </div>
 
           {/* ===== Sticky summary ===== */}
-          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+          <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
             <div className="glass-card p-6">
               <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Sua assinatura
@@ -3068,7 +3068,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           </div>
 
           {/* ===================== Sticky summary ===================== */}
-          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+          <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
             <div className="glass-card p-6">
               <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Resumo do pedido
@@ -3955,7 +3955,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           </ExpressCard>
 
           {/* ===== Col 3 — Resumo + trust ===== */}
-          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+          <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
             <div className="glass-card p-5">
               <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Resumo do pedido

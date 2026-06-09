@@ -419,6 +419,17 @@ h4 {
   cursor: pointer;
 }
 
+/* Horizontal gutter so the checkout never glues to the screen edges.
+ * 10px breathing room on mobile, more generous on larger viewports. */
+.container-x {
+  padding-inline: 10px;
+}
+@media (min-width: 640px) {
+  .container-x {
+    padding-inline: 24px;
+  }
+}
+
 /* Mobile fixed-bottom CTA on small viewports */
 @media (max-width: 640px) {
   .btn {

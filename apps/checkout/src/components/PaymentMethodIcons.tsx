@@ -19,7 +19,7 @@ type IconProps = {
 
 const PIX_BRAND_COLOR = '#32BCAD';
 
-export function PixIcon({ size = 16, className, tone = 'inherit' }: IconProps) {
+export function PixIcon({ size = 16, className, tone = 'brand' }: IconProps) {
   const fill = tone === 'brand' ? PIX_BRAND_COLOR : 'currentColor';
   return (
     <svg
@@ -27,33 +27,16 @@ export function PixIcon({ size = 16, className, tone = 'inherit' }: IconProps) {
       aria-label="PIX"
       width={size}
       height={size}
-      viewBox="0 0 512 512"
+      viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
       <title>PIX</title>
-      {/* Pétala superior */}
+      {/* Logo oficial PIX (BACEN) — marca de 4 setas em losango. */}
       <path
         fill={fill}
-        d="M255.9 7.9c-7 0-13.7 2.8-18.6 7.7l-94.4 94.4 38.3 38.3a93.4 93.4 0 0 1 132.4 0l38.3-38.3-77.4-94.4a26.3 26.3 0 0 0-18.6-7.7z"
+        d="M11.917 11.71a2.046 2.046 0 0 1-1.454-.602l-2.1-2.1a.4.4 0 0 0-.551 0L5.704 11.115a2.044 2.044 0 0 1-1.454.602h-.414l2.66 2.66c.83.83 2.177.83 3.007 0l2.66-2.66h-.246zM4.25 8.04a2.046 2.046 0 0 1 1.454.601l2.108 2.108a.39.39 0 0 0 .552 0l2.1-2.1a2.044 2.044 0 0 1 1.453-.602h.247l-2.66-2.66a2.128 2.128 0 0 0-3.007 0l-2.66 2.66h.413zm12.62 2.197-1.609-1.61a.31.31 0 0 1-.116.024h-.713a1.446 1.446 0 0 0-1.017.422l-2.1 2.1a1.052 1.052 0 0 1-1.488 0L7.32 9.067A1.446 1.446 0 0 0 6.303 8.65H5.42a.31.31 0 0 1-.11-.022L3.692 10.24a2.128 2.128 0 0 0 0 3.007l1.62 1.612a.31.31 0 0 1 .108-.022h.883a1.446 1.446 0 0 0 1.017-.422l2.108-2.108a1.085 1.085 0 0 1 1.488 0l2.1 2.1a1.446 1.446 0 0 0 1.017.422h.713a.31.31 0 0 1 .116.023l1.609-1.608a2.128 2.128 0 0 0 0-3.007z"
       />
-      {/* Pétala esquerda */}
-      <path
-        fill={fill}
-        d="M15.6 237.3 7.9 256l7.7 18.7 94.4 94.4 38.3-38.3a93.4 93.4 0 0 1 0-149.6L110 142.9 15.6 237.3z"
-      />
-      {/* Pétala direita */}
-      <path
-        fill={fill}
-        d="M496.4 237.3 402 142.9l-38.3 38.3a93.4 93.4 0 0 1 0 149.6l38.3 38.3 94.4-94.4 7.7-18.7-7.7-18.7z"
-      />
-      {/* Pétala inferior */}
-      <path
-        fill={fill}
-        d="M255.9 504.1a26.3 26.3 0 0 0 18.6-7.7l94.4-94.4-38.3-38.3a93.4 93.4 0 0 1-149.6 0l-38.3 38.3 94.4 94.4a26.3 26.3 0 0 0 18.8 7.7z"
-      />
-      {/* Núcleo central — círculo simbolizando a conexão */}
-      <circle fill={fill} cx="256" cy="256" r="58" opacity="0.95" />
     </svg>
   );
 }
