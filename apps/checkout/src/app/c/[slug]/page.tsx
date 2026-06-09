@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { use, useEffect, useMemo, useRef, useState } from 'react';
+import { MobileSummaryAccordion } from '../../../components/MobileSummaryAccordion';
 import { CardIcon, PixIcon } from '../../../components/PaymentMethodIcons';
 import { ThemeToggle } from '../../../components/ThemeToggle';
 import { TrackingScripts, useFireEvent } from '../../../components/TrackingScripts';
@@ -429,6 +430,16 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 
       <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr] lg:gap-7">
+          {/* Mobile: resumo colapsado no topo (desktop usa o aside à direita) */}
+          <MobileSummaryAccordion
+            className="lg:hidden"
+            productName={product.name}
+            coverImageUrl={product.coverImageUrl}
+            total={formattedTotal}
+            perInstallment={perInstallment}
+            maxInstallments={product.maxInstallments}
+            brandTone={brandTone}
+          />
           {/* ---------- Left column: steps ---------- */}
           <div className="flex flex-col gap-4">
             <StepCard
@@ -716,8 +727,8 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           </div>
 
           {/* ---------- Right column: summary ---------- */}
-          <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
-            <div className="glass-card p-5">
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            <div className="glass-card p-5 max-lg:hidden">
               <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Resumo do pedido
               </p>
@@ -1376,7 +1387,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
             </ExpressCard>
 
             {/* ===== Col 3 — Resumo + trust ===== */}
-            <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
+            <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
               <div className="glass-card p-5">
                 <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                   Sua assinatura
@@ -1769,7 +1780,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
               </StitchStepCard>
             </div>
 
-            <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
+            <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
               <div className="glass-card p-6">
                 <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                   Sua assinatura
@@ -2091,7 +2102,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
           </div>
 
           {/* ===== Sticky summary ===== */}
-          <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
             <div className="glass-card p-6">
               <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Sua assinatura
@@ -2708,6 +2719,16 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
 
       <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
+          {/* Mobile: resumo colapsado no topo (desktop usa o aside à direita) */}
+          <MobileSummaryAccordion
+            className="lg:hidden"
+            productName={product.name}
+            coverImageUrl={product.coverImageUrl}
+            total={formattedTotal}
+            perInstallment={perInstallment}
+            maxInstallments={product.maxInstallments}
+            brandTone={brandTone}
+          />
           {/* ===================== Stepper column ===================== */}
           <div className="flex flex-col gap-5">
             <StitchStepCard
@@ -3068,8 +3089,8 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           </div>
 
           {/* ===================== Sticky summary ===================== */}
-          <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
-            <div className="glass-card p-6">
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            <div className="glass-card p-6 max-lg:hidden">
               <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Resumo do pedido
               </p>
@@ -3674,6 +3695,16 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
 
       <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1400px] py-6 sm:py-10">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr_0.9fr]">
+          {/* Mobile: resumo colapsado no topo (desktop usa o aside à direita) */}
+          <MobileSummaryAccordion
+            className="lg:hidden"
+            productName={product.name}
+            coverImageUrl={product.coverImageUrl}
+            total={formattedTotal}
+            perInstallment={perInstallment}
+            maxInstallments={product.maxInstallments}
+            brandTone={brandTone}
+          />
           {/* ===== Col 1 — Identificação ===== */}
           <ExpressCard
             stepNum={1}
@@ -3955,8 +3986,8 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           </ExpressCard>
 
           {/* ===== Col 3 — Resumo + trust ===== */}
-          <aside className="order-first flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-30 max-lg:bg-[var(--bg)] max-lg:py-2 lg:order-none lg:bg-transparent lg:py-0 lg:sticky lg:top-6 lg:self-start">
-            <div className="glass-card p-5">
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            <div className="glass-card p-5 max-lg:hidden">
               <p className="font-semibold text-[11px] text-[var(--ink-50)] uppercase tracking-[0.18em]">
                 Resumo do pedido
               </p>

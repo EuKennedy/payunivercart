@@ -17,27 +17,20 @@ type IconProps = {
   tone?: 'brand' | 'inherit';
 };
 
-const PIX_BRAND_COLOR = '#32BCAD';
-
-export function PixIcon({ size = 16, className, tone = 'brand' }: IconProps) {
-  const fill = tone === 'brand' ? PIX_BRAND_COLOR : 'currentColor';
+export function PixIcon({ size = 16, className }: IconProps) {
+  // Logo oficial PIX (PNG fornecido pela marca). Usamos o asset real em vez de
+  // redesenhar em SVG — o losango do PIX tem geometria/cor exatas que não
+  // devem ser aproximadas.
   return (
-    <svg
-      role="img"
-      aria-label="PIX"
+    <img
+      src="/pix-logo.png"
+      alt="PIX"
       width={size}
       height={size}
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
       className={className}
-    >
-      <title>PIX</title>
-      {/* Logo oficial PIX (BACEN) — marca de 4 setas em losango. */}
-      <path
-        fill={fill}
-        d="M11.917 11.71a2.046 2.046 0 0 1-1.454-.602l-2.1-2.1a.4.4 0 0 0-.551 0L5.704 11.115a2.044 2.044 0 0 1-1.454.602h-.414l2.66 2.66c.83.83 2.177.83 3.007 0l2.66-2.66h-.246zM4.25 8.04a2.046 2.046 0 0 1 1.454.601l2.108 2.108a.39.39 0 0 0 .552 0l2.1-2.1a2.044 2.044 0 0 1 1.453-.602h.247l-2.66-2.66a2.128 2.128 0 0 0-3.007 0l-2.66 2.66h.413zm12.62 2.197-1.609-1.61a.31.31 0 0 1-.116.024h-.713a1.446 1.446 0 0 0-1.017.422l-2.1 2.1a1.052 1.052 0 0 1-1.488 0L7.32 9.067A1.446 1.446 0 0 0 6.303 8.65H5.42a.31.31 0 0 1-.11-.022L3.692 10.24a2.128 2.128 0 0 0 0 3.007l1.62 1.612a.31.31 0 0 1 .108-.022h.883a1.446 1.446 0 0 0 1.017-.422l2.108-2.108a1.085 1.085 0 0 1 1.488 0l2.1 2.1a1.446 1.446 0 0 0 1.017.422h.713a.31.31 0 0 1 .116.023l1.609-1.608a2.128 2.128 0 0 0 0-3.007z"
-      />
-    </svg>
+      style={{ display: 'inline-block', objectFit: 'contain' }}
+      draggable={false}
+    />
   );
 }
 
