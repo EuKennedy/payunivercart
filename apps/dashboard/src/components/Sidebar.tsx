@@ -163,6 +163,37 @@ export function Sidebar() {
                 <WorkspaceSwitcher />
               </div>
               <NotificationBell />
+              {/* Soft collapse toggle — minimalist ghost button, panel-left
+                  icon. Same `toggleCollapsed` as the footer control; lives
+                  here too so it's discoverable at the top of the nav. */}
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                title="Recolher menu"
+                aria-label="Recolher menu"
+                className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-xl text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+              >
+                <svg viewBox="0 0 20 20" fill="none" className="size-[18px]" aria-hidden>
+                  <title>Recolher menu</title>
+                  <rect
+                    x="3"
+                    y="4"
+                    width="14"
+                    height="12"
+                    rx="2.5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  />
+                  <path d="M8 4v12" stroke="currentColor" strokeWidth="1.5" />
+                  <path
+                    d="M13.5 8L11.5 10l2 2"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
             </div>
             <MpAccountSwitcher />
           </>
