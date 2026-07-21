@@ -173,7 +173,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       # Build every runtime target the compose file references. Each
       # `--target` reruns BuildKit's incremental graph, so shared layers
       # (deps, src) only build once. Cache-from/to GHA-cache speeds repeat
