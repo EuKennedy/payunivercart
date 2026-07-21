@@ -106,11 +106,13 @@ interface VisitTokenClaims {
 }
 
 function b64urlEncode(input: Buffer | string): string {
-  return Buffer.from(input)
-    .toString('base64')
-    .replace(/=+$/u, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
+  // `base64url` (RFC 4648 §5) is standard base64 with `+`→`-`, `/`→`_`
+  // and no `=` padding — identical output to the previous manual
+  // strip+swap, minus the `/=+$/` regex CodeQL flagged as a polynomial
+  // ReDoS. Not exploitable here (the regex only ever ran on base64
+  // output, where `=` is ≤2 trailing chars), but the stdlib encoding is
+  // both faster and clean of the alert.
+  return Buffer.from(input).toString('base64url');
 }
 
 function b64urlDecode(input: string): Buffer {
