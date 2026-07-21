@@ -1,0 +1,32 @@
+# =========================================================================
+# OSV-Scanner exceptions.
+#
+# The `Security scan` job runs osv-scanner with no severity threshold, so
+# ANY advisory in the lockfile fails CI — including medium and low. That
+# is stricter than the policy the rest of the pipeline states: the
+# `pnpm audit` step gates at `--audit-level=high` and its own comment
+# says "Moderate/low are logged but don't block".
+#
+# Rather than lower the scanner's bar globally (which would silently stop
+# gating every future medium), each exception is recorded here with a
+# reason and an expiry. When `ignoreUntil` passes the build fails again
+# and forces a conscious re-decision.
+# =========================================================================
+
+[[IgnoredVulns]]
+id = "GHSA-8988-4f7v-96qf"
+ignoreUntil = 2026-10-01
+# @opentelemetry/core 1.29.0 + 1.30.1 — CVSS 5.3 (medium).
+#
+# Transitive-only, and NOT directly replaceable. Both versions arrive
+# under the `@opentelemetry/instrumentation-*` family that `@sentry/node`
+# pulls in for auto-instrumentation (amqplib, connect, express, fastify,
+# fs, hapi, http, koa, ...). The patched line is 2.8.0 — a MAJOR bump.
+# Forcing OTel 2.x underneath a Sentry release built against 1.x breaks
+# instrumentation at runtime, and nothing in this test suite exercises
+# that path, so the failure would first surface in production on the
+# payments API.
+#
+# Correct fix is to bump @sentry/node to a release that itself depends on
+# OTel 2.x, then drop this entry. Revisit before 2026-10-01.
+reason = "Transitive via @sentry/node's @opentelemetry/instrumentation-* stack; patch requires a major OTel bump that must come from a @sentry/node upgrade, not an override."
