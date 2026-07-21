@@ -251,11 +251,17 @@ jobs:
         continue-on-error: true
         run: pnpm audit --audit-level=high --dev
 
+      # The scanner has no severity threshold, so ANY advisory in the
+      # lockfile fails the build — stricter than the `pnpm audit` step
+      # above, which gates at `high` on purpose. Exceptions therefore go
+      # in `osv-scanner.toml` one advisory at a time, each with a reason
+      # and an `ignoreUntil` date, instead of relaxing the gate globally.
       - name: OSV-Scanner (lockfile)
         uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             --lockfile=pnpm-lock.yaml
+            --config=osv-scanner.toml
             --recursive
             ./
 

@@ -7,3 +7,4 @@ export * from './idempotency/index';
 export * from './br-document/index';
 export * from './slug/index';
 export * from './webhooks/index';
+export * from './checkout-timer/index';

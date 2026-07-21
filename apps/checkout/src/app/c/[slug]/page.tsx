@@ -25,6 +25,18 @@ import { trpc } from '../../../lib/trpc';
 type CheckoutData = inferRouterOutputs<AppRouter>['checkout']['getBySlug'];
 
 /**
+ * Per-product checkout appearance, both NULL when the producer left the
+ * feature off. Derived from the router output rather than re-declared
+ * so a shape change in `checkout.getBySlug` breaks the typecheck here
+ * instead of silently rendering nothing — tRPC `.output()` strips keys
+ * absent from its zod shape, so "the band never appears and nothing
+ * errors" is the failure mode we are designing against.
+ */
+type CheckoutTimer = NonNullable<CheckoutData['product']['timer']>;
+type CheckoutBanner = NonNullable<CheckoutData['product']['topBanner']>;
+type CheckoutCurrency = CheckoutData['product']['currency'];
+
+/**
  * Public checkout — `/c/<slug>`.
  *
  * Lizzon-tier 2-step glass UI. Identificação → Pagamento, with a
@@ -229,15 +241,14 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
 
   const createOrder = trpc.checkout.createOrder.useMutation();
 
-  const formattedTotal = useMemo(
-    () => formatCents(product.priceCents, product.currency),
-    [product.priceCents, product.currency],
-  );
-
-  const perInstallment = useMemo(() => {
-    if (product.maxInstallments < 2) return null;
-    return formatCents(Math.ceil(product.priceCents / product.maxInstallments), product.currency);
-  }, [product.maxInstallments, product.currency, product.priceCents]);
+  const timerState = useScarcityTimer(product.id, product.timer);
+  const {
+    effectivePriceCents,
+    formattedTotal,
+    formattedListTotal,
+    formattedTimerDiscount,
+    perInstallment,
+  } = useEffectivePrice(product, timerState);
 
   const docDigits = unmaskDigits(doc);
   const phoneDigits = unmaskDigits(phone);
@@ -359,6 +370,11 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
       clickIds,
       marketplaceListingId: marketplaceMeta.marketplaceListingId,
       utm: marketplaceMeta.utm,
+      // The ONLY thing the countdown puts on the wire. Not an amount,
+      // not a percentage, not an "I expired" flag — an opaque blob the
+      // server signed and only the server can read. Absent or forged
+      // simply means full price.
+      timerToken: timerState?.token ?? undefined,
     });
   };
 
@@ -379,6 +395,11 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   }
 
   if (createOrder.data) {
+    // `amountCents` is what the gateway was actually asked for, net of
+    // whatever the server decided the countdown had earned. We render
+    // that instead of our own preview: an idle tab can hold a timer
+    // config up to `staleTime` old, and the confirmation screen is the
+    // last place a buyer should see a number we merely predicted.
     return (
       <CenteredCard wide>
         <SuccessView
@@ -386,7 +407,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           viewToken={createOrder.data.viewToken}
           reference={createOrder.data.publicReference}
           methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
-          formattedTotal={formattedTotal}
+          formattedTotal={formatCents(createOrder.data.amountCents, product.currency)}
           buyerEmail={email.trim()}
           pixQrCodeImage={createOrder.data.pixQrCodeImage}
           pixCopyPaste={createOrder.data.pixCopyPaste}
@@ -411,8 +432,16 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
   const brandPalette = brandTone ? deriveBrandPalette(brandTone) : null;
 
   return (
+    // `min-h-dvh`, not `min-h-screen`: `100vh` on mobile is the viewport
+    // WITHOUT the browser chrome subtracted, so a floor of 100vh already
+    // guaranteed a scrollbar on short checkouts — and the promo banner
+    // plus the countdown band, which render INSIDE this element, make
+    // that overshoot visible rather than merely theoretical. `dvh`
+    // tracks the viewport that is actually visible. Applied to all six
+    // template roots; `CenteredCard` is deliberately left alone since it
+    // renders no ProducerHeader and therefore neither new surface.
     <main
-      className="min-h-screen"
+      className="min-h-dvh"
       style={
         brandPalette
           ? ({
@@ -426,7 +455,14 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
           : undefined
       }
     >
-      <ProducerHeader workspace={workspace} brandTone={brandTone} />
+      <ProducerHeader
+        workspace={workspace}
+        brandTone={brandTone}
+        banner={product.topBanner}
+        timer={product.timer}
+        timerState={timerState}
+        currency={product.currency}
+      />
 
       <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr] lg:gap-7">
@@ -436,6 +472,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
             productName={product.name}
             coverImageUrl={product.coverImageUrl}
             total={formattedTotal}
+            originalTotal={formattedTimerDiscount ? formattedListTotal : null}
             perInstallment={perInstallment}
             maxInstallments={product.maxInstallments}
             brandTone={brandTone}
@@ -694,7 +731,7 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                                 <option key={n} value={n}>
                                   {n === 1
                                     ? `1× — ${formattedTotal}`
-                                    : `${n}× — ${formatCents(Math.ceil(product.priceCents / n), product.currency)} sem juros`}
+                                    : `${n}× — ${formatCents(Math.ceil(effectivePriceCents / n), product.currency)} sem juros`}
                                 </option>
                               ),
                             )}
@@ -759,15 +796,26 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                   <p className="mt-1 text-[12px] text-[var(--ink-50)]">Quantidade: 1</p>
                 </div>
                 <p className="shrink-0 font-semibold text-[14px] text-[var(--ink-100)] tabular-nums">
-                  {formattedTotal}
+                  {formattedListTotal}
                 </p>
               </div>
 
+              {/* Subtotal / desconto / total, in the same three-value
+                  shape the order row records — the buyer sees exactly
+                  the breakdown the producer will read back in Pedidos. */}
               <dl className="mt-4 space-y-2 text-[13px]">
                 <div className="flex items-baseline justify-between">
                   <dt className="text-[var(--ink-70)]">Subtotal (1 produto)</dt>
-                  <dd className="text-[var(--ink-90)] tabular-nums">{formattedTotal}</dd>
+                  <dd className="text-[var(--ink-90)] tabular-nums">{formattedListTotal}</dd>
                 </div>
+                {formattedTimerDiscount ? (
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-[var(--ink-70)]">Desconto</dt>
+                    <dd className="font-medium text-[var(--dop-600)] tabular-nums">
+                      −{formattedTimerDiscount}
+                    </dd>
+                  </div>
+                ) : null}
                 <div className="flex items-baseline justify-between">
                   <dt className="text-[var(--ink-70)]">Frete</dt>
                   <dd className="font-medium text-[var(--dop-600)]">
@@ -780,8 +828,15 @@ function CheckoutView({ slug, data }: { slug: string; data: CheckoutData }) {
                 <span className="text-[13px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
                   Total
                 </span>
-                <span className="font-semibold text-[28px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
-                  {formattedTotal}
+                <span className="flex items-baseline gap-2">
+                  {formattedTimerDiscount ? (
+                    <span className="text-[14px] text-[var(--ink-50)] tabular-nums line-through">
+                      {formattedListTotal}
+                    </span>
+                  ) : null}
+                  <span className="font-semibold text-[28px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
+                    {formattedTotal}
+                  </span>
                 </span>
               </div>
               {product.maxInstallments > 1 && perInstallment ? (
@@ -891,6 +946,16 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
   const [stepperStep, setStepperStep] = useState<'plan' | 'identify' | 'pay'>(
     planPrelocked ? 'identify' : 'plan',
   );
+
+  /**
+   * Display only. Plans price off `subscription_plans` through
+   * `subscriptions.subscribe` and never pass through `createOrder`, so
+   * the API hands back `timer.discountCents: null` here and there is no
+   * price to rewire — the band renders as urgency copy and nothing
+   * else. Instantiated per view because the state is per view; there is
+   * no context and no shared store in this file.
+   */
+  const timerState = useScarcityTimer(product.id, product.timer);
 
   const subscribe = trpc.subscriptions.subscribe.useMutation();
   const subscribePix = trpc.subscriptions.subscribePix.useMutation();
@@ -1080,7 +1145,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
     const payState: 'active' | 'pending' = planChosen ? 'active' : 'pending';
     return (
       <main
-        className="min-h-screen"
+        className="min-h-dvh"
         style={
           brandPalette
             ? ({
@@ -1094,7 +1159,14 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
             : undefined
         }
       >
-        <ProducerHeader workspace={workspace} brandTone={brandTone} />
+        <ProducerHeader
+          workspace={workspace}
+          brandTone={brandTone}
+          banner={product.topBanner}
+          timer={product.timer}
+          timerState={timerState}
+          currency={product.currency}
+        />
 
         <form
           onSubmit={onSubmit}
@@ -1502,7 +1574,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
     const payState: 'active' | 'done' | 'pending' = stepperStep === 'pay' ? 'active' : 'pending';
     return (
       <main
-        className="min-h-screen"
+        className="min-h-dvh"
         style={
           brandPalette
             ? ({
@@ -1516,7 +1588,14 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
             : undefined
         }
       >
-        <ProducerHeader workspace={workspace} brandTone={brandTone} />
+        <ProducerHeader
+          workspace={workspace}
+          brandTone={brandTone}
+          banner={product.topBanner}
+          timer={product.timer}
+          timerState={timerState}
+          currency={product.currency}
+        />
 
         <form
           onSubmit={onSubmit}
@@ -1887,7 +1966,7 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
 
   return (
     <main
-      className="min-h-screen"
+      className="min-h-dvh"
       style={
         brandPalette
           ? ({
@@ -1901,7 +1980,14 @@ function SubscriptionCheckoutView({ slug, data }: { slug: string; data: Checkout
           : undefined
       }
     >
-      <ProducerHeader workspace={workspace} brandTone={brandTone} />
+      <ProducerHeader
+        workspace={workspace}
+        brandTone={brandTone}
+        banner={product.topBanner}
+        timer={product.timer}
+        timerState={timerState}
+        currency={product.currency}
+      />
 
       <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.4fr_1fr]">
@@ -2532,14 +2618,14 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
 
   const createOrder = trpc.checkout.createOrder.useMutation();
 
-  const formattedTotal = useMemo(
-    () => formatCents(product.priceCents, product.currency),
-    [product.priceCents, product.currency],
-  );
-  const perInstallment = useMemo(() => {
-    if (product.maxInstallments < 2) return null;
-    return formatCents(Math.ceil(product.priceCents / product.maxInstallments), product.currency);
-  }, [product.maxInstallments, product.currency, product.priceCents]);
+  const timerState = useScarcityTimer(product.id, product.timer);
+  const {
+    effectivePriceCents,
+    formattedTotal,
+    formattedListTotal,
+    formattedTimerDiscount,
+    perInstallment,
+  } = useEffectivePrice(product, timerState);
 
   const docDigits = unmaskDigits(doc);
   const phoneDigits = unmaskDigits(phone);
@@ -2655,6 +2741,11 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
       clickIds,
       marketplaceListingId: marketplaceMeta.marketplaceListingId,
       utm: marketplaceMeta.utm,
+      // The ONLY thing the countdown puts on the wire. Not an amount,
+      // not a percentage, not an "I expired" flag — an opaque blob the
+      // server signed and only the server can read. Absent or forged
+      // simply means full price.
+      timerToken: timerState?.token ?? undefined,
     });
   };
 
@@ -2675,6 +2766,11 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
   }
 
   if (createOrder.data) {
+    // `amountCents` is what the gateway was actually asked for, net of
+    // whatever the server decided the countdown had earned. We render
+    // that instead of our own preview: an idle tab can hold a timer
+    // config up to `staleTime` old, and the confirmation screen is the
+    // last place a buyer should see a number we merely predicted.
     return (
       <CenteredCard wide>
         <SuccessView
@@ -2682,7 +2778,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           viewToken={createOrder.data.viewToken}
           reference={createOrder.data.publicReference}
           methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
-          formattedTotal={formattedTotal}
+          formattedTotal={formatCents(createOrder.data.amountCents, product.currency)}
           buyerEmail={email.trim()}
           pixQrCodeImage={createOrder.data.pixQrCodeImage}
           pixCopyPaste={createOrder.data.pixCopyPaste}
@@ -2701,7 +2797,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
 
   return (
     <main
-      className="min-h-screen"
+      className="min-h-dvh"
       style={
         brandPalette
           ? ({
@@ -2715,7 +2811,14 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           : undefined
       }
     >
-      <ProducerHeader workspace={workspace} brandTone={brandTone} />
+      <ProducerHeader
+        workspace={workspace}
+        brandTone={brandTone}
+        banner={product.topBanner}
+        timer={product.timer}
+        timerState={timerState}
+        currency={product.currency}
+      />
 
       <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1180px] py-6 sm:py-10">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
@@ -2725,6 +2828,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
             productName={product.name}
             coverImageUrl={product.coverImageUrl}
             total={formattedTotal}
+            originalTotal={formattedTimerDiscount ? formattedListTotal : null}
             perInstallment={perInstallment}
             maxInstallments={product.maxInstallments}
             brandTone={brandTone}
@@ -3056,7 +3160,7 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
                                 <option key={n} value={n}>
                                   {n === 1
                                     ? `1× — ${formattedTotal}`
-                                    : `${n}× — ${formatCents(Math.ceil(product.priceCents / n), product.currency)} sem juros`}
+                                    : `${n}× — ${formatCents(Math.ceil(effectivePriceCents / n), product.currency)} sem juros`}
                                 </option>
                               ),
                             )}
@@ -3119,18 +3223,29 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
                   </p>
                   <p className="mt-1 text-[12px] text-[var(--ink-50)]">Quantidade: 1</p>
                   <p className="mt-1 font-bold text-[13px] text-[var(--dop-600)]">
-                    {formattedTotal}
+                    {formattedListTotal}
                   </p>
                 </div>
               </div>
 
+              {/* Subtotal / desconto / total, in the same three-value
+                  shape the order row records — the buyer sees exactly
+                  the breakdown the producer will read back in Pedidos. */}
               <dl className="mt-5 space-y-3 text-[13px]">
                 <div className="flex items-baseline justify-between">
                   <dt className="text-[var(--ink-70)]">Subtotal (1 produto)</dt>
                   <dd className="font-semibold text-[var(--ink-90)] tabular-nums">
-                    {formattedTotal}
+                    {formattedListTotal}
                   </dd>
                 </div>
+                {formattedTimerDiscount ? (
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-[var(--ink-70)]">Desconto</dt>
+                    <dd className="font-semibold text-[var(--dop-600)] tabular-nums">
+                      −{formattedTimerDiscount}
+                    </dd>
+                  </div>
+                ) : null}
                 <div className="flex items-baseline justify-between">
                   <dt className="text-[var(--ink-70)]">Frete</dt>
                   <dd className="font-semibold text-[var(--dop-600)]">
@@ -3144,6 +3259,11 @@ function StepperCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
                   Total
                 </span>
                 <div className="text-right">
+                  {formattedTimerDiscount ? (
+                    <span className="mr-2 text-[14px] text-[var(--ink-50)] tabular-nums line-through">
+                      {formattedListTotal}
+                    </span>
+                  ) : null}
                   <span className="font-semibold text-[28px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
                     {formattedTotal}
                   </span>
@@ -3506,14 +3626,14 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
 
   const createOrder = trpc.checkout.createOrder.useMutation();
 
-  const formattedTotal = useMemo(
-    () => formatCents(product.priceCents, product.currency),
-    [product.priceCents, product.currency],
-  );
-  const perInstallment = useMemo(() => {
-    if (product.maxInstallments < 2) return null;
-    return formatCents(Math.ceil(product.priceCents / product.maxInstallments), product.currency);
-  }, [product.maxInstallments, product.currency, product.priceCents]);
+  const timerState = useScarcityTimer(product.id, product.timer);
+  const {
+    effectivePriceCents,
+    formattedTotal,
+    formattedListTotal,
+    formattedTimerDiscount,
+    perInstallment,
+  } = useEffectivePrice(product, timerState);
 
   const docDigits = unmaskDigits(doc);
   const phoneDigits = unmaskDigits(phone);
@@ -3629,6 +3749,11 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
       clickIds,
       marketplaceListingId: marketplaceMeta.marketplaceListingId,
       utm: marketplaceMeta.utm,
+      // The ONLY thing the countdown puts on the wire. Not an amount,
+      // not a percentage, not an "I expired" flag — an opaque blob the
+      // server signed and only the server can read. Absent or forged
+      // simply means full price.
+      timerToken: timerState?.token ?? undefined,
     });
   };
 
@@ -3649,6 +3774,11 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
   }
 
   if (createOrder.data) {
+    // `amountCents` is what the gateway was actually asked for, net of
+    // whatever the server decided the countdown had earned. We render
+    // that instead of our own preview: an idle tab can hold a timer
+    // config up to `staleTime` old, and the confirmation screen is the
+    // last place a buyer should see a number we merely predicted.
     return (
       <CenteredCard wide>
         <SuccessView
@@ -3656,7 +3786,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           viewToken={createOrder.data.viewToken}
           reference={createOrder.data.publicReference}
           methodLabel={METHOD_LABELS[createOrder.data.method as Method]}
-          formattedTotal={formattedTotal}
+          formattedTotal={formatCents(createOrder.data.amountCents, product.currency)}
           buyerEmail={email.trim()}
           pixQrCodeImage={createOrder.data.pixQrCodeImage}
           pixCopyPaste={createOrder.data.pixCopyPaste}
@@ -3677,7 +3807,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
 
   return (
     <main
-      className="min-h-screen"
+      className="min-h-dvh"
       style={
         brandPalette
           ? ({
@@ -3691,7 +3821,14 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
           : undefined
       }
     >
-      <ProducerHeader workspace={workspace} brandTone={brandTone} />
+      <ProducerHeader
+        workspace={workspace}
+        brandTone={brandTone}
+        banner={product.topBanner}
+        timer={product.timer}
+        timerState={timerState}
+        currency={product.currency}
+      />
 
       <form onSubmit={onSubmit} className="container-x mx-auto w-full max-w-[1400px] py-6 sm:py-10">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr_0.9fr]">
@@ -3701,6 +3838,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
             productName={product.name}
             coverImageUrl={product.coverImageUrl}
             total={formattedTotal}
+            originalTotal={formattedTimerDiscount ? formattedListTotal : null}
             perInstallment={perInstallment}
             maxInstallments={product.maxInstallments}
             brandTone={brandTone}
@@ -3956,7 +4094,7 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
                               <option key={n} value={n}>
                                 {n === 1
                                   ? `1× — ${formattedTotal}`
-                                  : `${n}× — ${formatCents(Math.ceil(product.priceCents / n), product.currency)} sem juros`}
+                                  : `${n}× — ${formatCents(Math.ceil(effectivePriceCents / n), product.currency)} sem juros`}
                               </option>
                             ),
                           )}
@@ -4017,15 +4155,26 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
                   <p className="mt-1 text-[12px] text-[var(--ink-50)]">Quantidade: 1</p>
                 </div>
                 <p className="shrink-0 font-semibold text-[13px] text-[var(--ink-100)] tabular-nums">
-                  {formattedTotal}
+                  {formattedListTotal}
                 </p>
               </div>
 
+              {/* Subtotal / desconto / total, in the same three-value
+                  shape the order row records — the buyer sees exactly
+                  the breakdown the producer will read back in Pedidos. */}
               <dl className="mt-4 space-y-2 text-[13px]">
                 <div className="flex items-baseline justify-between">
                   <dt className="text-[var(--ink-70)]">Subtotal</dt>
-                  <dd className="text-[var(--ink-90)] tabular-nums">{formattedTotal}</dd>
+                  <dd className="text-[var(--ink-90)] tabular-nums">{formattedListTotal}</dd>
                 </div>
+                {formattedTimerDiscount ? (
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-[var(--ink-70)]">Desconto</dt>
+                    <dd className="font-medium text-[var(--dop-600)] tabular-nums">
+                      −{formattedTimerDiscount}
+                    </dd>
+                  </div>
+                ) : null}
                 <div className="flex items-baseline justify-between">
                   <dt className="text-[var(--ink-70)]">Frete</dt>
                   <dd className="font-medium text-[var(--dop-600)]">
@@ -4039,6 +4188,11 @@ function ExpressCheckoutView({ slug, data }: { slug: string; data: CheckoutData 
                   Total
                 </span>
                 <div className="text-right">
+                  {formattedTimerDiscount ? (
+                    <span className="mr-2 text-[13px] text-[var(--ink-50)] tabular-nums line-through">
+                      {formattedListTotal}
+                    </span>
+                  ) : null}
                   <span className="font-semibold text-[26px] text-[var(--ink-100)] tabular-nums leading-none tracking-tight">
                     {formattedTotal}
                   </span>
@@ -4196,51 +4350,79 @@ function LockIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+/**
+ * Brand bar, plus the two per-product appearance surfaces that sandwich
+ * it: the promo banner above, the scarcity band below.
+ *
+ * They live HERE and nowhere else. Every template renders this
+ * component as the first child of its `<main>`, and it is that `<main>`
+ * that carries the producer's palette as inline CSS custom properties —
+ * anything hoisted above it falls back to stock dopamine green no
+ * matter what `brandPrimaryColor` says. `CenteredCard` renders no
+ * ProducerHeader, which is exactly why the loading, error, declined and
+ * success screens stay clean with no extra branching.
+ *
+ * The countdown STATE cannot live here, though: it also moves the
+ * price, which each view memoizes separately. So the four views own the
+ * hook and hand the result down.
+ */
 function ProducerHeader({
   workspace,
   brandTone,
+  banner,
+  timer,
+  timerState,
+  currency,
 }: {
   workspace: CheckoutData['workspace'];
   brandTone: string | null;
+  banner: CheckoutBanner | null;
+  timer: CheckoutTimer | null;
+  timerState: ScarcityTimerState | null;
+  currency: CheckoutCurrency;
 }) {
   return (
-    <header className="border-[var(--hairline)] border-b bg-[var(--bg-elev-1)]/70 backdrop-blur">
-      <div className="container-x mx-auto flex w-full max-w-[1180px] items-center justify-between py-4">
-        <div className="flex items-center gap-3">
-          {workspace.brandLogoUrl ? (
-            <img
-              src={workspace.brandLogoUrl}
-              alt={workspace.displayName}
-              className="h-9 w-9 rounded-xl object-cover"
-            />
-          ) : (
-            <span
-              className="grid h-9 w-9 place-items-center rounded-xl font-semibold text-[14px] text-white"
-              style={{
-                background:
-                  brandTone ?? 'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
-              }}
-            >
-              {(workspace.displayName[0] ?? 'p').toUpperCase()}
+    <>
+      <PromoTopBanner banner={banner} />
+      <header className="border-[var(--hairline)] border-b bg-[var(--bg-elev-1)]/70 backdrop-blur">
+        <div className="container-x mx-auto flex w-full max-w-[1180px] items-center justify-between py-4">
+          <div className="flex items-center gap-3">
+            {workspace.brandLogoUrl ? (
+              <img
+                src={workspace.brandLogoUrl}
+                alt={workspace.displayName}
+                className="h-9 w-9 rounded-xl object-cover"
+              />
+            ) : (
+              <span
+                className="grid h-9 w-9 place-items-center rounded-xl font-semibold text-[14px] text-white"
+                style={{
+                  background:
+                    brandTone ?? 'linear-gradient(135deg, var(--dop-400) 0%, var(--dop-600) 100%)',
+                }}
+              >
+                {(workspace.displayName[0] ?? 'p').toUpperCase()}
+              </span>
+            )}
+            <div className="flex flex-col leading-tight">
+              <span className="font-semibold text-[14px] text-[var(--ink-100)]">
+                {workspace.displayName}
+              </span>
+              <span className="flex items-center gap-1 text-[10px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
+                <ShieldIcon size={10} /> Checkout seguro
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-[11px] text-[var(--ink-50)] sm:inline">
+              🔒 Conexão criptografada · payunivercart
             </span>
-          )}
-          <div className="flex flex-col leading-tight">
-            <span className="font-semibold text-[14px] text-[var(--ink-100)]">
-              {workspace.displayName}
-            </span>
-            <span className="flex items-center gap-1 text-[10px] text-[var(--ink-50)] uppercase tracking-[0.16em]">
-              <ShieldIcon size={10} /> Checkout seguro
-            </span>
+            <ThemeToggle compact />
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="hidden text-[11px] text-[var(--ink-50)] sm:inline">
-            🔒 Conexão criptografada · payunivercart
-          </span>
-          <ThemeToggle compact />
-        </div>
-      </div>
-    </header>
+      </header>
+      <ScarcityTimerBar timer={timer} state={timerState} currency={currency} />
+    </>
   );
 }
 
@@ -5062,6 +5244,394 @@ function formatExpiresAt(date: Date | string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scarcity countdown — per-visitor clock + the band that renders it           */
+/* -------------------------------------------------------------------------- */
+
+const TIMER_STORAGE_PREFIX = 'payunivercart.checkout.timer.';
+
+/**
+ * This visitor's countdown, as the UI sees it.
+ *
+ * `running` ticks once a second. `last_chance` is terminal: the readout
+ * freezes at 00:00 and the producer's configured discount (if any) is
+ * what the server will subtract — we never compute a price from it, we
+ * only mirror `timer.discountCents`, which `getBySlug` produced with the
+ * exact kernel `createOrder` charges with.
+ *
+ * `token` is opaque. The server signed it; only the server reads it. It
+ * is NOT an amount and NOT an "I expired" claim — replaying it is how
+ * the buyer proves the wait without the browser ever being trusted.
+ */
+interface ScarcityTimerState {
+  phase: 'running' | 'last_chance';
+  remainingMs: number;
+  token: string | null;
+}
+
+/**
+ * MM:SS, promoted to HH:MM:SS past the hour — `checkoutTimerMinutes`
+ * goes up to 1440 (24 h) and a bare "1439:58" reads as noise. Ceil, not
+ * floor, so the first painted frame of a 15-minute timer says 15:00 and
+ * the buyer never watches a running clock sit on 00:00 (that readout is
+ * reserved for the terminal last-chance state).
+ */
+function formatCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return hours > 0
+    ? `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+    : `${pad(minutes)}:${pad(seconds)}`;
+}
+
+/**
+ * Evergreen per-visitor countdown. The clock starts on THIS buyer's
+ * first open and survives reloads, so we persist `startedAt` (plus the
+ * server-signed visit token) under a product-scoped key.
+ *
+ * Read-or-initialize, never blind-write: `reactStrictMode: true`
+ * (next.config.ts:5) double-invokes every effect in dev, and an
+ * unconditional write would silently reset the clock on every mount.
+ *
+ * Deterministic `useState(null)` + effect-time storage read mirrors
+ * ThemeProvider.tsx:38-49 — the reviewed pattern in this app. The four
+ * views never reach the SSR HTML (the query is `isPending` on the
+ * server, so CheckoutPage renders the skeleton), but the guard stays
+ * because that is a property of the render tree, not of this hook.
+ */
+function useScarcityTimer(
+  productId: string,
+  timer: CheckoutTimer | null,
+): ScarcityTimerState | null {
+  const [state, setState] = useState<ScarcityTimerState | null>(null);
+
+  useEffect(() => {
+    if (!timer) return;
+    if (typeof window === 'undefined') return;
+    const key = `${TIMER_STORAGE_PREFIX}${productId}`;
+
+    let startedAt = Date.now();
+    let token = timer.visitToken;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { startedAt?: number; token?: string | null };
+        // A `startedAt` in the future is a corrupt or clock-shifted
+        // entry; restarting from now only ever costs the buyer time,
+        // which is the safe direction (the server is the authority on
+        // whether the wait was real).
+        if (
+          typeof parsed.startedAt === 'number' &&
+          Number.isFinite(parsed.startedAt) &&
+          parsed.startedAt <= Date.now()
+        ) {
+          startedAt = parsed.startedAt;
+          // Keep the ORIGINAL token. `getBySlug` mints a fresh one on
+          // every render and the server measures the wait from the
+          // token's own `iat`, so replaying the new one would deny the
+          // discount to precisely the buyers who earned it.
+          token = parsed.token ?? token;
+        }
+      }
+      localStorage.setItem(key, JSON.stringify({ startedAt, token }));
+    } catch {
+      /* private mode */
+    }
+
+    const durationMs = timer.durationMinutes * 60_000;
+    const tick = () => {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < durationMs) {
+        setState({ phase: 'running', remainingMs: durationMs - elapsed, token });
+        return true;
+      }
+      if (timer.expiredBehavior === 'restart') {
+        startedAt = Date.now();
+        try {
+          localStorage.setItem(key, JSON.stringify({ startedAt, token }));
+        } catch {
+          /* private mode */
+        }
+        setState({ phase: 'running', remainingMs: durationMs, token });
+        return true;
+      }
+      setState({ phase: 'last_chance', remainingMs: 0, token });
+      // Terminal — stop the interval, mirroring the `return false` that
+      // ends orderStatus polling at the top of SuccessView.
+      return false;
+    };
+
+    if (!tick()) return;
+    const id = setInterval(() => {
+      if (!tick()) clearInterval(id);
+    }, 1_000);
+    return () => clearInterval(id);
+  }, [productId, timer]);
+
+  return state;
+}
+
+/**
+ * Every price string the one-time templates render, derived once.
+ *
+ * The last-chance discount moves FOUR surfaces per template (CTA label,
+ * desktop aside, mobile accordion, installment line) across three
+ * templates. Three inline copies of `list − discount` on a payments
+ * screen is a drift surface nobody would notice until a buyer is
+ * charged one number while looking at another, so the arithmetic lives
+ * in exactly one place even though the rest of this file duplicates its
+ * memos per view.
+ *
+ * `timer.discountCents` is NOT recomputed here — it is whatever
+ * `getBySlug` previewed, produced by the same kernel `createOrder`
+ * charges with (clamped so the charge can never fall under the
+ * platform minimum). This hook only decides WHEN to show it: in the
+ * terminal last-chance phase, which is the one state the server
+ * honors. Subscriptions get `discountCents: null` from the API, so
+ * `SubscriptionCheckoutView` never calls this at all.
+ */
+function useEffectivePrice(
+  product: CheckoutData['product'],
+  timerState: ScarcityTimerState | null,
+): {
+  effectivePriceCents: number;
+  formattedTotal: string;
+  formattedListTotal: string;
+  formattedTimerDiscount: string | null;
+  perInstallment: string | null;
+} {
+  const { currency, maxInstallments, priceCents, timer } = product;
+  const timerDiscountCents = timerState?.phase === 'last_chance' ? (timer?.discountCents ?? 0) : 0;
+  const effectivePriceCents = Math.max(0, priceCents - timerDiscountCents);
+
+  const formattedTotal = useMemo(
+    () => formatCents(effectivePriceCents, currency),
+    [effectivePriceCents, currency],
+  );
+  const formattedListTotal = useMemo(
+    () => formatCents(priceCents, currency),
+    [priceCents, currency],
+  );
+  const formattedTimerDiscount = useMemo(
+    () => (timerDiscountCents > 0 ? formatCents(timerDiscountCents, currency) : null),
+    [timerDiscountCents, currency],
+  );
+  const perInstallment = useMemo(() => {
+    if (maxInstallments < 2) return null;
+    return formatCents(Math.ceil(effectivePriceCents / maxInstallments), currency);
+  }, [maxInstallments, currency, effectivePriceCents]);
+
+  return {
+    effectivePriceCents,
+    formattedTotal,
+    formattedListTotal,
+    formattedTimerDiscount,
+    perInstallment,
+  };
+}
+
+/**
+ * The band under the brand bar. Calm urgency, not a hype template: a
+ * soft brand-tinted strip that inherits `--dop-*` from the `<main>`
+ * palette override, so a producer's brand color carries through here
+ * the same way it does on every CTA.
+ *
+ * Last chance is signalled by color AND copy, never by motion —
+ * globals.css:441-448 kills every animation under
+ * `prefers-reduced-motion: reduce`, so anything that pulsed to say
+ * "expired" would say nothing at all to those buyers.
+ */
+function ScarcityTimerBar({
+  timer,
+  state,
+  currency,
+}: {
+  timer: CheckoutTimer | null;
+  state: ScarcityTimerState | null;
+  currency: CheckoutCurrency;
+}) {
+  // `state` is null until the mount effect reads localStorage. Render
+  // nothing rather than a placeholder clock — a band that appears with
+  // the right number beats one that appears wrong and corrects itself.
+  if (!timer || !state) return null;
+
+  const lastChance = state.phase === 'last_chance';
+  const message = lastChance
+    ? timer.lastChanceMessage?.trim() || 'Última chance — o tempo desta oferta acabou.'
+    : timer.runningMessage;
+  // Only ever the server's previewed magnitude, and only in the state
+  // the server will honor. Nothing here is arithmetic on a price.
+  const discountCents = lastChance ? (timer.discountCents ?? 0) : 0;
+
+  return (
+    <section
+      className={clsx(
+        'border-b',
+        lastChance
+          ? 'border-[var(--hairline-strong)] bg-[var(--warn-bg)]'
+          : 'border-[var(--dop-hairline)] bg-[var(--dop-soft)]',
+      )}
+    >
+      <div className="container-x mx-auto flex w-full max-w-[1180px] flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 py-2.5">
+        <span className={lastChance ? 'text-[var(--warn-text)]' : 'text-[var(--dop-600)]'}>
+          <CountdownIcon />
+        </span>
+        <p
+          aria-live="polite"
+          className={clsx(
+            'min-w-0 font-medium text-[12px] leading-[1.35] sm:text-[13px]',
+            lastChance ? 'text-[var(--warn-text)]' : 'text-[var(--ink-90)]',
+          )}
+        >
+          {message}
+        </p>
+        <span
+          role="timer"
+          className={clsx(
+            'inline-flex shrink-0 items-center rounded-full border bg-[var(--bg-elev-1)] px-2.5 py-0.5 font-semibold text-[13px] tabular-nums leading-[1.55]',
+            lastChance
+              ? 'border-[var(--hairline-strong)] text-[var(--warn-text)]'
+              : 'border-[var(--dop-hairline)] text-[var(--ink-100)]',
+          )}
+        >
+          {formatCountdown(state.remainingMs)}
+        </span>
+        {discountCents > 0 ? (
+          <span className="inline-flex shrink-0 items-center rounded-full border border-[var(--dop-hairline)] bg-[var(--dop-soft)] px-2.5 py-0.5 font-semibold text-[12px] text-[var(--dop-600)] leading-[1.6]">
+            Desconto de {formatCents(discountCents, currency)}
+          </span>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function CountdownIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 9v4l2.5 2M9 2h6" />
+    </svg>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Promo top banner                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Full-bleed promotional strip above the brand bar.
+ *
+ * A `<section>`, not a `<div>`: globals.css:261-267 lifts only
+ * `main, section, header, footer` to `z-index: 1`, and `body::before` is
+ * a fixed `z-index: 0` ambient glow — a bare `<div>` renders under it.
+ * The outer element deliberately carries no `.container-x`; the gutter
+ * belongs to the inner content wrapper so the band itself reaches both
+ * edges (safe: html/body both `overflow-x: clip`).
+ *
+ * The producer's chosen colors are the one place inline `style` beats a
+ * token — they are user data, not part of the design system. Everything
+ * else, including both fallbacks, is a var.
+ */
+function PromoTopBanner({ banner }: { banner: CheckoutBanner | null }) {
+  if (!banner) return null;
+
+  if (banner.kind === 'text') {
+    const text = banner.text?.trim();
+    // An enabled text banner with no text is a half-finished edit, not
+    // an empty strip of color.
+    if (!text) return null;
+    return (
+      <section
+        className={clsx(
+          'border-[var(--hairline)] border-b',
+          banner.bgColor ? null : 'bg-[var(--bg-elev-2)]',
+          banner.textColor ? null : 'text-[var(--ink-90)]',
+        )}
+        style={{
+          ...(banner.bgColor ? { backgroundColor: banner.bgColor } : {}),
+          ...(banner.textColor ? { color: banner.textColor } : {}),
+        }}
+      >
+        <PromoBannerFrame linkUrl={banner.linkUrl} label={text}>
+          <p className="container-x mx-auto w-full max-w-[1180px] py-2.5 text-center font-medium text-[12px] leading-[1.4] sm:text-[13px]">
+            {text}
+          </p>
+        </PromoBannerFrame>
+      </section>
+    );
+  }
+
+  // Mobile art is optional; when it is missing the desktop file serves
+  // both. When only the mobile file exists (a half-finished upload) it
+  // serves both rather than leaving a `<img>` with no src.
+  const primaryUrl = banner.imageUrl ?? banner.imageMobileUrl;
+  if (!primaryUrl) return null;
+  const hasDistinctMobile = Boolean(banner.imageMobileUrl && banner.imageUrl);
+  return (
+    <section className="border-[var(--hairline)] border-b">
+      <PromoBannerFrame linkUrl={banner.linkUrl} label={banner.text?.trim() || 'Ver a promoção'}>
+        {/* Height is capped and center-cropped: a producer who uploads a
+            square file would otherwise push the entire checkout below
+            the fold on mobile. */}
+        <picture>
+          {hasDistinctMobile ? (
+            <source media="(max-width: 639px)" srcSet={banner.imageMobileUrl ?? undefined} />
+          ) : null}
+          <img
+            src={primaryUrl}
+            alt=""
+            className="block h-auto max-h-[120px] w-full object-cover object-center sm:max-h-[180px]"
+          />
+        </picture>
+      </PromoBannerFrame>
+    </section>
+  );
+}
+
+/**
+ * Optional click-through wrapper. Kept separate so the image and text
+ * variants cannot drift on `rel`/`target` — this anchor points at a
+ * producer-supplied URL rendered to strangers on a payment page, so
+ * `noopener noreferrer` is load-bearing, not decoration. The `https://`
+ * scheme is enforced server-side in `products.update`.
+ */
+function PromoBannerFrame({
+  linkUrl,
+  label,
+  children,
+}: {
+  linkUrl: string | null;
+  label: string;
+  children: React.ReactNode;
+}) {
+  if (!linkUrl) return <>{children}</>;
+  return (
+    <a
+      href={linkUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={label}
+      className="block outline-offset-[-2px]"
+    >
+      {children}
+    </a>
+  );
 }
 
 /**

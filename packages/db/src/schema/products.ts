@@ -74,6 +74,100 @@ export const products = pgTable(
      * single-price flow.
      */
     isSubscription: boolean().notNull().default(false),
+    /**
+     * Evergreen scarcity countdown on the public checkout. The clock is
+     * per-visitor: it starts when THIS buyer first opens the page and is
+     * persisted in their localStorage, not against a shared wall-clock
+     * deadline — which is why there is no server-side `expires_at`
+     * column here to keep in sync. Defaults false so a product created
+     * in under 30 seconds renders exactly what its producer expects,
+     * which is nothing.
+     */
+    checkoutTimerEnabled: boolean().notNull().default(false),
+    /**
+     * How long that per-visitor countdown runs. 15 minutes is long
+     * enough to fill a card form without panic and short enough to
+     * still read as scarcity. The 1–1440 range is a CHECK below: a 0
+     * would expire the timer before the page finished painting.
+     */
+    checkoutTimerMinutes: integer().notNull().default(15),
+    /** Copy shown next to the ticking clock. NULL ⇒ the checkout falls
+     *  back to its own default string, so a producer who flips the
+     *  toggle and writes nothing still gets sensible Portuguese instead
+     *  of an empty bar. */
+    checkoutTimerMessage: text(),
+    /**
+     * What happens at 00:00. `restart` loops the cycle; `last_chance`
+     * freezes the counter, swaps in the last-chance copy and applies
+     * the optional discount below. There is deliberately no "disappear"
+     * option — a timer that silently vanishes reads as a bug to the
+     * buyer. Default `restart` because it is the branch with no price
+     * consequences. Plain text() + CHECK rather than a pgEnum, matching
+     * `workspaces.checkoutTemplate`: Postgres has no
+     * `CREATE TYPE IF NOT EXISTS`, and an idempotent migration is worth
+     * more here than a native type.
+     */
+    checkoutTimerExpiredBehavior: text().notNull().default('restart'),
+    /** Copy that replaces `checkoutTimerMessage` once `last_chance`
+     *  kicks in. NULL ⇒ app default. Ignored under `restart`. */
+    checkoutTimerExpiredMessage: text(),
+    /**
+     * Discriminant for the OPTIONAL last-chance discount, mirroring
+     * `affiliate_programs.commissionType`: `percent` reads
+     * `checkoutTimerDiscountPercent`, `fixed` reads
+     * `checkoutTimerDiscountCents`. NULL ⇒ no discount at all, and NULL
+     * is what a producer gets until they explicitly opt in. The public
+     * checkout never sends an amount over the wire, so whatever lands
+     * in these three columns is the only number the server will ever
+     * subtract from the price.
+     */
+    checkoutTimerDiscountType: text(),
+    /** Used when type = `percent`. Capped at 90, not 100, by CHECK: a
+     *  full discount produces `amount: 0`, which every gateway rejects
+     *  AFTER the order row already exists. NULL otherwise. */
+    checkoutTimerDiscountPercent: integer(),
+    /** Used when type = `fixed`. Cents as bigint like every other money
+     *  column, so no path through this feature touches a float. NULL
+     *  otherwise. */
+    checkoutTimerDiscountCents: bigint({ mode: 'bigint' }),
+    /**
+     * Full-width promotional banner rendered ABOVE the producer brand
+     * bar on the public checkout. Defaults false for the same reason
+     * the timer does: a freshly created product renders neither.
+     */
+    checkoutBannerEnabled: boolean().notNull().default(false),
+    /** `image` renders the uploaded bytes, `text` renders
+     *  `checkoutBannerText` on the configured colours. text() + CHECK,
+     *  same rationale as `checkoutTimerExpiredBehavior`. */
+    checkoutBannerType: text().notNull().default('image'),
+    /** Desktop banner bytes (wide, ≤1MB). Served by
+     *  `GET /api/img/product/:id/banner`. */
+    checkoutBannerImage: bytea(),
+    /** MIME of `checkoutBannerImage`. NULL iff bytes NULL — the public
+     *  checkout query keys the image URL off this sentinel so it never
+     *  has to select the bytea on its hottest read path. */
+    checkoutBannerImageMime: text(),
+    /** Optional portrait variant for narrow viewports. NULL ⇒ the
+     *  desktop image is used at every width. */
+    checkoutBannerImageMobile: bytea(),
+    /** MIME of `checkoutBannerImageMobile`. NULL iff bytes NULL. */
+    checkoutBannerImageMobileMime: text(),
+    /** Banner copy when type = `text`. NULL ⇒ nothing to paint, so the
+     *  banner is suppressed even with `checkoutBannerEnabled` true. */
+    checkoutBannerText: text(),
+    /** Banner background as `#rrggbb`. Plain text() like
+     *  `workspaces.brandPrimaryColor`. NULL ⇒ checkout default. */
+    checkoutBannerBgColor: text(),
+    /** Banner foreground as `#rrggbb`. NULL ⇒ checkout default. */
+    checkoutBannerTextColor: text(),
+    /**
+     * Optional click-through for the banner. Unlike `deliveryUrl`
+     * above, the scheme IS gatekept (https:// only) at the API
+     * boundary: this is an anchor rendered on a public payment page to
+     * strangers, not a link mailed to a buyer who already paid. NULL ⇒
+     * the banner is not clickable.
+     */
+    checkoutBannerLinkUrl: text(),
     isActive: boolean().notNull().default(true),
     metadata: jsonb().notNull().default({}),
     createdAt: createdAt(),
@@ -83,6 +177,24 @@ export const products = pgTable(
   (table) => [
     uniqueIndex('products_workspace_slug_unique').on(table.workspaceId, table.slug),
     index('products_workspace_idx').on(table.workspaceId),
+    check('products_checkout_timer_minutes_range', sql`checkout_timer_minutes BETWEEN 1 AND 1440`),
+    check(
+      'products_checkout_timer_expired_behavior_valid',
+      sql`checkout_timer_expired_behavior IN ('restart', 'last_chance')`,
+    ),
+    check(
+      'products_checkout_timer_discount_type_valid',
+      sql`checkout_timer_discount_type IS NULL OR checkout_timer_discount_type IN ('percent', 'fixed')`,
+    ),
+    check(
+      'products_checkout_timer_discount_percent_range',
+      sql`checkout_timer_discount_percent IS NULL OR checkout_timer_discount_percent BETWEEN 1 AND 90`,
+    ),
+    check(
+      'products_checkout_timer_discount_cents_nonneg',
+      sql`checkout_timer_discount_cents IS NULL OR checkout_timer_discount_cents >= 0`,
+    ),
+    check('products_checkout_banner_type_valid', sql`checkout_banner_type IN ('image', 'text')`),
   ],
 );
 
