@@ -33,7 +33,7 @@
     "@sentry/node": "8.51.0",
     "@trpc/server": "11.17.0",
     "drizzle-orm": "0.45.2",
-    "hono": "4.12.18",
+    "hono": "4.12.31",
     "hono-rate-limiter": "0.5.3",
     "ioredis": "5.4.2",
     "rate-limit-redis": "5.0.0",
