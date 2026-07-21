@@ -35,13 +35,35 @@ export function ImageUploadField({
    * current cover/logo so the producer can confirm before overwriting. */
   initialPreviewUrl,
   enforceSquare = true,
+  /** Tailwind sizing for the preview box. Left undefined, the box is
+   * the canonical `size-28` square and the image is `object-cover` —
+   * exactly right for covers and logos, which are square by contract.
+   * Pass anything else (a top banner wants `h-16 w-full`) and the
+   * image switches to `object-contain`: center-cropping a 1920×400
+   * promo banner into a square well would preview a composition the
+   * checkout never actually renders, which is worse than no preview. */
+  previewClassName,
+  /** Aspect hint drawn in the empty box. Purely cosmetic — nothing
+   * here enforces it; `enforceSquare` owns the only dimension check. */
+  placeholderLabel = '1:1',
   onChange,
+  /** Fired ONLY by the explicit "Remover" button. `onChange(null)` is
+   * also emitted by the MIME and size rejections, so a parent cannot
+   * tell "the producer deleted the saved image" from "nothing valid
+   * was picked" by reading `onChange` alone. Covers never needed the
+   * distinction (they're mandatory on create, so there is no clear
+   * path); an optional, removable banner has to send an explicit
+   * `null` to the API to blank the column. */
+  onClear,
 }: {
   label: string;
   hint?: string;
   initialPreviewUrl?: string | null;
   enforceSquare?: boolean;
+  previewClassName?: string;
+  placeholderLabel?: string;
   onChange: (next: ImageUpload | null) => void;
+  onClear?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl ?? null);
@@ -94,18 +116,23 @@ export function ImageUploadField({
     [enforceSquare, onChange],
   );
 
+  // A caller-sized box is by definition not 1:1, so the fit follows the
+  // size: the square well crops to fill, anything else letterboxes.
+  const previewBoxClass = previewClassName ?? 'size-28';
+  const previewFitClass = previewClassName ? 'object-contain' : 'object-cover';
+
   return (
     <label className="flex flex-col gap-2">
       <span className="font-medium text-[13px] text-[var(--color-fg-muted)]">{label}</span>
       <div className="flex items-center gap-4">
         <div
-          className="relative grid size-28 place-items-center overflow-hidden rounded-xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface-muted)]"
+          className={`relative grid ${previewBoxClass} place-items-center overflow-hidden rounded-xl border border-[var(--color-border)] border-dashed bg-[var(--color-surface-muted)]`}
           aria-hidden
         >
           {previewUrl ? (
-            <img src={previewUrl} alt="" className="size-full object-cover" />
+            <img src={previewUrl} alt="" className={`size-full ${previewFitClass}`} />
           ) : (
-            <span className="text-[11px] text-[var(--color-fg-subtle)]">1:1</span>
+            <span className="text-[11px] text-[var(--color-fg-subtle)]">{placeholderLabel}</span>
           )}
         </div>
         <div className="flex flex-1 flex-col gap-2">
@@ -136,6 +163,7 @@ export function ImageUploadField({
                   setError(null);
                   if (inputRef.current) inputRef.current.value = '';
                   onChange(null);
+                  onClear?.();
                 }}
                 className="rounded-xl border border-transparent px-3 py-2 font-medium text-[13px] text-[var(--color-fg-subtle)] hover:bg-[var(--color-surface-muted)]"
               >

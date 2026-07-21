@@ -9,11 +9,15 @@ import {
   getAdapter,
 } from '@payunivercart/payments';
 import {
+  CHECKOUT_BANNER_TYPES,
+  CHECKOUT_TIMER_EXPIRED_BEHAVIORS,
   type GatewayId,
   type NormalizedPhone,
   normalizePhone,
+  signVisitToken,
   validateCnpj,
   validateCpf,
+  verifyVisitToken,
 } from '@payunivercart/shared';
 import { TRPCError } from '@trpc/server';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -61,6 +65,53 @@ const SubscriptionPlanPublic = z.object({
   paymentMethod: z.enum(['card', 'pix', 'both']),
 });
 
+/**
+ * Evergreen per-visitor scarcity countdown. `durationMinutes` starts
+ * when THIS buyer first opens the page (the browser persists the clock
+ * in localStorage), not against a shared wall-clock deadline — which
+ * is why nothing here is an absolute timestamp.
+ *
+ * `visitToken` is a server-signed attestation of that first open. The
+ * page stores it beside the clock and replays it verbatim on
+ * `createOrder`; the server re-verifies the HMAC and compares the
+ * token's `iat` against its OWN clock. The browser therefore never
+ * sends an amount, a percentage, or an "I expired" boolean.
+ *
+ * `discountCents` is what the server WILL subtract once the wait is
+ * genuine — exposed here only so the UI can preview it honestly, never
+ * so the UI can assert it. It is NULL for subscription products:
+ * plans price off `subscription_plans` through
+ * `subscriptions.subscribe` and never pass through `createOrder`, so
+ * there is no code path that could honor the number.
+ */
+const CheckoutTimerPublic = z.object({
+  durationMinutes: z.number().int().min(1).max(1440),
+  runningMessage: z.string(),
+  expiredBehavior: z.enum(CHECKOUT_TIMER_EXPIRED_BEHAVIORS),
+  lastChanceMessage: z.string().nullable(),
+  discountCents: z.number().int().nonnegative().nullable(),
+  visitToken: z.string().nullable(),
+});
+
+/**
+ * Full-width promotional banner rendered ABOVE the producer brand bar.
+ *
+ * Both image URLs point at the public `/img/product/:id/banner*`
+ * routes and are NULL when the producer uploaded nothing — or when
+ * `API_PUBLIC_URL` is unset, because a relative `/img/...` would
+ * resolve against the checkout origin and 404 (the cover has that bug
+ * today; we do not propagate it into a new field).
+ */
+const CheckoutBannerPublic = z.object({
+  kind: z.enum(CHECKOUT_BANNER_TYPES),
+  imageUrl: z.string().nullable(),
+  imageMobileUrl: z.string().nullable(),
+  text: z.string().nullable(),
+  bgColor: z.string().nullable(),
+  textColor: z.string().nullable(),
+  linkUrl: z.string().nullable(),
+});
+
 const ProductPublicShape = z.object({
   id: z.string().uuid(),
   slug: z.string(),
@@ -84,6 +135,10 @@ const ProductPublicShape = z.object({
   /** Active subscription plans for this product — empty when the
    *  product isn't a subscription. */
   plans: z.array(SubscriptionPlanPublic),
+  /** NULL when the producer hasn't enabled the countdown. */
+  timer: CheckoutTimerPublic.nullable(),
+  /** NULL when the producer hasn't enabled the top banner. */
+  topBanner: CheckoutBannerPublic.nullable(),
 });
 
 const WorkspacePublicShape = z.object({
@@ -127,6 +182,30 @@ const PIX_EXPIRY_SECONDS = 60 * 60; // 1 hour — better conversion than MP's 30
  * forget. Producer-tunable in a follow-up block alongside Pix expiry.
  */
 const BOLETO_DUE_DAYS = 3;
+
+/**
+ * Floor the last-chance discount can never breach. `subscriptionPlans`
+ * already treats R$ 1,00 as the platform's de-facto minimum charge
+ * (`subscriptions.ts` validates `z.number().int().min(100)`), and a
+ * discount that lands on `amount: 0` is rejected by every gateway
+ * AFTER the order row already exists — the buyer sees "Gateway recusou
+ * a cobrança" at the exact moment they were converting. The DB CHECK
+ * caps `checkout_timer_discount_percent` at 90 for the same reason;
+ * this is the arm of the guard that also covers `fixed` discounts
+ * configured above the product's own price.
+ */
+const MIN_CHARGE_CENTS = 100n;
+
+/**
+ * Lifetime of a visit token, in seconds: four full countdown cycles,
+ * floored at a day. Long enough that a buyer who leaves the tab open
+ * overnight still converts at the price they were promised, short
+ * enough that nobody farms a pile of tokens today to cash in next
+ * month.
+ */
+function visitTokenTtlSec(durationMinutes: number): number {
+  return Math.max(86_400, durationMinutes * 240);
+}
 
 export const checkoutRouter = router({
   /**
@@ -272,6 +351,32 @@ export const checkoutRouter = router({
           description: schema.products.description,
           coverImageUrl: schema.products.coverImageUrl,
           coverImageMime: schema.products.coverImageMime,
+          checkoutTimerEnabled: schema.products.checkoutTimerEnabled,
+          checkoutTimerMinutes: schema.products.checkoutTimerMinutes,
+          checkoutTimerMessage: schema.products.checkoutTimerMessage,
+          checkoutTimerExpiredBehavior: schema.products.checkoutTimerExpiredBehavior,
+          checkoutTimerExpiredMessage: schema.products.checkoutTimerExpiredMessage,
+          checkoutTimerDiscountType: schema.products.checkoutTimerDiscountType,
+          checkoutTimerDiscountPercent: schema.products.checkoutTimerDiscountPercent,
+          checkoutTimerDiscountCents: schema.products.checkoutTimerDiscountCents,
+          checkoutBannerEnabled: schema.products.checkoutBannerEnabled,
+          checkoutBannerType: schema.products.checkoutBannerType,
+          // The two MIME columns are the "bytes exist" sentinels. NEVER
+          // select `checkoutBannerImage` / `checkoutBannerImageMobile`
+          // here: this query runs on every single checkout page load,
+          // and a bytea in the projection would stream the whole image
+          // through Postgres and the tRPC JSON envelope every time.
+          // `coverImageMime` has followed exactly this discipline since
+          // the upload pipeline landed; nothing enforces it but us.
+          checkoutBannerImageMime: schema.products.checkoutBannerImageMime,
+          checkoutBannerImageMobileMime: schema.products.checkoutBannerImageMobileMime,
+          checkoutBannerText: schema.products.checkoutBannerText,
+          checkoutBannerBgColor: schema.products.checkoutBannerBgColor,
+          checkoutBannerTextColor: schema.products.checkoutBannerTextColor,
+          checkoutBannerLinkUrl: schema.products.checkoutBannerLinkUrl,
+          /** Cache-buster source for the banner URLs — bumped by
+           *  `$onUpdate` on every `products.update`. */
+          updatedAt: schema.products.updatedAt,
           type: schema.products.type,
           isActive: schema.products.isActive,
           isSubscription: schema.products.isSubscription,
@@ -321,6 +426,35 @@ export const checkoutRouter = router({
       const workspaceLogoUrl = row.workspaceLogoMime
         ? `${apiBase}/img/workspace/${row.workspaceId}/logo`
         : (row.workspaceLogoUrl ?? null);
+
+      // Same MIME-sentinel rule as the cover, with one hardening: when
+      // `API_PUBLIC_URL` is unset `apiBase` is '', and the two lines
+      // above would emit a RELATIVE `/img/...` that the browser
+      // resolves against the checkout origin (:3001) and 404s. The
+      // cover carries that bug today; a banner has no legacy URL twin
+      // to fall back to, so an unreachable image would render as a
+      // broken box above the brand bar. Emit null instead — the
+      // checkout already handles "no banner image".
+      //
+      // `?v=<updatedAt>` busts the 5-minute `Cache-Control` on
+      // `/img/*`. A logo changes once a year; a promo banner is swapped
+      // per campaign, and five stale minutes there is a visible defect.
+      const bannerVersion = row.updatedAt.getTime();
+      const bannerImageUrl =
+        apiBase && row.checkoutBannerImageMime
+          ? `${apiBase}/img/product/${row.productId}/banner?v=${bannerVersion}`
+          : null;
+      const bannerImageMobileUrl =
+        apiBase && row.checkoutBannerImageMobileMime
+          ? `${apiBase}/img/product/${row.productId}/banner-mobile?v=${bannerVersion}`
+          : null;
+
+      // The magnitude the buyer is allowed to preview. Computed by the
+      // SAME pure kernel `createOrder` uses to decide what it actually
+      // subtracts, so the previewed number and the charged number
+      // cannot drift. NULL — never 0 — when nothing is claimable, so
+      // the UI branches on presence rather than on a magic zero.
+      const timerDiscountCents = computeTimerDiscountCents(row, row.priceCents ?? 0n);
 
       // Plans only fetched when the product is flagged as subscription.
       // Active plans only — deactivated plans stay valid for existing
@@ -395,6 +529,48 @@ export const checkoutRouter = router({
                   ? ('both' as const)
                   : ('card' as const),
           })),
+          timer: row.checkoutTimerEnabled
+            ? {
+                durationMinutes: row.checkoutTimerMinutes,
+                runningMessage: row.checkoutTimerMessage?.trim() || 'Oferta por tempo limitado',
+                // `text()` + CHECK, not a pgEnum, so drizzle hands us a
+                // plain string. Explicit ternary rather than a cast: a
+                // row written before the CHECK landed must fall into
+                // the branch with no price consequences.
+                expiredBehavior:
+                  row.checkoutTimerExpiredBehavior === 'last_chance'
+                    ? ('last_chance' as const)
+                    : ('restart' as const),
+                lastChanceMessage: row.checkoutTimerExpiredMessage,
+                discountCents:
+                  row.isSubscription || timerDiscountCents <= 0n
+                    ? null
+                    : Number(timerDiscountCents),
+                // Only minted when a discount is actually reachable —
+                // a token the server would never honor is pure
+                // attack surface. `signVisitToken` is one HMAC with no
+                // IO, so it is cheap enough for this hot public read.
+                visitToken:
+                  row.isSubscription || timerDiscountCents <= 0n
+                    ? null
+                    : signVisitToken({
+                        secret: ctx.services.env.AUTH_SECRET,
+                        productId: row.productId,
+                        ttlSec: visitTokenTtlSec(row.checkoutTimerMinutes),
+                      }),
+              }
+            : null,
+          topBanner: row.checkoutBannerEnabled
+            ? {
+                kind: row.checkoutBannerType === 'text' ? ('text' as const) : ('image' as const),
+                imageUrl: bannerImageUrl,
+                imageMobileUrl: bannerImageMobileUrl,
+                text: row.checkoutBannerText,
+                bgColor: row.checkoutBannerBgColor,
+                textColor: row.checkoutBannerTextColor,
+                linkUrl: row.checkoutBannerLinkUrl,
+              }
+            : null,
         },
         workspace: {
           id: row.workspaceId,
@@ -538,6 +714,22 @@ export const checkoutRouter = router({
             term: z.string().trim().max(120).optional(),
           })
           .optional(),
+        /**
+         * Server-signed attestation of when this visitor's scarcity
+         * countdown started, issued by `getBySlug` and replayed
+         * verbatim by the browser (which persists it in localStorage
+         * beside the clock).
+         *
+         * It is NOT an amount and NOT a boolean claim. The server
+         * verifies the HMAC with `AUTH_SECRET`, compares the token's
+         * `iat` against its own clock, and recomputes the discount
+         * from the product row it already fetched. A forged, tampered,
+         * expired, replayed-from-another-product or entirely absent
+         * token simply means full price — never an error, because the
+         * one thing worse than an unearned discount is a failed
+         * payment.
+         */
+        timerToken: z.string().trim().min(16).max(512).optional(),
       }),
     )
     .output(
@@ -549,7 +741,13 @@ export const checkoutRouter = router({
         status: z.enum(['paid', 'pending_payment', 'declined']),
         gatewayStatus: z.string().nullable(),
         method: PaymentMethod,
+        /** What the buyer is actually charged — already net of the
+         *  last-chance discount below. */
         amountCents: z.number().int().nonnegative(),
+        /** How much the scarcity timer took off the list price. 0 on
+         *  every order that didn't earn the discount, which is the
+         *  overwhelming majority. */
+        discountCents: z.number().int().nonnegative(),
         currency: z.enum(['BRL', 'USD', 'EUR']),
         pixQrCode: z.string().nullable(),
         pixQrCodeImage: z.string().nullable(),
@@ -591,6 +789,16 @@ export const checkoutRouter = router({
           currency: schema.productOffers.currency,
           maxInstallments: schema.productOffers.maxInstallments,
           isActive: schema.products.isActive,
+          // Timer config rides along in the SAME round-trip that
+          // yields `priceCents`, so no second query can observe a
+          // product whose price and discount were written apart.
+          isSubscription: schema.products.isSubscription,
+          checkoutTimerEnabled: schema.products.checkoutTimerEnabled,
+          checkoutTimerMinutes: schema.products.checkoutTimerMinutes,
+          checkoutTimerExpiredBehavior: schema.products.checkoutTimerExpiredBehavior,
+          checkoutTimerDiscountType: schema.products.checkoutTimerDiscountType,
+          checkoutTimerDiscountPercent: schema.products.checkoutTimerDiscountPercent,
+          checkoutTimerDiscountCents: schema.products.checkoutTimerDiscountCents,
         })
         .from(schema.products)
         .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.products.workspaceId))
@@ -608,7 +816,23 @@ export const checkoutRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Produto indisponível.' });
       }
 
-      const totalCents = productRow.priceCents;
+      // 3b. Effective price. The countdown lives in the buyer's
+      //     localStorage, so the browser is never trusted to declare
+      //     an expiry OR an amount — it hands back a token WE signed
+      //     at `getBySlug` time, and we compare its `iat` against OUR
+      //     clock. The discount magnitude comes from the product row,
+      //     never from the wire, so the worst a forged or replayed
+      //     token can do is bounded by what the producer configured
+      //     (and, below that, by the DB CHECK constraints).
+      const subtotalCents = productRow.priceCents;
+      const timerDiscount = resolveTimerDiscount({
+        row: productRow,
+        token: input.timerToken,
+        secret: ctx.services.env.AUTH_SECRET,
+        subtotalCents,
+      });
+      const discountCents = timerDiscount.discountCents;
+      const totalCents = subtotalCents - discountCents;
       const currency = productRow.currency ?? 'BRL';
       const installments =
         input.method === 'credit_card'
@@ -645,6 +869,16 @@ export const checkoutRouter = router({
       // to the same gateway charge. Fallback hashes the buyer-stable
       // fields (email + document + offer + utc day) so legacy clients
       // still get coarse dedupe within a 24h window.
+      //
+      // `totalCents` is in the hash because the price is no longer
+      // constant for a given (buyer, offer, day). A buyer who submits
+      // at full price, watches the countdown run out and submits again
+      // at the discounted price would otherwise derive the SAME key
+      // twice, violating `transactions_idempotency_unique` inside the
+      // un-caught `db.transaction()` below — a 500 at the precise
+      // moment they were converting. Two genuinely different charges
+      // must never collide; a true retry replays the same amount and
+      // still dedupes.
       const idempotencyKey =
         input.clientRequestId ??
         createHash('sha256')
@@ -654,6 +888,7 @@ export const checkoutRouter = router({
               productRow.offerId,
               input.buyer.email.toLowerCase(),
               docDigits,
+              String(totalCents),
               new Date().toISOString().slice(0, 10),
             ].join(':'),
           )
@@ -673,7 +908,16 @@ export const checkoutRouter = router({
             customerPhoneRaw: phone.raw,
             customerPhoneE164: phone.e164,
             customerWahaChatId: phone.guessedWahaChatId,
-            subtotalCents: totalCents,
+            // The list price and the concession are recorded
+            // SEPARATELY. Lowering `totalCents` while leaving
+            // `discountCents` at 0 would make the sale look like the
+            // product simply costs less, destroying the producer's
+            // audit trail — and `orders.discountCents` is already
+            // selected by `orders.byId` and rendered as the "Desconto"
+            // row on the order detail page, so the column is not
+            // speculative.
+            subtotalCents,
+            discountCents,
             totalCents,
             currency,
             ipAddress:
@@ -690,10 +934,28 @@ export const checkoutRouter = router({
             // attribution model. Marketplace listing id + utm tags
             // ride alongside so the rollup worker has exact
             // attribution back to the click row.
+            //
+            // `timerDiscount` is the provenance of a price-affecting
+            // decision made from a client-supplied token. `ctx.services
+            // .audit()` still throws (the Drizzle port was never
+            // wired), so this is the ONLY durable record of why this
+            // buyer paid less than the list price: when their
+            // countdown started per the token we signed, when we
+            // verified it, and what the product was configured to
+            // give away at that instant.
             metadata: {
               trackingClickIds: input.clickIds ?? null,
               marketplaceListingId: input.marketplaceListingId ?? null,
               utm: input.utm ?? null,
+              timerDiscount:
+                discountCents > 0n
+                  ? {
+                      visitStartedAtSec: timerDiscount.visitStartedAtSec,
+                      verifiedAtSec: Math.floor(Date.now() / 1000),
+                      configuredMinutes: productRow.checkoutTimerMinutes,
+                      appliedCents: Number(discountCents),
+                    }
+                  : null,
             },
           })
           .returning({ id: schema.orders.id });
@@ -754,6 +1016,7 @@ export const checkoutRouter = router({
           gatewayStatus: null as string | null,
           method: input.method,
           amountCents: Number(totalCents),
+          discountCents: Number(discountCents),
           currency,
           pixQrCode: null,
           pixQrCodeImage: null,
@@ -1060,6 +1323,7 @@ export const checkoutRouter = router({
         gatewayStatus: charge.status,
         method: input.method,
         amountCents: Number(totalCents),
+        discountCents: Number(discountCents),
         currency,
         pixQrCode: charge.pixQrCode ?? null,
         pixQrCodeImage: charge.pixQrCodeImage ?? null,
@@ -1281,4 +1545,134 @@ async function resolveGatewayPublic(
   } catch {
     return { id: null, mpPublicKey: null };
   }
+}
+
+/**
+ * The timer columns both `getBySlug` and `createOrder` project. Kept
+ * structural rather than `typeof schema.products.$inferSelect` so
+ * neither query is tempted to widen its projection to satisfy a type —
+ * the bytea columns must stay out of both.
+ */
+interface TimerDiscountRow {
+  checkoutTimerEnabled: boolean;
+  /** `text()` + CHECK, so drizzle types it as a plain string. */
+  checkoutTimerExpiredBehavior: string;
+  /** `text()` + CHECK. NULL ⇒ the producer configured no discount. */
+  checkoutTimerDiscountType: string | null;
+  checkoutTimerDiscountPercent: number | null;
+  checkoutTimerDiscountCents: bigint | null;
+}
+
+/**
+ * How many cents the last-chance discount is worth against a given
+ * subtotal. Pure, synchronous, and the SINGLE source of the magnitude:
+ * `getBySlug` calls it to preview the number and `resolveTimerDiscount`
+ * calls it to charge the number, so the price the buyer was shown and
+ * the price we take can never drift apart.
+ *
+ * Returns `0n` — never a negative, never a float — when the timer is
+ * off, when the producer chose `restart` (a cycle that loops has no
+ * expiry to reward), when no discount is configured, or when the
+ * configured discount would breach the minimum charge.
+ *
+ * Everything here is `bigint`. Mixing a bare number literal into this
+ * arithmetic throws `TypeError: Cannot mix BigInt and other types` at
+ * runtime, which is why every constant carries the `n` suffix and why
+ * the percent path multiplies BEFORE dividing: integer truncation is
+ * the rounding rule, and it always rounds in the buyer's disfavour by
+ * a sub-cent, never the producer's.
+ */
+function computeTimerDiscountCents(row: TimerDiscountRow, subtotalCents: bigint): bigint {
+  if (!row.checkoutTimerEnabled) return 0n;
+  if (row.checkoutTimerExpiredBehavior !== 'last_chance') return 0n;
+  if (subtotalCents <= 0n) return 0n;
+
+  const raw =
+    row.checkoutTimerDiscountType === 'percent'
+      ? row.checkoutTimerDiscountPercent != null && row.checkoutTimerDiscountPercent > 0
+        ? (subtotalCents * BigInt(row.checkoutTimerDiscountPercent)) / 100n
+        : 0n
+      : row.checkoutTimerDiscountType === 'fixed'
+        ? (row.checkoutTimerDiscountCents ?? 0n)
+        : 0n;
+  if (raw <= 0n) return 0n;
+
+  // A `fixed` discount is stored independently of the price, so a
+  // producer who drops the price after configuring one can leave the
+  // discount above it. Clamp rather than reject: refusing the sale
+  // over a misconfiguration the buyer cannot see is strictly worse
+  // than charging the floor.
+  const maxDiscount = subtotalCents > MIN_CHARGE_CENTS ? subtotalCents - MIN_CHARGE_CENTS : 0n;
+  return raw > maxDiscount ? maxDiscount : raw;
+}
+
+interface ResolveTimerDiscountInput {
+  row: TimerDiscountRow & {
+    productId: string;
+    checkoutTimerMinutes: number;
+    isSubscription: boolean;
+  };
+  /** The opaque token replayed by the browser, if it sent one. */
+  token: string | undefined;
+  /** `AUTH_SECRET` — the same value `getBySlug` signed with. */
+  secret: string;
+  subtotalCents: bigint;
+}
+
+interface ResolvedTimerDiscount {
+  discountCents: bigint;
+  /**
+   * `iat` of the verified token — i.e. when the server attested this
+   * visitor's countdown began. NULL whenever no discount applied.
+   * Returned alongside the amount so `createOrder` can record the
+   * provenance in `orders.metadata` without verifying twice.
+   */
+  visitStartedAtSec: number | null;
+}
+
+/**
+ * Decide, server-side and from server-side inputs only, whether this
+ * buyer earned the last-chance discount.
+ *
+ * Every gate is a reason to charge FULL price, never a reason to throw:
+ * the only caller sits on the conversion path, and a buyer who loses a
+ * discount to a bug still completes their purchase while a buyer who
+ * hits a 500 does not. `verifyVisitToken` is a total function for the
+ * same reason.
+ *
+ * The residual risk, stated plainly: an attacker can mint a token, wait
+ * out the configured duration and buy at the discount. That is
+ * semantically identical to a patient honest buyer — it is the feature,
+ * not a hole. What the signature buys us is that a buyer with devtools
+ * open cannot SKIP the wait, which is the entire scarcity mechanic, and
+ * the token's `exp` bounds how long anyone can stockpile.
+ */
+function resolveTimerDiscount(input: ResolveTimerDiscountInput): ResolvedTimerDiscount {
+  const fullPrice: ResolvedTimerDiscount = { discountCents: 0n, visitStartedAtSec: null };
+
+  // Subscription products price off `subscription_plans` via
+  // `subscriptions.subscribe` and never reach this procedure; the
+  // guard is here so a future caller cannot quietly acquire a discount
+  // path that `getBySlug` refuses to advertise.
+  if (input.row.isSubscription) return fullPrice;
+
+  const magnitude = computeTimerDiscountCents(input.row, input.subtotalCents);
+  if (magnitude <= 0n) return fullPrice;
+
+  if (!input.token) return fullPrice;
+  const verified = verifyVisitToken({
+    secret: input.secret,
+    token: input.token,
+    productId: input.row.productId,
+  });
+  if (!verified.ok) return fullPrice;
+
+  // The token says when WE handed this visitor a countdown; the clock
+  // below is OURS. `checkoutTimerMinutes` is a `notNull` integer
+  // fenced to 1–1440 by CHECK, so the multiplication cannot overflow
+  // into nonsense.
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (nowSec - verified.iat < input.row.checkoutTimerMinutes * 60) return fullPrice;
+
+  return { discountCents: magnitude, visitStartedAtSec: verified.iat };
 }

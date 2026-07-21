@@ -274,6 +274,53 @@ app.get('/img/product/:id/cover', async (c) => {
   return bytesToImageResponse(row.cover, row.mime);
 });
 
+/**
+ * Per-product promotional top banner. Two endpoints instead of one
+ * `?variant=` because the checkout renders them as two `<source>`
+ * elements in a single `<picture>` — a path parameter is what the CDN
+ * and the 5-minute Cache-Control above key on, and a query string
+ * would make the desktop and mobile bytes share a cache entry.
+ *
+ * The MIME column is the sentinel for "bytes exist" everywhere else in
+ * the stack (`checkout.getBySlug` only ever selects the MIME so the
+ * bytea never streams through the tRPC envelope), so both are checked
+ * here: a row with bytes but no MIME is corrupt and must 404 rather
+ * than be served with a guessed Content-Type.
+ */
+app.get('/img/product/:id/banner', async (c) => {
+  const id = c.req.param('id');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return c.notFound();
+  }
+  const [row] = await services.db.db
+    .select({
+      bytes: schema.products.checkoutBannerImage,
+      mime: schema.products.checkoutBannerImageMime,
+    })
+    .from(schema.products)
+    .where(eq(schema.products.id, id))
+    .limit(1);
+  if (!row?.bytes || !row.mime) return c.notFound();
+  return bytesToImageResponse(row.bytes, row.mime);
+});
+
+app.get('/img/product/:id/banner-mobile', async (c) => {
+  const id = c.req.param('id');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return c.notFound();
+  }
+  const [row] = await services.db.db
+    .select({
+      bytes: schema.products.checkoutBannerImageMobile,
+      mime: schema.products.checkoutBannerImageMobileMime,
+    })
+    .from(schema.products)
+    .where(eq(schema.products.id, id))
+    .limit(1);
+  if (!row?.bytes || !row.mime) return c.notFound();
+  return bytesToImageResponse(row.bytes, row.mime);
+});
+
 mountWahaWebhook(app, services);
 mountGatewayWebhooks(app, services);
 mountConnectApi(app, services);

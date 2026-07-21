@@ -14,6 +14,7 @@
     "./result": "./src/result/index.ts",
     "./idempotency": "./src/idempotency/index.ts",
     "./br-document": "./src/br-document/index.ts",
+    "./checkout-timer": "./src/checkout-timer/index.ts",
     "./webhooks/events": "./src/webhooks/events.ts",
     "./webhooks/signature": "./src/webhooks/signature.ts"
   },

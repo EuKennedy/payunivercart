@@ -15,6 +15,7 @@ export function MobileSummaryAccordion({
   productName,
   coverImageUrl,
   total,
+  originalTotal,
   perInstallment,
   maxInstallments,
   brandTone,
@@ -23,6 +24,13 @@ export function MobileSummaryAccordion({
   productName: string;
   coverImageUrl?: string | null;
   total: string;
+  /**
+   * Preço de tabela riscado ao lado do total, quando o cronômetro de
+   * escassez já concedeu o desconto de última chance. NULL na esmagadora
+   * maioria dos pedidos. Sem isto o mobile mostraria só o valor menor —
+   * honesto, mas sem a única informação que explica por que ele mudou.
+   */
+  originalTotal?: string | null;
   perInstallment?: string | null;
   maxInstallments?: number;
   brandTone?: string | null;
@@ -59,8 +67,15 @@ export function MobileSummaryAccordion({
             <path d="m6 9 6 6 6-6" />
           </svg>
         </span>
-        <span className="shrink-0 font-semibold text-[16px] text-[var(--ink-100)] tabular-nums">
-          {total}
+        <span className="flex shrink-0 items-baseline gap-1.5">
+          {originalTotal ? (
+            <span className="text-[12px] text-[var(--ink-50)] tabular-nums line-through">
+              {originalTotal}
+            </span>
+          ) : null}
+          <span className="font-semibold text-[16px] text-[var(--ink-100)] tabular-nums">
+            {total}
+          </span>
         </span>
       </button>
 
@@ -90,8 +105,15 @@ export function MobileSummaryAccordion({
               </p>
               <p className="mt-1 text-[12px] text-[var(--ink-50)]">Quantidade: 1</p>
             </div>
-            <p className="shrink-0 font-semibold text-[14px] text-[var(--ink-100)] tabular-nums">
-              {total}
+            <p className="flex shrink-0 flex-col items-end gap-0.5">
+              {originalTotal ? (
+                <span className="text-[11px] text-[var(--ink-50)] tabular-nums line-through">
+                  {originalTotal}
+                </span>
+              ) : null}
+              <span className="font-semibold text-[14px] text-[var(--ink-100)] tabular-nums">
+                {total}
+              </span>
             </p>
           </div>
           {showInstallments ? (
