@@ -1,5 +1,9 @@
 'use client';
 
+import {
+  CHECKOUT_BANNER_HEIGHT_MAX_PX,
+  CHECKOUT_BANNER_HEIGHT_MIN_PX,
+} from '@payunivercart/shared/constants';
 import { AnimatePresence, motion } from 'framer-motion';
 import { type ImageUpload, ImageUploadField } from '../../../../components/ImageUploadField';
 
@@ -43,6 +47,16 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 export type TimerExpiredBehavior = 'restart' | 'last_chance';
 export type TimerDiscountType = 'percent' | 'fixed';
 export type BannerMode = 'image' | 'text';
+
+/**
+ * Image-banner height bounds (desktop, px). Unlike the unions above,
+ * these DO come from `@payunivercart/shared` — but via the `constants`
+ * subpath, which is plain literals with no imports, so it carries none
+ * of the `node:crypto` weight that keeps `checkout-timer` out of the
+ * client bundle.
+ */
+const BANNER_HEIGHT_MIN_PX = CHECKOUT_BANNER_HEIGHT_MIN_PX;
+const BANNER_HEIGHT_MAX_PX = CHECKOUT_BANNER_HEIGHT_MAX_PX;
 
 /**
  * Seed values for the columns that are nullable at rest.
@@ -113,6 +127,8 @@ export function CheckoutAppearanceSection({
   onBannerTextColorChange,
   bannerLinkUrl,
   onBannerLinkUrlChange,
+  bannerHeightPx,
+  onBannerHeightPxChange,
 }: {
   /** Subscriptions price off `subscription_plans` and never pass
    *  through `createOrder`, so the server has no path to honour a
@@ -167,6 +183,10 @@ export function CheckoutAppearanceSection({
   onBannerTextColorChange: (next: string) => void;
   bannerLinkUrl: string;
   onBannerLinkUrlChange: (next: string) => void;
+  /** Desktop banner height in px, or NULL for the legacy thin banner.
+   *  Image mode only. */
+  bannerHeightPx: number | null;
+  onBannerHeightPxChange: (next: number | null) => void;
 }) {
   return (
     <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">
@@ -446,6 +466,29 @@ export function CheckoutAppearanceSection({
                     onChange={onBannerImageMobileChange}
                     onClear={onBannerImageMobileClear}
                   />
+                  <Field
+                    label="Altura do banner (desktop)"
+                    hint={`Em pixels, de ${BANNER_HEIGHT_MIN_PX} a ${BANNER_HEIGHT_MAX_PX}. Deixe vazio pra manter a faixa fina padrão. Valores maiores deixam o banner mais "grosso" (ex: 450, 550) — a imagem é cortada pra preencher. No celular a altura é limitada automaticamente pra não empurrar o formulário.`}
+                  >
+                    <input
+                      type="number"
+                      min={BANNER_HEIGHT_MIN_PX}
+                      max={BANNER_HEIGHT_MAX_PX}
+                      value={bannerHeightPx ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        if (raw === '') {
+                          onBannerHeightPxChange(null);
+                          return;
+                        }
+                        const parsed = Number.parseInt(raw, 10);
+                        onBannerHeightPxChange(Number.isNaN(parsed) ? null : parsed);
+                      }}
+                      className={fieldInputClass}
+                      placeholder="Fina (padrão)"
+                      inputMode="numeric"
+                    />
+                  </Field>
                 </motion.div>
               ) : (
                 <motion.div

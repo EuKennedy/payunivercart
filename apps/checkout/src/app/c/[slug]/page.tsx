@@ -10,6 +10,7 @@ import { MobileSummaryAccordion } from '../../../components/MobileSummaryAccordi
 import { CardIcon, PixIcon } from '../../../components/PaymentMethodIcons';
 import { ThemeToggle } from '../../../components/ThemeToggle';
 import { TrackingScripts, useFireEvent } from '../../../components/TrackingScripts';
+import { resolveBannerHeights } from '../../../lib/banner-height';
 import { CHECKOUT_HEADER_SLOT_ORDER, type CheckoutHeaderSlot } from '../../../lib/header-slots';
 import {
   maskBrPhone,
@@ -5598,12 +5599,14 @@ function PromoTopBanner({ banner }: { banner: CheckoutBanner | null }) {
   const primaryUrl = banner.imageUrl ?? banner.imageMobileUrl;
   if (!primaryUrl) return null;
   const hasDistinctMobile = Boolean(banner.imageMobileUrl && banner.imageUrl);
+  // When the producer picked an explicit height, the banner is exactly
+  // that tall (center-cropped to fill) with the mobile height capped so a
+  // "grosso" desktop banner doesn't bury the form on a phone. With no
+  // height set it keeps the legacy capped-`max-h` thin strip.
+  const heights = resolveBannerHeights(banner.heightPx);
   return (
     <section className="border-[var(--hairline)] border-b">
       <PromoBannerFrame linkUrl={banner.linkUrl} label={banner.text?.trim() || 'Ver a promoção'}>
-        {/* Height is capped and center-cropped: a producer who uploads a
-            square file would otherwise push the entire checkout below
-            the fold on mobile. */}
         <picture>
           {hasDistinctMobile ? (
             <source media="(max-width: 639px)" srcSet={banner.imageMobileUrl ?? undefined} />
@@ -5611,7 +5614,20 @@ function PromoTopBanner({ banner }: { banner: CheckoutBanner | null }) {
           <img
             src={primaryUrl}
             alt=""
-            className="block h-auto max-h-[120px] w-full object-cover object-center sm:max-h-[180px]"
+            className={clsx(
+              'block w-full object-cover object-center',
+              heights
+                ? 'h-[var(--banner-h-m)] sm:h-[var(--banner-h)]'
+                : 'h-auto max-h-[120px] sm:max-h-[180px]',
+            )}
+            style={
+              heights
+                ? ({
+                    '--banner-h': `${heights.desktopPx}px`,
+                    '--banner-h-m': `${heights.mobilePx}px`,
+                  } as React.CSSProperties)
+                : undefined
+            }
           />
         </picture>
       </PromoBannerFrame>

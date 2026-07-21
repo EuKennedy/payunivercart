@@ -1,0 +1,2 @@
+ALTER TABLE "products" ADD COLUMN "checkout_banner_height_px" integer;--> statement-breakpoint
+ALTER TABLE "products" ADD CONSTRAINT "products_checkout_banner_height_px_range" CHECK (checkout_banner_height_px IS NULL OR checkout_banner_height_px BETWEEN 80 AND 600);

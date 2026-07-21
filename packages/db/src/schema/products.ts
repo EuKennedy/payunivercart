@@ -168,6 +168,15 @@ export const products = pgTable(
      * the banner is not clickable.
      */
     checkoutBannerLinkUrl: text(),
+    /**
+     * Producer-chosen height (px) for an IMAGE banner on desktop. NULL ⇒
+     * the legacy thin banner (checkout caps at `max-h-[180px]`); a value
+     * lets the producer make it as tall/"grosso" as they want. Bounds
+     * (80–600) live in `@payunivercart/shared` and are enforced by the
+     * CHECK below + the update-input zod range. Mobile is capped
+     * separately at render time so a tall banner doesn't bury the form.
+     */
+    checkoutBannerHeightPx: integer(),
     isActive: boolean().notNull().default(true),
     metadata: jsonb().notNull().default({}),
     createdAt: createdAt(),
@@ -195,6 +204,10 @@ export const products = pgTable(
       sql`checkout_timer_discount_cents IS NULL OR checkout_timer_discount_cents >= 0`,
     ),
     check('products_checkout_banner_type_valid', sql`checkout_banner_type IN ('image', 'text')`),
+    check(
+      'products_checkout_banner_height_px_range',
+      sql`checkout_banner_height_px IS NULL OR checkout_banner_height_px BETWEEN 80 AND 600`,
+    ),
   ],
 );
 

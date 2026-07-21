@@ -1,5 +1,9 @@
 'use client';
 
+import {
+  CHECKOUT_BANNER_HEIGHT_MAX_PX,
+  CHECKOUT_BANNER_HEIGHT_MIN_PX,
+} from '@payunivercart/shared/constants';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { use, useEffect, useMemo, useRef, useState } from 'react';
@@ -91,6 +95,7 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
   const [bannerBgColor, setBannerBgColor] = useState(DEFAULT_BANNER_BG_COLOR);
   const [bannerTextColor, setBannerTextColor] = useState(DEFAULT_BANNER_TEXT_COLOR);
   const [bannerLinkUrl, setBannerLinkUrl] = useState('');
+  const [bannerHeightPx, setBannerHeightPx] = useState<number | null>(null);
   const [bannerImage, setBannerImage] = useState<ImageUpload | null>(null);
   const [bannerImageMobile, setBannerImageMobile] = useState<ImageUpload | null>(null);
   /**
@@ -150,6 +155,7 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
     setBannerBgColor(product.data.checkoutBannerBgColor ?? DEFAULT_BANNER_BG_COLOR);
     setBannerTextColor(product.data.checkoutBannerTextColor ?? DEFAULT_BANNER_TEXT_COLOR);
     setBannerLinkUrl(product.data.checkoutBannerLinkUrl ?? '');
+    setBannerHeightPx(product.data.checkoutBannerHeightPx ?? null);
     setSeeded(true);
   }, [product.data, seeded]);
 
@@ -254,6 +260,17 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
       const link = bannerLinkUrl.trim();
       if (link && !/^https:\/\//i.test(link))
         return 'O link do banner precisa começar com https://.';
+      // Height only applies to image banners. Block an out-of-range value
+      // with a clear message instead of letting the API reject it with a
+      // raw zod error for a field the producer can see right there.
+      if (
+        bannerMode === 'image' &&
+        bannerHeightPx != null &&
+        (bannerHeightPx < CHECKOUT_BANNER_HEIGHT_MIN_PX ||
+          bannerHeightPx > CHECKOUT_BANNER_HEIGHT_MAX_PX)
+      ) {
+        return `A altura do banner precisa ficar entre ${CHECKOUT_BANNER_HEIGHT_MIN_PX} e ${CHECKOUT_BANNER_HEIGHT_MAX_PX} px.`;
+      }
     }
     return null;
   })();
@@ -317,6 +334,17 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
   const bannerLinkUrlPayload = /^https:\/\//i.test(bannerLinkUrl.trim())
     ? bannerLinkUrl.trim()
     : null;
+  // Normalise like the strings above: a valid in-range height goes over
+  // the wire, anything else (blank, stale, out of range) becomes an
+  // explicit NULL — the API's "fall back to the legacy thin banner".
+  // Persisted regardless of mode so flipping to Texto and back doesn't
+  // silently wipe a configured height.
+  const bannerHeightPxPayload =
+    bannerHeightPx != null &&
+    bannerHeightPx >= CHECKOUT_BANNER_HEIGHT_MIN_PX &&
+    bannerHeightPx <= CHECKOUT_BANNER_HEIGHT_MAX_PX
+      ? bannerHeightPx
+      : null;
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -351,6 +379,7 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
       checkoutBannerBgColor: bannerBgColorPayload,
       checkoutBannerTextColor: bannerTextColorPayload,
       checkoutBannerLinkUrl: bannerLinkUrlPayload,
+      checkoutBannerHeightPx: bannerHeightPxPayload,
       // Same conditional spread as the cover, plus the clear path the
       // cover never needed: omitted = untouched, object = replace,
       // explicit null = blank the bytes AND the MIME.
@@ -551,6 +580,8 @@ export default function EditarProdutoPage({ params }: { params: Promise<{ id: st
             onBannerTextColorChange={setBannerTextColor}
             bannerLinkUrl={bannerLinkUrl}
             onBannerLinkUrlChange={setBannerLinkUrl}
+            bannerHeightPx={bannerHeightPx}
+            onBannerHeightPxChange={setBannerHeightPx}
           />
 
           <section className="flex flex-col gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-5">

@@ -111,6 +111,12 @@ const CheckoutBannerPublic = z.object({
   bgColor: z.string().nullable(),
   textColor: z.string().nullable(),
   linkUrl: z.string().nullable(),
+  /**
+   * Producer-chosen image-banner height (desktop, px). NULL ⇒ the
+   * checkout renders the legacy thin capped banner; a value makes it as
+   * tall as the producer picked (mobile is capped client-side).
+   */
+  heightPx: z.number().int().nullable(),
 });
 
 const ProductPublicShape = z.object({
@@ -375,6 +381,7 @@ export const checkoutRouter = router({
           checkoutBannerBgColor: schema.products.checkoutBannerBgColor,
           checkoutBannerTextColor: schema.products.checkoutBannerTextColor,
           checkoutBannerLinkUrl: schema.products.checkoutBannerLinkUrl,
+          checkoutBannerHeightPx: schema.products.checkoutBannerHeightPx,
           /** Cache-buster source for the banner URLs — bumped by
            *  `$onUpdate` on every `products.update`. */
           updatedAt: schema.products.updatedAt,
@@ -570,6 +577,7 @@ export const checkoutRouter = router({
                 bgColor: row.checkoutBannerBgColor,
                 textColor: row.checkoutBannerTextColor,
                 linkUrl: row.checkoutBannerLinkUrl,
+                heightPx: row.checkoutBannerHeightPx,
               }
             : null,
         },

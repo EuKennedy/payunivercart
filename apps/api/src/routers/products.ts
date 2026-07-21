@@ -1,5 +1,7 @@
 import { schema, withWorkspace } from '@payunivercart/db';
 import {
+  CHECKOUT_BANNER_HEIGHT_MAX_PX,
+  CHECKOUT_BANNER_HEIGHT_MIN_PX,
   CHECKOUT_BANNER_TYPES,
   CHECKOUT_TIMER_DISCOUNT_TYPES,
   CHECKOUT_TIMER_EXPIRED_BEHAVIORS,
@@ -137,6 +139,7 @@ const ProductRow = z.object({
   checkoutBannerBgColor: z.string().nullable(),
   checkoutBannerTextColor: z.string().nullable(),
   checkoutBannerLinkUrl: z.string().nullable(),
+  checkoutBannerHeightPx: z.number().int().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -190,6 +193,7 @@ export const productsRouter = router({
           checkoutBannerBgColor: schema.products.checkoutBannerBgColor,
           checkoutBannerTextColor: schema.products.checkoutBannerTextColor,
           checkoutBannerLinkUrl: schema.products.checkoutBannerLinkUrl,
+          checkoutBannerHeightPx: schema.products.checkoutBannerHeightPx,
           isActive: schema.products.isActive,
           createdAt: schema.products.createdAt,
           updatedAt: schema.products.updatedAt,
@@ -260,6 +264,7 @@ export const productsRouter = router({
         checkoutBannerBgColor: r.checkoutBannerBgColor,
         checkoutBannerTextColor: r.checkoutBannerTextColor,
         checkoutBannerLinkUrl: r.checkoutBannerLinkUrl,
+        checkoutBannerHeightPx: r.checkoutBannerHeightPx,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
       }));
@@ -306,6 +311,7 @@ export const productsRouter = router({
           checkoutBannerBgColor: schema.products.checkoutBannerBgColor,
           checkoutBannerTextColor: schema.products.checkoutBannerTextColor,
           checkoutBannerLinkUrl: schema.products.checkoutBannerLinkUrl,
+          checkoutBannerHeightPx: schema.products.checkoutBannerHeightPx,
           isActive: schema.products.isActive,
           createdAt: schema.products.createdAt,
           updatedAt: schema.products.updatedAt,
@@ -371,6 +377,7 @@ export const productsRouter = router({
         checkoutBannerBgColor: row.checkoutBannerBgColor,
         checkoutBannerTextColor: row.checkoutBannerTextColor,
         checkoutBannerLinkUrl: row.checkoutBannerLinkUrl,
+        checkoutBannerHeightPx: row.checkoutBannerHeightPx,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -597,6 +604,18 @@ export const productsRouter = router({
           .refine((v) => /^https:\/\//i.test(v), 'O link do banner precisa começar com https://')
           .nullable()
           .optional(),
+        /**
+         * Desktop height (px) for an image banner. `null` clears it back
+         * to the legacy thin capped banner; `undefined` leaves it. Range
+         * mirrors the DB CHECK on `checkout_banner_height_px`.
+         */
+        checkoutBannerHeightPx: z
+          .number()
+          .int()
+          .min(CHECKOUT_BANNER_HEIGHT_MIN_PX)
+          .max(CHECKOUT_BANNER_HEIGHT_MAX_PX)
+          .nullable()
+          .optional(),
       }),
     )
     .output(z.object({ ok: z.literal(true) }))
@@ -648,6 +667,8 @@ export const productsRouter = router({
           patch.checkoutBannerTextColor = input.checkoutBannerTextColor;
         if (input.checkoutBannerLinkUrl !== undefined)
           patch.checkoutBannerLinkUrl = input.checkoutBannerLinkUrl;
+        if (input.checkoutBannerHeightPx !== undefined)
+          patch.checkoutBannerHeightPx = input.checkoutBannerHeightPx;
         if (input.cover !== undefined) {
           const { bytes, mime } = decodeCover(input.cover);
           patch.coverImage = bytes;
