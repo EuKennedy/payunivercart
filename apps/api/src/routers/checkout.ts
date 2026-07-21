@@ -94,7 +94,8 @@ const CheckoutTimerPublic = z.object({
 });
 
 /**
- * Full-width promotional banner rendered ABOVE the producer brand bar.
+ * Full-width promotional banner rendered as a hero BELOW the producer
+ * brand bar (the brand bar stays pinned to the very top of the page).
  *
  * Both image URLs point at the public `/img/product/:id/banner*`
  * routes and are NULL when the producer uploaded nothing — or when

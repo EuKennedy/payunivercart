@@ -5,11 +5,12 @@ import type { inferRouterOutputs } from '@trpc/server';
 import clsx from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
-import { use, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, use, useEffect, useMemo, useRef, useState } from 'react';
 import { MobileSummaryAccordion } from '../../../components/MobileSummaryAccordion';
 import { CardIcon, PixIcon } from '../../../components/PaymentMethodIcons';
 import { ThemeToggle } from '../../../components/ThemeToggle';
 import { TrackingScripts, useFireEvent } from '../../../components/TrackingScripts';
+import { CHECKOUT_HEADER_SLOT_ORDER, type CheckoutHeaderSlot } from '../../../lib/header-slots';
 import {
   maskBrPhone,
   maskCardExpiry,
@@ -4351,8 +4352,10 @@ function LockIcon({ size = 14 }: { size?: number }) {
 }
 
 /**
- * Brand bar, plus the two per-product appearance surfaces that sandwich
- * it: the promo banner above, the scarcity band below.
+ * Brand bar pinned to the very top, plus the two per-product appearance
+ * surfaces that hang below it: the promo banner (a hero directly under
+ * the brand bar) and the scarcity band (last, hugging the form). Order
+ * is driven by CHECKOUT_HEADER_SLOT_ORDER — see `lib/header-slots.ts`.
  *
  * They live HERE and nowhere else. Every template renders this
  * component as the first child of its `<main>`, and it is that `<main>`
@@ -4381,9 +4384,12 @@ function ProducerHeader({
   timerState: ScarcityTimerState | null;
   currency: CheckoutCurrency;
 }) {
-  return (
-    <>
-      <PromoTopBanner banner={banner} />
+  // Brand bar first (pinned to the very top of the page), promo banner
+  // as a hero *beneath* it, scarcity strip last hugging the form. The
+  // order is driven by CHECKOUT_HEADER_SLOT_ORDER so the JSX can't drift
+  // from the intended layout — see `lib/header-slots.ts`.
+  const slots: Record<CheckoutHeaderSlot, React.ReactNode> = {
+    brand: (
       <header className="border-[var(--hairline)] border-b bg-[var(--bg-elev-1)]/70 backdrop-blur">
         <div className="container-x mx-auto flex w-full max-w-[1180px] items-center justify-between py-4">
           <div className="flex items-center gap-3">
@@ -4421,7 +4427,16 @@ function ProducerHeader({
           </div>
         </div>
       </header>
-      <ScarcityTimerBar timer={timer} state={timerState} currency={currency} />
+    ),
+    banner: <PromoTopBanner banner={banner} />,
+    timer: <ScarcityTimerBar timer={timer} state={timerState} currency={currency} />,
+  };
+
+  return (
+    <>
+      {CHECKOUT_HEADER_SLOT_ORDER.map((slot) => (
+        <Fragment key={slot}>{slots[slot]}</Fragment>
+      ))}
     </>
   );
 }
